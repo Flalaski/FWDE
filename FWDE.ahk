@@ -1187,6 +1187,23 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
     SetTimer(UpdateWindowStates, -Config["ResizeDelay"])
 }
 
+GetTaskbarRect() {
+    hwnd := WinExist("ahk_class Shell_TrayWnd")
+    if (hwnd) {
+        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+        return { left: x, top: y, right: x + w, bottom: y + h }
+    }
+    hwnd := WinExist("ahk_class RetroBarWnd")
+    if (!hwnd)
+        hwnd := WinExist("ahk_exe RetroBar.exe")
+    if (hwnd) {
+        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+        return { left: x, top: y, right: x + w, bottom: y + h }
+    }
+    return { left: 0, top: A_ScreenHeight - 44, right: A_ScreenWidth, bottom: A_ScreenHeight }
+}
+
+
 UpdateWindowStates() {
     global g, Config
     try {
@@ -1213,7 +1230,7 @@ UpdateWindowStates() {
 }
 
 global Config := Map(
-    "MinMargin", 11,
+    "MinMargin", 23,
     "MinGap", 0,
     "ManualGapBonus", 369,
     "AttractionForce", .32,
@@ -1288,21 +1305,6 @@ MoveWindowAPI(hwnd, x, y, w := "", h := "") {
 
 
 
-GetTaskbarRect() {
-    hwnd := WinExist("ahk_class Shell_TrayWnd")
-    if (hwnd) {
-        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-        return { left: x, top: y, right: x + w, bottom: y + h }
-    }
-    hwnd := WinExist("ahk_class RetroBarWnd")
-    if (!hwnd)
-        hwnd := WinExist("ahk_exe RetroBar.exe")
-    if (hwnd) {
-        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-        return { left: x, top: y, right: x + w, bottom: y + h }
-    }
-    return { left: 0, top: A_ScreenHeight - 44, right: A_ScreenWidth, bottom: A_ScreenHeight }
-}
 
 
 ; This script is the brainchild of:

@@ -3,6 +3,8 @@
 
 ![Window Arrangement Visualization](https://github.com/Flalaski/FWDE/blob/ca69310d8c5f28540ddc644dd05b87b3b2d8b8d6/FWDEdesktop.png)
 
+## (I say it like "Fweddie")
+
 ## ✨ What This Does  
 This tool gently organizes your open windows into a balanced, constantly-adjusting layout. Windows:  
 - 🌀 Naturally avoid overlapping each other  

@@ -1241,7 +1241,7 @@ global Config := Map(
     "ManualLockDuration", 11,
     "ResizeDelay", 111,
     "TooltipDuration", 15000,
-    "FloatStyles", 0x40000|0x20000|0x800000,
+    "FloatStyles", 0xC00000|0x40000|0x20000|0x80000|0x800000,
     "Damping", 0.92,    ; Lower = less friction (0.001-0.01)
     "MaxSpeed", 1.5,    ; Limits maximum velocity
     "PhysicsTimeStep", 20,  ; Lower = more frequent physics updates (1ms is max)

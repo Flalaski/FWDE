@@ -2,7 +2,7 @@
 #SingleInstance Force
 #WinActivateForce
 #Warn
-#MaxThreadsPerHotkey 22
+#MaxThreadsPerHotkey 255
 A_IconTip := "Floating Windows - Dynamic Equilibrium"
 #DllLoad "gdi32.dll"
 #DllLoad "user32.dll"
@@ -13,6 +13,81 @@ A_IconTip := "Floating Windows - Dynamic Equilibrium"
 ; Lots of back & forth, toss around, backups & redo's, 
 ; until finally I (the human) got this to do what I've been trying to find as a software. 
 ; Hope it's helpful! ♥
+
+global Config := Map(
+    "MinMargin", 42,
+    "MinGap", 0,
+    "ManualGapBonus", 369,
+    "AttractionForce", .32,
+    "RepulsionForce", .28,
+    "ManualRepulsionMultiplier", 1.3,
+    "EdgeRepulsionForce", 1.80,
+    "UserMoveTimeout", 11111,
+    "ManualLockDuration", 111,
+    "ResizeDelay", 22,
+    "TooltipDuration", 15000,
+    "FloatStyles",  0x00C00000 | 0x00040000 | 0x00080000 | 0x00020000 | 0x00010000,
+    "FloatClassPatterns", [
+        "Vst.*",         ; VST plugins
+        "JS.*",          ; JS plugins
+        ".*Plugin.*",    ; Generic plugin windows
+        ".*Float.*",     ; Windows with "Float" in class
+        ".*Dock.*",      ; Dockable windows
+        "#32770",        ; Dialog boxes
+        "ConsoleWindowClass"  ; CMD/Console windows
+    ],
+    "FloatTitlePatterns", [
+        "VST.*",        ; VST windows
+        "JS:.*",        ; JS effects
+        "Plugin",       ; Generic plugins
+        ".*FX.*",       ; Effects windows
+        "Command Prompt",  ; CMD windows
+        "cmd.exe",      ; Alternative CMD title
+        "Windows Terminal" ; Windows Terminal
+    ],
+    "ForceFloatProcesses", [
+        "reaper.exe",
+        "ableton.exe",
+        "flstudio.exe",
+        "cubase.exe",
+        "studioone.exe",
+        "bitwig.exe",
+        "protools.exe",
+        "cmd.exe",       ; Command Prompt
+        "conhost.exe",   ; Console Host
+        "WindowsTerminal.exe" ; Windows Terminal
+    ],
+    "Damping", 0.92,    ; Lower = less friction (0.001-0.01)
+    "MaxSpeed", 1.5,    ; Limits maximum velocity
+    "PhysicsTimeStep", 20,  ; Lower = more frequent physics updates (1ms is max)
+    "VisualTimeStep", 16,   ; Lower = smoother visuals (try 16-33ms for 60-30fps)
+    "Smoothing", 0.99,  ; Higher = smoother but more lag (0.9-0.99)
+    "Stabilization", Map(
+        "MinSpeedThreshold", 0.4,  ; Lower values high-DPI (0.05-0.15) ~ Higher values (0.2-0.5)  low-performance systems
+        "EnergyThreshold", 0.03,     ; Lower values (0.05-0.1): Early stabilization, prevents overshooting
+        "DampingBoost", 0.18,       ; 0.01-0.05: Subtle braking (smooth stops) ~ 0.1+: Strong braking (quick stops but may feel robotic)
+        "OverlapTolerance", 4      ; Small values (5-10): Strict spacing (prevents all overlap) ~ Large (30+): Loose grouping (windows can temporarily overlap)
+    ),
+    "ManualWindowColor", "FF5555",
+    "ManualWindowAlpha", 222,
+    "NoiseScale", 8,
+    "NoiseInfluence", 100,
+    "AnimationDuration", 32,    ; Higher = longer animations (try 16-32)
+    "PhysicsUpdateInterval", 200,
+)
+
+global g := Map(
+    "Monitor", GetCurrentMonitorInfo(),
+    "ArrangementActive", true,
+    "LastUserMove", 0,
+    "ActiveWindow", 0,
+    "Windows", [],
+    "PhysicsEnabled", true,
+    "FairyDustEnabled", true,
+    "ManualWindows", Map(),
+    "SystemEnergy", 1
+)
+
 class NoiseAnimator {
     static permutations := [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,35,11,32,57,177,33,88,237,149,56,87,174,20,125,136,171,168,68,175,74,165,71,134,139,48,27,166,77,146,158,231,83,111,229,122,60,211,133,230,220,105,92,41,55,46,245,40,244,102,143,54,65,25,63,161,1,216,80,73,209,76,132,187,208,89,18,169,200,196,135,130,116,188,159,86,164,100,109,198,173,186,3,64,52,217,226,250,124,123,5,202,38,147,118,126,255,82,85,212,207,206,59,227,47,16,58,17,182,189,28,42,223,183,170,213,119,248,152,2,44,154,163,70,221,153,101,155,167,43,172,9,129,22,39,253,19,98,108,110,79,113,224,232,178,185,112,104,218,246,97,228,251,34,242,193,238,210,144,12,191,179,162,241,81,51,145,235,249,14,239,107,49,192,214,31,181,199,106,157,184,84,204,176,115,121,50,45,127,4,150,254,138,236,205,93,222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180]
     
@@ -244,17 +319,108 @@ IsOverlapping(window, otherWindows) {
     }
     return false
 }
-
-IsWindowFloating(hwnd) {
-    global Config
+IsPluginWindow(hwnd) {
     try {
-        style := WinGetStyle("ahk_id " hwnd)
-        return (style & Config["FloatStyles"]) == Config["FloatStyles"]
+        winClass := WinGetClass("ahk_id " hwnd)  ; Changed from 'class'
+        title := WinGetTitle("ahk_id " hwnd)
+        
+        ; Common plugin window patterns
+        if (winClass ~= "i)(Vst|JS|Plugin|Float|Dock)") 
+            return true
+        if (title ~= "i)(VST|JS:|Plugin|FX)") 
+            return true
+            
+        ; Check for common DAW process names
+        processName := WinGetProcessName("ahk_id " hwnd)
+        dawProcesses := ["reaper", "ableton", "flstudio", "cubase", "studioone", "bitwig", "protools"]
+        for daw in dawProcesses {
+            if (InStr(processName, daw))
+                return true
+        }
+        
+        return false
     }
     catch {
         return false
     }
 }
+
+IsWindowFloating(hwnd) {
+    global Config
+    
+    ; Basic window existence check
+    if (!SafeWinExist(hwnd))
+        return false
+        
+    try {
+        ; Skip minimized/maximized windows
+        if (WinGetMinMax("ahk_id " hwnd) != 0)
+            return false
+            
+        ; Get window properties
+        title := WinGetTitle("ahk_id " hwnd)
+        if (title == "" || title == "Program Manager")
+            return false
+            
+        winClass := WinGetClass("ahk_id " hwnd)
+        processName := WinGetProcessName("ahk_id " hwnd)
+        style := WinGetStyle("ahk_id " hwnd)
+        exStyle := WinGetExStyle("ahk_id " hwnd)
+
+        ; Debug output - remove after testing if not needed
+        OutputDebug("Window Check - Class: " winClass " | Process: " processName " | Title: " title)
+
+        ; 1. First check for forced processes (simplified)
+        for pattern in Config["ForceFloatProcesses"] {
+            if (processName ~= "i)^" pattern "$") {  ; Exact match with case insensitivity
+                return true
+            }
+        }
+
+        ; 2. Special cases that should always float
+        if (winClass == "ConsoleWindowClass" || winClass == "CASCADIA_HOSTING_WINDOW_CLASS") {
+            return true  ; CMD and Windows Terminal
+        }
+        
+        ; 3. Plugin window detection (basic but effective)
+        if (winClass ~= "i)(Vst|JS|Plugin|Float)") {
+            return true
+        }
+        
+        if (title ~= "i)(VST|JS:|Plugin|FX)") {
+            return true
+        }
+
+        ; 4. Standard floating window checks
+        if (exStyle & 0x80)  ; WS_EX_TOOLWINDOW
+            return true
+            
+        if (!(style & 0x10000000))  ; WS_VISIBLE
+            return true
+
+        ; 5. Check class patterns from config
+        for pattern in Config["FloatClassPatterns"] {
+            if (winClass ~= "i)" pattern) {
+                return true
+            }
+        }
+        
+        ; 6. Check title patterns from config
+        for pattern in Config["FloatTitlePatterns"] {
+            if (title ~= "i)" pattern) {
+                return true
+            }
+        }
+        
+        ; 7. Final style check
+        return (style & Config["FloatStyles"]) != 0
+    }
+    catch {
+        return false
+    }
+}
+
+
 
 GetVisibleWindows(monitor) {
     global Config, g
@@ -263,78 +429,133 @@ GetVisibleWindows(monitor) {
     allWindows := []
     for hwnd in WinGetList() {
         try {
-            if (!IsWindowValid(hwnd) || !IsWindowFloating(hwnd))
+            ; Skip invalid windows
+            if (!IsWindowValid(hwnd))
                 continue
                 
+            ; Get window properties
             WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
             if (w == 0 || h == 0)
                 continue
                 
-            allWindows.Push(Map(
-                "hwnd", hwnd,
-                "x", x, "y", y,
-                "width", w, "height", h
-            ))
+            ; Special handling for plugin windows
+            isPlugin := IsPluginWindow(hwnd)
+            
+            ; Force include plugin windows or check floating status
+            if (isPlugin || IsWindowFloating(hwnd)) {
+                allWindows.Push(Map(
+                    "hwnd", hwnd,
+                    "x", x, "y", y,
+                    "width", w, "height", h,
+                    "isPlugin", isPlugin,
+                    "lastSeen", A_TickCount
+                ))
+            }
         }
         catch {
             continue
         }
     }
     
+    ; Get current mouse position for monitor check
+    CoordMode "Mouse", "Screen"
+    MouseGetPos(&mx, &my)
+    activeMonitor := MonitorGetFromPoint(mx, my)
+    
     for window in allWindows {
-        winCenterX := window["x"] + window["width"]/2
-        winCenterY := window["y"] + window["height"]/2
-        
-        winMonitor := 0
         try {
-            winMonitor := MonitorGetFromPoint(winCenterX, winCenterY)
-            MonitorGet winMonitor, &mL, &mT, &mR, &mB
-        }
-        catch {
-            continue
-        }
-        
-        isTracked := false
-        for trackedWin in g["Windows"] {
-            if (trackedWin["hwnd"] == window["hwnd"]) {
-                isTracked := true
-                break
-            }
-        }
-        
-        if (winMonitor == monitor["Number"] || isTracked) {
-            window["x"] := Max(mL + Config["MinMargin"], Min(window["x"], mR - window["width"] - Config["MinMargin"]))
-            window["y"] := Max(mT + Config["MinMargin"], Min(window["y"], mB - window["height"] - Config["MinMargin"]))
+            winCenterX := window["x"] + window["width"]/2
+            winCenterY := window["y"] + window["height"]/2
             
-            existingWin := 0
-            for win in g["Windows"] {
-                if (win["hwnd"] == window["hwnd"]) {
-                    existingWin := win
+            ; Determine which monitor the window is on
+            winMonitor := MonitorGetFromPoint(winCenterX, winCenterY)
+            try {
+                MonitorGet winMonitor, &mL, &mT, &mR, &mB
+            }
+            catch {
+                ; Fallback to primary monitor if detection fails
+                winMonitor := MonitorGetPrimary()
+                MonitorGet winMonitor, &mL, &mT, &mR, &mB
+            }
+            
+            ; Check if window is on the current monitor or is being tracked
+            isTracked := false
+            for trackedWin in g["Windows"] {
+                if (trackedWin["hwnd"] == window["hwnd"]) {
+                    isTracked := true
                     break
                 }
             }
             
-            WinList.Push(Map(
-                "hwnd", window["hwnd"], 
-                "x", window["x"], "y", window["y"],
-                "width", window["width"], "height", window["height"],
-                "area", window["width"] * window["height"],
-                "mass", window["width"] * window["height"] / 100000,
-                "lastMove", existingWin ? existingWin["lastMove"] : 0,
-                "vx", existingWin ? existingWin["vx"] : 0,
-                "vy", existingWin ? existingWin["vy"] : 0,
-                "targetX", window["x"], "targetY", window["y"],
-                "monitor", winMonitor
-            ))
+            if (winMonitor == monitor["Number"] || isTracked || window["isPlugin"]) {
+                ; Apply margin constraints
+                window["x"] := Max(mL + Config["MinMargin"], Min(window["x"], mR - window["width"] - Config["MinMargin"]))
+                window["y"] := Max(mT + Config["MinMargin"], Min(window["y"], mB - window["height"] - Config["MinMargin"]))
+                
+                ; Find existing window data if available
+                existingWin := 0
+                for win in g["Windows"] {
+                    if (win["hwnd"] == window["hwnd"]) {
+                        existingWin := win
+                        break
+                    }
+                }
+                
+                ; Create window entry with physics properties
+                WinList.Push(Map(
+                    "hwnd", window["hwnd"], 
+                    "x", window["x"], "y", window["y"],
+                    "width", window["width"], "height", window["height"],
+                    "area", window["width"] * window["height"],
+                    "mass", window["width"] * window["height"] / 100000,
+                    "lastMove", existingWin ? existingWin["lastMove"] : 0,
+                    "vx", existingWin ? existingWin["vx"] : 0,
+                    "vy", existingWin ? existingWin["vy"] : 0,
+                    "targetX", window["x"], "targetY", window["y"],
+                    "monitor", winMonitor,
+                    "isPlugin", window["isPlugin"],
+                    "lastSeen", window["lastSeen"]
+                ))
+                
+                ; Add fairy dust effect for plugin windows
+                if (window["isPlugin"] && g["FairyDustEnabled"]) {
+                    FairyDust.AddTrail(window["hwnd"])
+                }
+            }
+        }
+        catch {
+            continue
         }
     }
+    
+    ; Clean up windows that are no longer valid
+    CleanupStaleWindows()
+    
     return WinList
+}
+
+CleanupStaleWindows() {
+    global g
+    threshold := 5000 ; 5 seconds
+    
+    ; Use a while loop instead of for-loop with index to avoid 'i' variable issues
+    index := g["Windows"].Length
+    while (index >= 1) {
+        win := g["Windows"][index]
+        if (A_TickCount - win["lastSeen"] > threshold && !SafeWinExist(win["hwnd"])) {
+            g["Windows"].RemoveAt(index)
+            if (g["ManualWindows"].Has(win["hwnd"])) {
+                RemoveManualWindowBorder(win["hwnd"])
+            }
+        }
+        index--
+    }
 }
 
 class FairyDust {
     static particles := Map()
     static lastCleanup := 0
-    static edgeWidth := 100
+    static edgeWidth := 1000
 
     static AddTrail(hwnd) {
         if (!SafeWinExist(hwnd))
@@ -940,27 +1161,74 @@ CalculateDynamicLayout() {
 }
 
 
+;;MANUAL WINDOW HANDLING
 AddManualWindowBorder(hwnd) {
-    global Config
+    global Config, g
     try {
-        Gui("ManualBorder_" hwnd, "+ToolWindow -Caption +E0x20 +LastFound +AlwaysOnTop")
-        Gui.BackColor := Config["ManualWindowColor"]
-        WinSetTransColor(Config["ManualWindowColor"] " " Config["ManualWindowAlpha"])
+        ; Skip if already exists
+        if (g["ManualWindows"].Has(hwnd))
+            return
+        
+        ; Create GUI with unique name
+        borderGui := Gui("+ToolWindow -Caption +E0x20 +LastFound +AlwaysOnTop +E0x08000000")
+        borderGui.Opt("+Owner" hwnd)  ; Set owner to prevent stealing focus
+        borderGui.BackColor := Config["ManualWindowColor"]
+        
+        ; Position border around window
         WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-        Gui.Show("x" x-2 " y" y-2 " w" w+4 " h" h+4 " NA")
+        borderGui.Show("x" x-2 " y" y-2 " w" w+4 " h" h+4 " NA")
+        
+        ; Set transparency
+        WinSetTransparent(Config["ManualWindowAlpha"], borderGui.Hwnd)
+        WinSetTransColor(Config["ManualWindowColor"] " " Config["ManualWindowAlpha"], borderGui.Hwnd)
+        
+        ; Try blur effect (Windows 10/11)
         try {
-            DllCall("dwmapi\DwmEnableBlurBehindWindow", "Ptr", Gui.Hwnd, "Ptr", CreateBlurBehindStruct())
+            bbStruct := Buffer(20, 0)
+            NumPut("UInt", 1, bbStruct, 0)  ; dwFlags - DWM_BB_ENABLE
+            NumPut("Int", 1, bbStruct, 4)   ; fEnable
+            DllCall("dwmapi\DwmEnableBlurBehindWindow", "Ptr", borderGui.Hwnd, "Ptr", bbStruct.Ptr)
         }
-        catch {
-        }
-        g["ManualWindows"][hwnd] := A_TickCount + Config["ManualLockDuration"]
+        
+        ; Store reference - using Map() instead of object literal
+        g["ManualWindows"][hwnd] := Map(
+            "gui", borderGui,
+            "expire", A_TickCount + Config["ManualLockDuration"]
+        )
+        
+    } catch as Err {
+        OutputDebug("Border Error: " Err.Message "`n" Err.What "`n" Err.Extra)
     }
 }
 
 RemoveManualWindowBorder(hwnd) {
+    global g
     try {
-        Gui("ManualBorder_" hwnd).Destroy()
-        g["ManualWindows"].Delete(hwnd)
+        if (g["ManualWindows"].Has(hwnd)) {
+            g["ManualWindows"][hwnd]["gui"].Destroy()
+            g["ManualWindows"].Delete(hwnd)
+        }
+    }
+}
+
+UpdateManualBorders() {
+    global g, Config
+    for hwnd, data in g["ManualWindows"].Clone() {
+        try {
+            ; Remove expired borders
+            if (A_TickCount > data["expire"]) {
+                RemoveManualWindowBorder(hwnd)
+                continue
+            }
+            
+            ; Update position
+            if (WinExist("ahk_id " hwnd)) {
+                WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+                data["gui"].Show("x" x-2 " y" y-2 " w" w+4 " h" h+4 " NA")
+            } else {
+                RemoveManualWindowBorder(hwnd)
+            }
+        }
     }
 }
 
@@ -1229,53 +1497,10 @@ UpdateWindowStates() {
     }
 }
 
-global Config := Map(
-    "MinMargin", 23,
-    "MinGap", 0,
-    "ManualGapBonus", 369,
-    "AttractionForce", .32,
-    "RepulsionForce", .28,
-    "ManualRepulsionMultiplier", 1.3,
-    "EdgeRepulsionForce", 1.80,
-    "UserMoveTimeout", 11111,
-    "ManualLockDuration", 11,
-    "ResizeDelay", 111,
-    "TooltipDuration", 15000,
-    "FloatStyles", 0xC00000|0x40000|0x20000|0x80000|0x800000,
-    "Damping", 0.92,    ; Lower = less friction (0.001-0.01)
-    "MaxSpeed", 1.5,    ; Limits maximum velocity
-    "PhysicsTimeStep", 20,  ; Lower = more frequent physics updates (1ms is max)
-    "VisualTimeStep", 16,   ; Lower = smoother visuals (try 16-33ms for 60-30fps)
-    "Smoothing", 0.99,  ; Higher = smoother but more lag (0.9-0.99)
-    "Stabilization", Map(
-        "MinSpeedThreshold", 0.4,  ; Lower values high-DPI (0.05-0.15) ~ Higher values (0.2-0.5)  low-performance systems
-        "EnergyThreshold", 0.03,     ; Lower values (0.05-0.1): Early stabilization, prevents overshooting
-        "DampingBoost", 0.18,       ; 0.01-0.05: Subtle braking (smooth stops) ~ 0.1+: Strong braking (quick stops but may feel robotic)
-        "OverlapTolerance", 4      ; Small values (5-10): Strict spacing (prevents all overlap) ~ Large (30+): Loose grouping (windows can temporarily overlap)
-    ),
-    "ManualWindowColor", "FF5555",
-    "ManualWindowAlpha", 222,
-    "NoiseScale", 8,
-    "NoiseInfluence", 100,
-    "AnimationDuration", 32,    ; Higher = longer animations (try 16-32)
-    "PhysicsUpdateInterval", 200,
-)
 
-global g := Map(
-    "Monitor", GetCurrentMonitorInfo(),
-    "ArrangementActive", true,
-    "LastUserMove", 0,
-    "ActiveWindow", 0,
-    "Windows", [],
-    "PhysicsEnabled", true,
-    "FairyDustEnabled", true,
-    "ManualWindows", Map(),
-    "SystemEnergy", 1
-)
 ;HOTKEYS
 
 ^!Space::ToggleArrangement()      ; Ctrl+Alt+Space to toggle
-^!LButton::DragWindow()           ; Ctrl+Alt+LeftMouse to drag
 ^!P::TogglePhysics()              ; Ctrl+Alt+P for physics
 ^!F::ToggleFairyDust()            ; Ctrl+Alt+F for effects
 ^!O::OptimizeWindowPositions()    ; Ctrl+Alt+O to optimize

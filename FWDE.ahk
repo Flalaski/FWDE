@@ -3,29 +3,45 @@
 #WinActivateForce
 #Warn
 #MaxThreadsPerHotkey 255
+#MaxThreads 255
 A_IconTip := "Floating Windows - Dynamic Equilibrium"
+ProcessSetPriority("High")
+
+
 #DllLoad "gdi32.dll"
 #DllLoad "user32.dll"
 #DllLoad "dwmapi.dll" ; Desktop Composition API
+
+
+
+; Pre-allocate memory buffers
+global g_NoiseBuffer := Buffer(1024)
+global g_PhysicsBuffer := Buffer(4096)
+
 ; This script is the brainchild of:
 ; Human: Flalaski, 
 ; AI: DeepSeek+Gemini+CoPilot, 
 ; Lots of back & forth, toss around, backups & redo's, 
 ; until finally I (the human) got this to do what I've been trying to find as a software. 
 ; Hope it's helpful! ♥
+;
+; NEW FEATURE: Seamless Multi-Monitor Floating
+; Toggle with Ctrl+Alt+M to allow windows to float freely across all monitors
+; When enabled, windows are no longer confined to the current monitor boundaries
 
 global Config := Map(
     "MinMargin", 42,
-    "MinGap", 0,
+    "MinGap", 21,
     "ManualGapBonus", 369,
-    "AttractionForce", .32,
-    "RepulsionForce", .28,
+    "AttractionForce", 0.01,   ; << restore to a small value (not 3.2)
+    "RepulsionForce", 0.369,    ; << restore to a small value (not 28)
     "ManualRepulsionMultiplier", 1.3,
-    "EdgeRepulsionForce", 1.80,
-    "UserMoveTimeout", 11111,
-    "ManualLockDuration", 111,
+    "EdgeRepulsionForce", 0.80,
+    "UserMoveTimeout", 11111,        ; How long to keep focused window still after interaction (ms)
+    "ManualLockDuration", 33333,     ; How long manual window locks last (ms) - about 33 seconds
     "ResizeDelay", 22,
     "TooltipDuration", 15000,
+    "SeamlessMonitorFloat", false,   ; Toggle for seamless multi-monitor floating
     "FloatStyles",  0x00C00000 | 0x00040000 | 0x00080000 | 0x00020000 | 0x00010000,
     "FloatClassPatterns", [
         "Vst.*",         ; VST plugins
@@ -57,27 +73,27 @@ global Config := Map(
         "conhost.exe",   ; Console Host
         "WindowsTerminal.exe" ; Windows Terminal
     ],
-    "Damping", 0.92,    ; Lower = less friction (0.001-0.01)
-    "MaxSpeed", 1.5,    ; Limits maximum velocity
-    "PhysicsTimeStep", 20,  ; Lower = more frequent physics updates (1ms is max)
-    "VisualTimeStep", 16,   ; Lower = smoother visuals (try 16-33ms for 60-30fps)
-    "Smoothing", 0.99,  ; Higher = smoother but more lag (0.9-0.99)
+    "Damping", 0.001,    ; Lower = less friction (0.001-0.01)
+    "MaxSpeed", 12.0,    ; Limits maximum velocity
+    "PhysicsTimeStep", 1,   ; Lower = more frequent physics updates (1ms is max)
+    "VisualTimeStep", 2,    ; Lower = smoother visuals (try 16-33ms for 60-30fps)
+    "Smoothing", 0.5,  ; Higher = smoother but more lag (0.9-0.99)
     "Stabilization", Map(
-        "MinSpeedThreshold", 0.4,  ; Lower values high-DPI (0.05-0.15) ~ Higher values (0.2-0.5)  low-performance systems
-        "EnergyThreshold", 0.03,     ; Lower values (0.05-0.1): Early stabilization, prevents overshooting
-        "DampingBoost", 0.18,       ; 0.01-0.05: Subtle braking (smooth stops) ~ 0.1+: Strong braking (quick stops but may feel robotic)
-        "OverlapTolerance", 4      ; Small values (5-10): Strict spacing (prevents all overlap) ~ Large (30+): Loose grouping (windows can temporarily overlap)
+        "MinSpeedThreshold", 0.6,  ; Lower values high-DPI (0.05-0.15) ~ Higher values (0.2-0.5)  low-performance systems
+        "EnergyThreshold", 0.06,     ; Lower values (0.05-0.1): Early stabilization, prevents overshooting
+        "DampingBoost", 0.12,       ; 0.01-0.05: Subtle braking (smooth stops) ~ 0.1+: Strong braking (quick stops but may feel robotic)
+        "OverlapTolerance", 0     ; Zero tolerance for overlaps unless forced by constraints
     ),
     "ManualWindowColor", "FF5555",
     "ManualWindowAlpha", 222,
-    "NoiseScale", 8,
+    "NoiseScale", 888,
     "NoiseInfluence", 100,
     "AnimationDuration", 32,    ; Higher = longer animations (try 16-32)
     "PhysicsUpdateInterval", 200,
 )
 
 global g := Map(
-    "Monitor", GetCurrentMonitorInfo(),
+    "Monitor", Config["SeamlessMonitorFloat"] ? GetVirtualDesktopBounds() : GetCurrentMonitorInfo(),
     "ArrangementActive", true,
     "LastUserMove", 0,
     "ActiveWindow", 0,
@@ -269,40 +285,71 @@ GetPrimaryMonitorCoordinates() {
     }
 }
 
+GetVirtualDesktopBounds() {
+    ; Get the combined bounds of all monitors for seamless floating
+    global Config
+    
+    if (!Config["SeamlessMonitorFloat"]) {
+        ; Return current monitor bounds if seamless floating is disabled
+        return GetCurrentMonitorInfo()
+    }
+    
+    try {
+        minLeft := 999999, maxRight := -999999
+        minTop := 999999, maxBottom := -999999
+        
+        Loop MonitorGetCount() {
+            MonitorGet A_Index, &L, &T, &R, &B
+            minLeft := Min(minLeft, L)
+            maxRight := Max(maxRight, R)
+            minTop := Min(minTop, T)
+            maxBottom := Max(maxBottom, B)
+        }
+        
+        return Map(
+            "Left", minLeft, "Right", maxRight, "Top", minTop, "Bottom", maxBottom,
+            "Width", maxRight - minLeft, "Height", maxBottom - minTop, "Number", 0,
+            "CenterX", (maxRight + minLeft) // 2, "CenterY", (maxBottom + minTop) // 2
+        )
+    }
+    catch {
+        ; Fallback to primary monitor
+        return GetPrimaryMonitorCoordinates()
+    }
+}
+
 FindNonOverlappingPosition(window, otherWindows, monitor) {
     if (!IsOverlapping(window, otherWindows))
         return Map("x", window["x"], "y", window["y"])
     
-    centerX := monitor["CenterX"] - window["width"]/2
-    centerY := monitor["CenterY"] - window["height"]/2
-    steps := 10
-    stepSize := 50
+    ; Try multiple positioning strategies for better space utilization
+    strategies := ["gaps", "edges", "center", "grid"]
     
-    Loop steps {
-        radius := A_Index * stepSize
-        angles := 8 * A_Index
+    for strategy in strategies {
+        candidatePositions := GeneratePositionCandidates(window, otherWindows, monitor, strategy)
         
-        Loop angles {
-            angle := (A_Index - 1) * (2 * 3.14159 / angles)
-            tryX := centerX + radius * Cos(angle)
-            tryY := centerY + radius * Sin(angle)
-            
-            tryX := Max(monitor["Left"] + Config["MinMargin"], Min(tryX, monitor["Right"] - window["width"] - Config["MinMargin"]))
-            tryY := Max(monitor["Top"] + Config["MinMargin"], Min(tryY, monitor["Bottom"] - window["height"] - Config["MinMargin"]))
-            
+        for pos in candidatePositions {
+            ; Ensure position is within bounds
+            if (pos["x"] < monitor["Left"] + Config["MinMargin"] || 
+                pos["x"] > monitor["Right"] - window["width"] - Config["MinMargin"] ||
+                pos["y"] < monitor["Top"] + Config["MinMargin"] || 
+                pos["y"] > monitor["Bottom"] - window["height"] - Config["MinMargin"])
+                continue
+                
             testPos := Map(
-                "x", tryX,
-                "y", tryY,
+                "x", pos["x"],
+                "y", pos["y"],
                 "width", window["width"],
                 "height", window["height"],
                 "hwnd", window["hwnd"]
             )
             
             if (!IsOverlapping(testPos, otherWindows))
-                return Map("x", tryX, "y", tryY)
+                return pos
         }
     }
     
+    ; Fallback: slight offset from original position
     return Map("x", window["x"] + 20, "y", window["y"] + 20)
 }
 
@@ -321,20 +368,62 @@ IsOverlapping(window, otherWindows) {
 }
 IsPluginWindow(hwnd) {
     try {
-        winClass := WinGetClass("ahk_id " hwnd)  ; Changed from 'class'
+        winClass := WinGetClass("ahk_id " hwnd)
         title := WinGetTitle("ahk_id " hwnd)
-        
-        ; Common plugin window patterns
-        if (winClass ~= "i)(Vst|JS|Plugin|Float|Dock)") 
-            return true
-        if (title ~= "i)(VST|JS:|Plugin|FX)") 
-            return true
-            
-        ; Check for common DAW process names
         processName := WinGetProcessName("ahk_id " hwnd)
+        
+        ; Common DAW plugin window classes and patterns
+        pluginClasses := [
+            "VST", "VSTPlugin", "AudioUnit", "AU", "RTAS", "AAX",
+            "ReaperVSTPlugin", "FL_Plugin", "StudioOnePlugin",
+            "CubaseVST", "LogicAU", "ProToolsAAX", "Ableton",
+            "Qt5QWindowIcon", "Qt6QWindowIcon",  ; Many modern plugins use Qt
+            "Vst", "JS", "Plugin", "Float", "Dock"
+        ]
+        
+        pluginTitlePatterns := [
+            "VST", "AU", "JS:", "Plugin", "Synth", "Effect", "EQ", "Compressor",
+            "Reverb", "Delay", "Filter", "Oscillator", "Sampler", "Drum", "FX",
+            "Kontakt", "Massive", "Serum", "Sylenth", "Omnisphere", "Nexus",
+            "FabFilter", "Waves", "iZotope", "Native Instruments", "Arturia",
+            "U-He", "TAL-", "Valhalla", "SoundToys", "Plugin Alliance"
+        ]
+        
+        ; Check DAW processes first
         dawProcesses := ["reaper", "ableton", "flstudio", "cubase", "studioone", "bitwig", "protools"]
+        isDAWProcess := false
         for daw in dawProcesses {
-            if (InStr(processName, daw))
+            if (InStr(processName, daw)) {
+                isDAWProcess := true
+                break
+            }
+        }
+        
+        ; If it's from a DAW process, check plugin patterns
+        if (isDAWProcess) {
+            ; Check window class patterns
+            for pattern in pluginClasses {
+                if (InStr(winClass, pattern))
+                    return true
+            }
+            
+            ; Check window title patterns
+            for pattern in pluginTitlePatterns {
+                if (InStr(title, pattern))
+                    return true
+            }
+            
+            ; Check for small window dimensions typical of plugin UIs
+            try {
+                WinGetPos(,, &w, &h, "ahk_id " hwnd)
+                if (w < 800 && h < 600)
+                    return true
+            }
+        } else {
+            ; For non-DAW processes, use basic patterns
+            if (winClass ~= "i)(Vst|JS|Plugin|Float|Dock)") 
+                return true
+            if (title ~= "i)(VST|JS:|Plugin|FX)") 
                 return true
         }
         
@@ -478,19 +567,38 @@ GetVisibleWindows(monitor) {
                 MonitorGet winMonitor, &mL, &mT, &mR, &mB
             }
             
-            ; Check if window is on the current monitor or is being tracked
-            isTracked := false
-            for trackedWin in g["Windows"] {
-                if (trackedWin["hwnd"] == window["hwnd"]) {
-                    isTracked := true
-                    break
+            ; Check if window should be included based on floating mode
+            includeWindow := false
+            
+            if (Config["SeamlessMonitorFloat"]) {
+                ; In seamless mode, include all windows from all monitors
+                includeWindow := true
+            } else {
+                ; In traditional mode, only include windows on current monitor or already tracked
+                isTracked := false
+                for trackedWin in g["Windows"] {
+                    if (trackedWin["hwnd"] == window["hwnd"]) {
+                        isTracked := true
+                        break
+                    }
                 }
+                includeWindow := (winMonitor == monitor["Number"] || isTracked || window["isPlugin"])
             }
             
-            if (winMonitor == monitor["Number"] || isTracked || window["isPlugin"]) {
-                ; Apply margin constraints
-                window["x"] := Max(mL + Config["MinMargin"], Min(window["x"], mR - window["width"] - Config["MinMargin"]))
-                window["y"] := Max(mT + Config["MinMargin"], Min(window["y"], mB - window["height"] - Config["MinMargin"]))
+            if (includeWindow) {
+                ; Apply margin constraints based on floating mode
+                if (Config["SeamlessMonitorFloat"]) {
+                    ; Use virtual desktop bounds for seamless floating
+                    virtualBounds := GetVirtualDesktopBounds()
+                    window["x"] := Max(virtualBounds["Left"] + Config["MinMargin"], 
+                                     Min(window["x"], virtualBounds["Right"] - window["width"] - Config["MinMargin"]))
+                    window["y"] := Max(virtualBounds["Top"] + Config["MinMargin"], 
+                                     Min(window["y"], virtualBounds["Bottom"] - window["height"] - Config["MinMargin"]))
+                } else {
+                    ; Apply margin constraints for current monitor
+                    window["x"] := Max(mL + Config["MinMargin"], Min(window["x"], mR - window["width"] - Config["MinMargin"]))
+                    window["y"] := Max(mT + Config["MinMargin"], Min(window["y"], mB - window["height"] - Config["MinMargin"]))
+                }
                 
                 ; Find existing window data if available
                 existingWin := 0
@@ -514,12 +622,13 @@ GetVisibleWindows(monitor) {
                     "targetX", window["x"], "targetY", window["y"],
                     "monitor", winMonitor,
                     "isPlugin", window["isPlugin"],
-                    "lastSeen", window["lastSeen"]
+                    "lastSeen", window["lastSeen"],
+                    "lastZOrder", existingWin ? existingWin.Get("lastZOrder", -1) : -1  ; Cache z-order state
                 ))
                 
-                ; Add fairy dust effect for plugin windows
+                ; Add time-phasing echo for plugin windows
                 if (window["isPlugin"] && g["FairyDustEnabled"]) {
-                    FairyDust.AddTrail(window["hwnd"])
+                    TimePhasing.AddEcho(window["hwnd"])
                 }
             }
         }
@@ -552,194 +661,89 @@ CleanupStaleWindows() {
     }
 }
 
-class FairyDust {
-    static particles := Map()
+class TimePhasing {
+    static echoes := Map()
     static lastCleanup := 0
-    static edgeWidth := 1000
 
-    static AddTrail(hwnd) {
+    static AddEcho(hwnd) {
         if (!SafeWinExist(hwnd))
             return
 
-        if (!this.particles.Has(hwnd)) {
-            try {
-                dustGui := Gui("+ToolWindow -Caption +E0x20 +AlwaysOnTop +LastFound +Disabled")
-                dustGui.BackColor := "000000"
-                WinSetTransparent(0)
-                dustGui.Show("NA")
-
-                try {
-                    DllCall("dwmapi\DwmEnableBlurBehindWindow", "Ptr", dustGui.Hwnd, "Ptr", CreateBlurBehindStruct())
-                }
-                catch {
-                }
-
-                this.particles[hwnd] := {
-                    points: [],
-                    lastUpdate: 0,
-                    gui: dustGui,
-                    hwnd: dustGui.Hwnd,
-                    noiseSeed: Random(1, 10000),
-                    lastW: 0,
-                    lastH: 0
-                }
-            }
-            catch {
-                return
+        if (!this.echoes.Has(hwnd)) {
+            this.echoes[hwnd] := {
+                phases: [],
+                lastUpdate: 0
             }
         }
 
-        if (A_TickCount - this.particles[hwnd].lastUpdate < 1000)
+        if (A_TickCount - this.echoes[hwnd].lastUpdate < 500)
             return
             
         try {
             WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-            this.particles[hwnd].lastUpdate := A_TickCount
-            
-            points := []
-            edgeSize := this.edgeWidth
-            
-            Loop Random(2, 5) {
-                px := Random(0, w)
-                if (px > edgeSize && px < w - edgeSize)
-                    continue
-                
-                points.Push({
-                    x: px,
-                    y: Random(0, edgeSize),
-                    life: Random(30, 60),
-                    size: Random(1, 2),
-                    color: Format("0x{:08X}", 0x30FFFFFF)
+            this.echoes[hwnd].lastUpdate := A_TickCount
+
+            ; Create temporal echo phases
+            phases := []
+            phaseCount := Random(3, 6)
+            Loop phaseCount {
+                timeOffset := A_Index * Random(100, 300)
+                opacity := Random(30, 80) / A_Index
+                phases.Push({
+                    timeOffset: timeOffset,
+                    opacity: opacity,
+                    life: Random(20, 40)
                 })
             }
-            
-            Loop Random(2, 5) {
-                px := Random(0, w)
-                if (px > edgeSize && px < w - edgeSize)
-                    continue
-                
-                points.Push({
-                    x: px,
-                    y: h - Random(0, edgeSize),
-                    life: Random(30, 60),
-                    size: Random(1, 2),
-                    color: Format("0x{:08X}", 0x30FFFFFF)
-                })
-            }
-            
-            Loop Random(2, 5) {
-                py := Random(0, h)
-                if (py > edgeSize && py < h - edgeSize)
-                    continue
-                
-                points.Push({
-                    x: Random(0, edgeSize),
-                    y: py,
-                    life: Random(30, 60),
-                    size: Random(1, 2),
-                    color: Format("0x{:08X}", 0x30FFFFFF)
-                })
-            }
-            
-            Loop Random(2, 5) {
-                py := Random(0, h)
-                if (py > edgeSize && py < h - edgeSize)
-                    continue
-                
-                points.Push({
-                    x: w - Random(0, edgeSize),
-                    y: py,
-                    life: Random(30, 60),
-                    size: Random(1, 2),
-                    color: Format("0x{:08X}", 0x30FFFFFF)
-                })
-            }
-            
-            time := A_TickCount/2000
-            for i, point in points {
-                noiseX := NoiseAnimator.noise(point.x/50, time + i*10)
-                noiseY := NoiseAnimator.noise(point.y/50, time + i*10 + 100)
-                point.x += noiseX * 2 * Config["NoiseInfluence"]
-                point.y += noiseY * 2 * Config["NoiseInfluence"]
-            }
-            
-            this.particles[hwnd].points := points
+            this.echoes[hwnd].phases := phases
         }
         catch {
             return
         }
         
-        if (A_TickCount - this.lastCleanup > 1000) {
+        if (A_TickCount - this.lastCleanup > 2000) {
             this.CleanupEffects()
             this.lastCleanup := A_TickCount
         }
     }
-    
-    static UpdateTrails() {
-        for hwnd, data in this.particles.Clone() {
+
+    static UpdateEchoes() {
+        for hwnd, data in this.echoes.Clone() {
             try {
                 if (!SafeWinExist(hwnd)) {
-                    this.particles.Delete(hwnd)
-                    try data.gui.Destroy()
+                    if (this.echoes.Has(hwnd))
+                        this.echoes.Delete(hwnd)
                     continue
                 }
 
-                WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-                data.gui.Show("x" x " y" y " w" w " h" h " NA")
-
-                try {
-                    hdc := DllCall("GetDC", "Ptr", data.hwnd)
-                    DllCall("gdi32\PatBlt", "Ptr", hdc,
-                        "Int", 0, "Int", 0,
-                        "Int", Max(w, data.lastW), "Int", Max(h, data.lastH),
-                        "UInt", 0x00000042)
-                    
-                    for i, particle in data.points {
-                        particle.life--
-                        if (particle.life > 0) {
-                            px := Floor(particle.x)
-                            py := Floor(particle.y)
-                            alpha := Round(0xFF * (particle.life/60))
-                            color := 0xFFFFFF | (alpha << 24)
-                            
-                            brush := DllCall("gdi32\CreateSolidBrush", "UInt", color, "Ptr")
-                            oldBrush := DllCall("gdi32\SelectObject", "Ptr", hdc, "Ptr", brush, "Ptr")
-                            DllCall("gdi32\Ellipse", "Ptr", hdc, 
-                                "Int", px-particle.size, "Int", py-particle.size, 
-                                "Int", px+particle.size, "Int", py+particle.size)
-                            DllCall("gdi32\SelectObject", "Ptr", hdc, "Ptr", oldBrush, "Ptr")
-                            DllCall("gdi32\DeleteObject", "Ptr", brush)
-                        }
-                    }
-                    
-                    DllCall("ReleaseDC", "Ptr", data.hwnd, "Ptr", hdc)
+                ; Update phase lifetimes
+                for phase in data.phases {
+                    phase.life--
                 }
-
-                data.lastW := w
-                data.lastH := h
+                
+                ; Remove expired phases
+                data.phases := data.phases.Filter(p => p.life > 0)
             }
             catch {
-                this.particles.Delete(hwnd)
-                try data.gui.Destroy()
+                this.echoes.Delete(hwnd)
                 continue
             }
         }
     }
-    
+
     static CleanupEffects() {
-        for hwnd, data in this.particles.Clone() {
-            if (!this.particles.Has(hwnd))
+        for hwnd, data in this.echoes.Clone() {
+            if (!this.echoes.Has(hwnd))
                 continue
-                
             try {
-                if (!SafeWinExist(hwnd) || data.points.Length == 0) {
-                    try data.gui.Destroy()
-                    this.particles.Delete(hwnd)
+                if (!SafeWinExist(hwnd) || data.phases.Length == 0) {
+                    if (this.echoes.Has(hwnd))
+                        this.echoes.Delete(hwnd)
                 }
             }
             catch {
-                this.particles.Delete(hwnd)
-                try data.gui.Destroy()
+                if (this.echoes.Has(hwnd))
+                    this.echoes.Delete(hwnd)
             }
         }
     }
@@ -817,27 +821,40 @@ ApplyStabilization(win) {
     }
 }
 
-CalculateWindowForces(win) {
+CalculateWindowForces(win, allWindows) {
     global g, Config
+
+    ; Keep active window and recently moved windows still
+    isActiveWindow := (win["hwnd"] == g["ActiveWindow"])
+    isRecentlyMoved := (A_TickCount - g["LastUserMove"] < Config["UserMoveTimeout"])
+    isCurrentlyFocused := (win["hwnd"] == WinExist("A"))
+    isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
     
-    if (win["hwnd"] == g["ActiveWindow"] || (win.Has("ManualLock") && A_TickCount < win["ManualLock"])) {
+    if (isActiveWindow || isRecentlyMoved && isCurrentlyFocused || isManuallyLocked) {
         win["vx"] := 0
         win["vy"] := 0
         return
     }
 
-    try {
-        MonitorGet win["monitor"], &mL, &mT, &mR, &mB
-    }
-    catch {
-        mL := 0
-        mT := 0
-        mR := A_ScreenWidth
-        mB := A_ScreenHeight
-    }
+    ; Predeclare monitor bounds to avoid local variable warning
+    mL := 0, mT := 0, mR := A_ScreenWidth, mB := A_ScreenHeight
     
-    monLeft := mL + Config["MinMargin"]
-    monRight := mR - Config["MinMargin"] - win["width"]
+    if (Config["SeamlessMonitorFloat"]) {
+        ; Use virtual desktop bounds for seamless multi-monitor floating
+        virtualBounds := GetVirtualDesktopBounds()
+        mL := virtualBounds["Left"]
+        mT := virtualBounds["Top"] 
+        mR := virtualBounds["Right"]
+        mB := virtualBounds["Bottom"]
+    } else {
+        ; Use current monitor bounds for traditional single-monitor floating
+        try {
+            MonitorGet win["monitor"], &mL, &mT, &mR, &mB
+        }
+    }
+
+    monLeft := mL
+    monRight := mR - win["width"]
     monTop := mT + Config["MinMargin"]
     monBottom := mB - Config["MinMargin"] - win["height"]
 
@@ -846,77 +863,111 @@ CalculateWindowForces(win) {
     
     wx := win["x"] + win["width"]/2
     wy := win["y"] + win["height"]/2
+    
+    ; Very weak gravitational pull toward center (space-like)
     dx := (mL + mR)/2 - wx
     dy := (mT + mB)/2 - wy
-    dist := Sqrt(dx*dx + dy*dy)
+    centerDist := Sqrt(dx*dx + dy*dy)
     
-    if (dist > 50) {
-        attractionScale := Min(1, dist/300)
-        vx := prev_vx * Config["Smoothing"] + dx * Config["AttractionForce"] * win["mass"] / dist * (1 - Config["Smoothing"]) * attractionScale
-        vy := prev_vy * Config["Smoothing"] + dy * Config["AttractionForce"] * win["mass"] / dist * (1 - Config["Smoothing"]) * attractionScale
+    ; Gentle center attraction with distance falloff - stronger for equilibrium
+    if (centerDist > 100) {  ; Reduced threshold for earlier attraction
+        attractionScale := Min(0.25, centerDist/1200)  ; Stronger attraction (was 0.15 and /1500)
+        vx := prev_vx * 0.98 + dx * Config["AttractionForce"] * 0.08 * attractionScale  ; Increased from 0.05
+        vy := prev_vy * 0.98 + dy * Config["AttractionForce"] * 0.08 * attractionScale
     } else {
-        vx := prev_vx * Config["Smoothing"]
-        vy := prev_vy * Config["Smoothing"]
+        vx := prev_vx * 0.995  ; Slightly more damping near center
+        vy := prev_vy * 0.995
     }
     
-    if (win["x"] < monLeft + 50) {
-        push := (monLeft + 50 - win["x"]) * 0.1
+    ; Space-seeking behavior: move toward empty areas when crowded
+    spaceForce := CalculateSpaceSeekingForce(win, allWindows)
+    if (spaceForce.Count > 0) {
+        vx += spaceForce["vx"] * 0.02  ; Small but persistent force toward empty space
+        vy += spaceForce["vy"] * 0.02
+    }
+    
+    ; Soft edge boundaries (like invisible force fields)
+    edgeBuffer := 50
+    if (win["x"] < monLeft + edgeBuffer) {
+        push := (monLeft + edgeBuffer - win["x"]) * 0.01
         vx += push
     }
-    
-    if (win["x"] > monRight - 50) {
-        push := (win["x"] - (monRight - 50)) * 0.1
+    if (win["x"] > monRight - edgeBuffer) {
+        push := (win["x"] - (monRight - edgeBuffer)) * 0.01
         vx -= push
     }
-    
-    if (win["y"] < monTop + 50) {
-        push := (monTop + 50 - win["y"]) * 0.1
+    if (win["y"] < monTop + edgeBuffer) {
+        push := (monTop + edgeBuffer - win["y"]) * 0.01
         vy += push
     }
-    
-    if (win["y"] > monBottom - 50) {
-        push := (win["y"] - (monBottom - 50)) * 0.1
+    if (win["y"] > monBottom - edgeBuffer) {
+        push := (win["y"] - (monBottom - edgeBuffer)) * 0.01
         vy -= push
     }
     
-    for other in g["Windows"] {
+    ; Dynamic inter-window forces (no grid constraints)
+    for other in allWindows {
         if (other == win || other["hwnd"] == g["ActiveWindow"])
             continue
-            
-        overlapX := Max(0, Min(win["x"] + win["width"], other["x"] + other["width"]) - Max(win["x"], other["x"]))
-        overlapY := Max(0, Min(win["y"] + win["height"], other["y"] + other["height"]) - Max(win["y"], other["y"]))
         
-        if (overlapX > 5 && overlapY > 5) {
-            force := Config["RepulsionForce"] * (other.Has("IsManual") ? Config["ManualRepulsionMultiplier"] : 1)
-            force *= (overlapX * overlapY) / 5000
-            dx := wx - (other["x"] + other["width"]/2)
-            dy := wy - (other["y"] + other["height"]/2)
-            dist := Max(Sqrt(dx*dx + dy*dy), 1)
-            vx += dx * force / dist * 0.2
-            vy += dy * force / dist * 0.2
+        ; Calculate distance between window centers
+        otherX := other["x"] + other["width"]/2
+        otherY := other["y"] + other["height"]/2
+        dx := wx - otherX
+        dy := wy - otherY
+        dist := Max(Sqrt(dx*dx + dy*dy), 1)
+        
+        ; Dynamic interaction range based on window sizes
+        interactionRange := Sqrt(win["width"] * win["height"] + other["width"] * other["height"]) / 4  ; Reduced from /3 for tighter zones
+        
+        ; Smaller windows get proportionally larger interaction zones
+        sizeBonus := Max(1, 200 / Min(win["width"], win["height"]))  ; Boost for small windows
+        interactionRange *= sizeBonus
+        
+        if (dist < interactionRange * 1.2) {  ; Expanded repulsion zone from 0.8 to 1.2
+            ; Close range: much stronger repulsion to prevent prolonged overlap
+            repulsionForce := Config["RepulsionForce"] * (interactionRange * 1.2 - dist) / (interactionRange * 1.2)
+            repulsionForce *= (other.Has("IsManual") ? Config["ManualRepulsionMultiplier"] : 1)
+            
+            ; Progressive force scaling - stronger when closer
+            proximityMultiplier := 1 + (1 - dist / (interactionRange * 1.2)) * 2  ; Up to 3x stronger when very close
+            
+            vx += dx * repulsionForce * proximityMultiplier / dist * 0.6  ; Increased from 0.4
+            vy += dy * repulsionForce * proximityMultiplier / dist * 0.6
+        } else if (dist < interactionRange * 3) {  ; Reduced attraction range for tighter equilibrium
+            ; Medium range: gentle attraction for stable clustering
+            attractionForce := Config["AttractionForce"] * 0.012 * (dist - interactionRange) / interactionRange  ; Increased from 0.005
+            
+            vx -= dx * attractionForce / dist * 0.04  ; Increased from 0.02
+            vy -= dy * attractionForce / dist * 0.04
         }
+    }
+    
+    ; Space-like momentum with equilibrium-seeking damping
+    vx *= 0.994  ; Slightly more friction for settling
+    vy *= 0.994
+    
+    ; Floating speed limits (balanced for equilibrium)
+    maxFloatSpeed := Config["MaxSpeed"] * 2.0  ; Reduced from 2.5
+    vx := Min(Max(vx, -maxFloatSpeed), maxFloatSpeed)
+    vy := Min(Max(vy, -maxFloatSpeed), maxFloatSpeed)
+    
+    ; Progressive stabilization based on speed
+    if (Abs(vx) < 0.15 && Abs(vy) < 0.15) {  ; Increased threshold for earlier settling
+        vx *= 0.88  ; Stronger dampening when slow for equilibrium
+        vy *= 0.88
     }
     
     win["vx"] := vx
     win["vy"] := vy
     
-    ; Apply the new stabilization logic
-    ApplyStabilization(win)
-    
+    ; Calculate target position
     win["targetX"] := win["x"] + win["vx"]
     win["targetY"] := win["y"] + win["vy"]
     
+    ; Apply bounds
     win["targetX"] := Max(monLeft, Min(win["targetX"], monRight))
     win["targetY"] := Max(monTop, Min(win["targetY"], monBottom))
-    ; === Velocity Clamp ===
-win["vx"] := Min(Max(win["vx"], -0.5), 0.5)  ; Hard speed limit
-win["vy"] := Min(Max(win["vy"], -0.5), 0.5)
-
-; === Instant Freeze ===
-if (Abs(win["vx"]) < 0.2 && Abs(win["vy"]) < 0.2) {
-    win["vx"] := 0
-    win["vy"] := 0
-}
 }
 
 Bezier3(p0, p1, p2, p3, t) {
@@ -932,16 +983,32 @@ SmoothStep(t) {
     return t * t * (3 - 2 * t)
 }
 
-; ====== COMPLETE PHYSICS STABILIZATION MODULE ======
 ApplyWindowMovements() {
     global g, Config
     static lastUpdate := 0
-    static positionHistory := Map()
+    static lastPositions := Map()
+    static smoothPos := Map()
 
-    ; Initialize frame timing
+    Critical
+
     now := A_TickCount
     frameTime := now - lastUpdate
     lastUpdate := now
+
+    ; Cache all window positions at the start
+    hwndPos := Map()
+    for win in g["Windows"] {
+        hwnd := win["hwnd"]
+        try {
+            WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+            hwndPos[hwnd] := { x: x, y: y }
+        } catch {
+            continue
+        }
+    }
+
+    moveBatch := []
+    movedAny := false
 
     for win in g["Windows"] {
         if (win["hwnd"] == g["ActiveWindow"])
@@ -949,59 +1016,108 @@ ApplyWindowMovements() {
 
         ; Safely get monitor bounds
         try {
-            MonitorGet win["monitor"], &mL, &mT, &mR, &mB
-            monLeft := mL + Config["MinMargin"]
-            monRight := mR - Config["MinMargin"] - win["width"]
-            monTop := mT + Config["MinMargin"]
-            monBottom := mB - Config["MinMargin"] - win["height"]
+            if (Config["SeamlessMonitorFloat"]) {
+                ; Use virtual desktop bounds for seamless multi-monitor floating
+                virtualBounds := GetVirtualDesktopBounds()
+                monLeft := virtualBounds["Left"]
+                monTop := virtualBounds["Top"] + Config["MinMargin"]
+                monRight := virtualBounds["Right"] - win["width"]
+                monBottom := virtualBounds["Bottom"] - Config["MinMargin"] - win["height"]
+            } else {
+                ; Use current monitor bounds for traditional single-monitor floating
+                MonitorGet win["monitor"], &mL, &mT, &mR, &mB
+                monLeft := mL
+                monRight := mR - win["width"]
+                monTop := mT + Config["MinMargin"]
+                monBottom := mB - Config["MinMargin"] - win["height"]
+            }
         } catch {
-            monLeft := Config["MinMargin"]
-            monRight := A_ScreenWidth - Config["MinMargin"] - win["width"]
+            monLeft := 0
+            monRight := A_ScreenWidth - win["width"]
             monTop := Config["MinMargin"]
             monBottom := A_ScreenHeight - Config["MinMargin"] - win["height"]
         }
 
-        ; Initialize position history
-        if !positionHistory.Has(win["hwnd"]) {
-            positionHistory[win["hwnd"]] := []
-            Loop 3
-                positionHistory[win["hwnd"]].Push({x: win["x"], y: win["y"]})
-        }
-
-        ; Calculate target position (with error checking)
+        hwnd := win["hwnd"]
         newX := win.Has("targetX") ? win["targetX"] : win["x"]
         newY := win.Has("targetY") ? win["targetY"] : win["y"]
 
-        ; Apply aggressive stabilization
-        newX := Round(newX)  ; Quantize to whole pixels
-        newY := Round(newY)
+        if (!hwndPos.Has(hwnd))
+            continue
 
-        ; Enforce minimum movement threshold
-        if (Abs(newX - win["x"]) < 1.5 && Abs(newY - win["y"]) < 1.5) {
-            newX := win["x"]  ; Freeze micro-movements
-            newY := win["y"]
+        if (!smoothPos.Has(hwnd))
+            smoothPos[hwnd] := { x: hwndPos[hwnd].x, y: hwndPos[hwnd].y }
+        
+        ; Space-like smooth movement (balanced for equilibrium)
+        alpha := 0.35  ; Higher value = faster convergence to target positions
+        smoothPos[hwnd].x := smoothPos[hwnd].x + (newX - smoothPos[hwnd].x) * alpha
+        smoothPos[hwnd].y := smoothPos[hwnd].y + (newY - smoothPos[hwnd].y) * alpha
+
+        ; Gentle boundary enforcement (soft collision with edges)
+        edgeBuffer := 20
+        if (smoothPos[hwnd].x < monLeft + edgeBuffer) {
+            resistance := (monLeft + edgeBuffer - smoothPos[hwnd].x) / edgeBuffer
+            smoothPos[hwnd].x := Lerp(smoothPos[hwnd].x, monLeft + edgeBuffer, resistance * 0.1)
+        } else if (smoothPos[hwnd].x > monRight - edgeBuffer) {
+            resistance := (smoothPos[hwnd].x - (monRight - edgeBuffer)) / edgeBuffer
+            smoothPos[hwnd].x := Lerp(smoothPos[hwnd].x, monRight - edgeBuffer, resistance * 0.1)
+        }
+        
+        if (smoothPos[hwnd].y < monTop + edgeBuffer) {
+            resistance := (monTop + edgeBuffer - smoothPos[hwnd].y) / edgeBuffer
+            smoothPos[hwnd].y := Lerp(smoothPos[hwnd].y, monTop + edgeBuffer, resistance * 0.1)
+        } else if (smoothPos[hwnd].y > monBottom - edgeBuffer) {
+            resistance := (smoothPos[hwnd].y - (monBottom - edgeBuffer)) / edgeBuffer
+            smoothPos[hwnd].y := Lerp(smoothPos[hwnd].y, monBottom - edgeBuffer, resistance * 0.1)
         }
 
-        ; Clamp to monitor bounds
-        newX := Max(monLeft, Min(newX, monRight))
-        newY := Max(monTop, Min(newY, monBottom))
+        ; Final hard clamp (fallback only)
+        smoothPos[hwnd].x := Max(monLeft, Min(smoothPos[hwnd].x, monRight))
+        smoothPos[hwnd].y := Max(monTop, Min(smoothPos[hwnd].y, monBottom))
 
-        ; Update position history
-        positionHistory[win["hwnd"]].RemoveAt(1)
-        positionHistory[win["hwnd"]].Push({x: newX, y: newY})
+        if (!lastPositions.Has(hwnd))
+            lastPositions[hwnd] := { x: hwndPos[hwnd].x, y: hwndPos[hwnd].y }
 
-        ; Only move if significant change
-        if (Abs(newX - win["x"]) >= 1 || Abs(newY - win["y"]) >= 1) {
-            try {
-                MoveWindowAPI(win["hwnd"], newX, newY)
-                win["x"] := newX
-                win["y"] := newY
-            }
+        ; More sensitive movement threshold for floating feel
+        if (Abs(smoothPos[hwnd].x - lastPositions[hwnd].x) >= 0.2 || Abs(smoothPos[hwnd].y - lastPositions[hwnd].y) >= 0.2) {
+            moveBatch.Push({ hwnd: hwnd, x: smoothPos[hwnd].x, y: smoothPos[hwnd].y })
+            lastPositions[hwnd].x := smoothPos[hwnd].x
+            lastPositions[hwnd].y := smoothPos[hwnd].y
+            win["x"] := smoothPos[hwnd].x
+            win["y"] := smoothPos[hwnd].y
+            movedAny := true
         }
     }
 
-    if (g["FairyDustEnabled"])
-        FairyDust.UpdateTrails()
+    for move in moveBatch {
+        try MoveWindowAPI(move.hwnd, move.x, move.y)
+    }
+
+    ; Z-index ordering: smaller DAW plugin windows on top so they don't get lost
+    ; Only reorder when layout changes significantly, not every frame
+    ; Reduced frequency to prevent flashing
+    static lastZOrderUpdate := 0
+    static lastWindowCount := 0
+    static lastPluginCount := 0
+    
+    ; Count DAW plugin windows
+    pluginCount := 0
+    for win in g["Windows"] {
+        if (IsDAWPlugin(win)) {
+            pluginCount++
+        }
+    }
+    
+    if (pluginCount > 1 && 
+        (A_TickCount - lastZOrderUpdate > 5000 || pluginCount != lastPluginCount)) {
+        OrderWindowsBySize()
+        lastZOrderUpdate := A_TickCount
+        lastWindowCount := g["Windows"].Length
+        lastPluginCount := pluginCount
+    }
+
+    if (g["FairyDustEnabled"] && movedAny)
+        TimePhasing.UpdateEchoes()
 }
 
      ; Calc overlap
@@ -1118,46 +1234,123 @@ CalculateDynamicLayout() {
     global g, Config
     static forceMultipliers := Map("normal", 1.0, "chaos", 0.6)
     static lastState := "normal"
-    static transitionTime := 300  ; Default transition time
+    static transitionTime := 300
+    static lastFocusCheck := 0
 
-    ; Dynamic force adjustment
+    ; Update active window detection periodically
+    if (A_TickCount - lastFocusCheck > 250) {  ; Check every 250ms
+        try {
+            focusedWindow := WinExist("A")
+            if (focusedWindow && focusedWindow != g["ActiveWindow"]) {
+                ; Check if the focused window is one of our managed windows
+                for win in g["Windows"] {
+                    if (win["hwnd"] == focusedWindow) {
+                        g["ActiveWindow"] := focusedWindow
+                        g["LastUserMove"] := A_TickCount  ; Reset timeout when focus changes
+                        break
+                    }
+                }
+            }
+            
+            ; Clear active window if timeout expired and it's no longer focused
+            if (g["ActiveWindow"] != 0 && 
+                A_TickCount - g["LastUserMove"] > Config["UserMoveTimeout"] && 
+                focusedWindow != g["ActiveWindow"]) {
+                g["ActiveWindow"] := 0
+            }
+        }
+        lastFocusCheck := A_TickCount
+    }
+
+    ; Dynamic force adjustment based on system energy
     currentEnergy := 0
     for win in g["Windows"] {
-        CalculateWindowForces(win)
+        CalculateWindowForces(win, g["Windows"]) ; Pass all windows for dynamic interactions
         currentEnergy += win["vx"]**2 + win["vy"]**2
     }
     g["SystemEnergy"] := Lerp(g["SystemEnergy"], currentEnergy, 0.1)
 
-    ; State machine for force adjustment
-    newState := (g["SystemEnergy"] > Config["Stabilization"]["EnergyThreshold"]) ? "chaos" : "normal"
+    ; State machine for natural motion transitions
+    newState := (g["SystemEnergy"] > Config["Stabilization"]["EnergyThreshold"] * 2) ? "chaos" : "normal"
     
     if (newState != lastState) {
-        transitionTime := (newState == "chaos") ? 300 : 500  ; Faster entry to chaos, slower recovery
+        transitionTime := (newState == "chaos") ? 200 : 800  ; Quick chaos entry, slow stabilization
         g["ForceTransition"] := A_TickCount + transitionTime
     }
 
-    ; Smooth force transition
+    ; Smooth force transition for natural feel
     if (A_TickCount < g["ForceTransition"]) {
         t := (g["ForceTransition"] - A_TickCount) / transitionTime
-        currentMultiplier := Lerp(forceMultipliers[newState], forceMultipliers[lastState], t)
+        currentMultiplier := Lerp(forceMultipliers[newState], forceMultipliers[lastState], SmoothStep(t))
     } else {
         currentMultiplier := forceMultipliers[newState]
     }
 
-    ; Apply adjusted forces
+    ; Apply space-like physics adjustments
     for win in g["Windows"] {
+        ; Preserve momentum but allow gentle course corrections
         win["vx"] *= currentMultiplier
         win["vy"] *= currentMultiplier
-        win["vx"] := Min(Max(win["vx"], -Config["MaxSpeed"]), Config["MaxSpeed"])
-        win["vy"] := Min(Max(win["vy"], -Config["MaxSpeed"]), Config["MaxSpeed"])
+        
+        ; Higher speed limits for floating feel
+        maxSpeed := Config["MaxSpeed"] * 1.5
+        win["vx"] := Min(Max(win["vx"], -maxSpeed), maxSpeed)
+        win["vy"] := Min(Max(win["vy"], -maxSpeed), maxSpeed)
     }
 
-    ; Collision resolution
+    ; Gentle collision resolution (no rigid partitioning)
     if (g["Windows"].Length > 1) {
-        g["Windows"] := ResolveCollisions(g["Windows"])
+        ResolveFloatingCollisions(g["Windows"])
     }
 
     lastState := newState
+}
+
+; New floating collision system
+ResolveFloatingCollisions(windows) {
+    global Config
+    
+    ; More aggressive but gentle collision resolution for overlapping windows
+    for i, win1 in windows {
+        for j, win2 in windows {
+            if (i >= j) 
+                continue
+            
+            ; Check for overlap with smaller tolerance for quicker separation
+            overlapX := Max(0, Min(win1["x"] + win1["width"], win2["x"] + win2["width"]) - Max(win1["x"], win2["x"]))
+            overlapY := Max(0, Min(win1["y"] + win1["height"], win2["y"] + win2["height"]) - Max(win1["y"], win2["y"]))
+            
+            if (overlapX > 2 && overlapY > 2) {  ; Reduced from 5 for quicker response
+                ; Gentle separation force
+                centerX1 := win1["x"] + win1["width"]/2
+                centerY1 := win1["y"] + win1["height"]/2
+                centerX2 := win2["x"] + win2["width"]/2
+                centerY2 := win2["y"] + win2["height"]/2
+                
+                dx := centerX1 - centerX2
+                dy := centerY1 - centerY2
+                dist := Max(Sqrt(dx*dx + dy*dy), 1)
+                
+                ; Stronger separation for small windows or high overlap
+                overlapArea := overlapX * overlapY
+                avgSize := (win1["width"] * win1["height"] + win2["width"] * win2["height"]) / 2
+                overlapRatio := overlapArea / avgSize
+                
+                ; Progressive force based on overlap severity
+                separationForce := (overlapX + overlapY) * 0.02 * (1 + overlapRatio * 3)  ; Increased base force and scaling
+                
+                ; Small window bonus for faster separation
+                if (win1["width"] < 300 || win1["height"] < 200 || win2["width"] < 300 || win2["height"] < 200) {
+                    separationForce *= 1.5
+                }
+                
+                win1["vx"] += dx * separationForce / dist
+                win1["vy"] += dy * separationForce / dist
+                win2["vx"] -= dx * separationForce / dist
+                win2["vy"] -= dy * separationForce / dist
+            }
+        }
+    }
 }
 
 
@@ -1269,14 +1462,18 @@ DragWindow() {
     isDragging := true
     g["ActiveWindow"] := winID
     g["LastUserMove"] := A_TickCount
-    
+
+    ; Pause arrangement/physics timers while dragging
+    SetTimer(CalculateDynamicLayout, 0)
+    SetTimer(ApplyWindowMovements, 0)
+
     try {
         WinGetPos(&x, &y, &w, &h, "ahk_id " winID)
         winCenterX := x + w/2
         winCenterY := y + h/2
         monNum := MonitorGetFromPoint(winCenterX, winCenterY)
         MonitorGet monNum, &mL, &mT, &mR, &mB
-        
+
         for win in g["Windows"] {
             if (win["hwnd"] == winID) {
                 win["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
@@ -1288,22 +1485,22 @@ DragWindow() {
                 break
             }
         }
-        
+
         offsetX := mx - x
         offsetY := my - y
-        
+
         DllCall("winmm\timeBeginPeriod", "UInt", 1)
 
         while GetKeyState("LButton", "P") {
             MouseGetPos(&nx, &ny)
             newX := nx - offsetX
             newY := ny - offsetY
-            
+
             newX := Max(mL + Config["MinMargin"], Min(newX, mR - w - Config["MinMargin"]))
             newY := Max(mT + Config["MinMargin"], Min(newY, mB - h - Config["MinMargin"]))
-            
+
             try WinMove(newX, newY,,, "ahk_id " winID)
-            
+
             for win in g["Windows"] {
                 if (win["hwnd"] == winID) {
                     win["x"] := newX
@@ -1314,7 +1511,7 @@ DragWindow() {
                     break
                 }
             }
-            
+
             Sleep(1)
         }
     }
@@ -1323,6 +1520,12 @@ DragWindow() {
     isDragging := false
     g["ActiveWindow"] := 0
     DllCall("winmm\timeEndPeriod", "UInt", 1)
+
+    ; Resume arrangement/physics timers after dragging
+    if (g["ArrangementActive"]) {
+        SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
+        SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
+    }
 }
 
 ToggleArrangement() {
@@ -1352,23 +1555,495 @@ TogglePhysics() {
     }
 }
 
-ToggleFairyDust() {
+ToggleTimePhasing() {
     global g
     g["FairyDustEnabled"] := !g["FairyDustEnabled"]
     if (!g["FairyDustEnabled"]) {
-        FairyDust.CleanupEffects()
-        SetTimer(FairyDust.UpdateTrails.Bind(FairyDust), 0)
+        TimePhasing.CleanupEffects()
+        SetTimer(TimePhasing.UpdateEchoes.Bind(TimePhasing), 0)
     } else {
-        SetTimer(FairyDust.UpdateTrails.Bind(FairyDust), Config["VisualTimeStep"])
+        SetTimer(TimePhasing.UpdateEchoes.Bind(TimePhasing), Config["VisualTimeStep"])
     }
-    ShowTooltip("Fairy Dust Effects: " (g["FairyDustEnabled"] ? "ON" : "OFF"))
+    ShowTooltip("Time Phasing Effects: " (g["FairyDustEnabled"] ? "ON" : "OFF"))
+}
+
+ToggleSeamlessMonitorFloat() {
+    global Config, g
+    Config["SeamlessMonitorFloat"] := !Config["SeamlessMonitorFloat"]
+    
+    if (Config["SeamlessMonitorFloat"]) {
+        ; Update monitor bounds to use virtual desktop
+        g["Monitor"] := GetVirtualDesktopBounds()
+        ShowTooltip("Seamless Multi-Monitor Floating: ON - Windows can float across all monitors")
+    } else {
+        ; Revert to current monitor
+        g["Monitor"] := GetCurrentMonitorInfo()
+        ShowTooltip("Seamless Multi-Monitor Floating: OFF - Windows confined to current monitor")
+    }
+    
+    ; Force update of all window states to apply new boundaries
+    if (g["ArrangementActive"]) {
+        UpdateWindowStates()
+    }
+}
+
+ToggleWindowLock() {
+    global g, Config
+    try {
+        focusedWindow := WinExist("A")
+        if (!focusedWindow) {
+            ShowTooltip("No active window to lock/unlock")
+            return
+        }
+        
+        ; Find the window in our managed windows
+        targetWin := 0
+        for win in g["Windows"] {
+            if (win["hwnd"] == focusedWindow) {
+                targetWin := win
+                break
+            }
+        }
+        
+        if (!targetWin) {
+            ShowTooltip("Window is not managed by the floating system")
+            return
+        }
+        
+        ; Toggle lock status
+        isCurrentlyLocked := (targetWin.Has("ManualLock") && A_TickCount < targetWin["ManualLock"])
+        if (isCurrentlyLocked) {
+            ; Unlock the window
+            if (targetWin.Has("ManualLock"))
+                targetWin.Delete("ManualLock")
+            g["ActiveWindow"] := 0
+            RemoveManualWindowBorder(focusedWindow)
+            ShowTooltip("Window UNLOCKED - will move with physics")
+        } else {
+            ; Lock the window
+            targetWin["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
+            g["ActiveWindow"] := focusedWindow
+            g["LastUserMove"] := A_TickCount
+            ; Stop the window's movement immediately
+            targetWin["vx"] := 0
+            targetWin["vy"] := 0
+            AddManualWindowBorder(focusedWindow)
+            ShowTooltip("Window LOCKED - will stay in place")
+        }
+    }
+    catch {
+        ShowTooltip("Error: Could not lock/unlock window")
+    }
 }
 
 OptimizeWindowPositions() {
-    global g
-    UpdateWindowStates()
-    CalculateDynamicLayout()
-    ShowTooltip("Optimized window positions")
+    global g, Config
+    
+    if (g["Windows"].Length <= 1) {
+        ShowTooltip("Not enough windows to optimize")
+        return
+    }
+    
+    ; Get current monitor info
+    monitor := GetCurrentMonitorInfo()
+    if (!monitor.Count) {
+        ShowTooltip("Could not get monitor information")
+        return
+    }
+    
+    ; Create a copy of windows for repositioning
+    windowsToPlace := []
+    for win in g["Windows"] {
+        ; Skip locked or active windows
+        isLocked := (win["hwnd"] == g["ActiveWindow"] || 
+                    (win.Has("ManualLock") && A_TickCount < win["ManualLock"]))
+        if (!isLocked) {
+            windowsToPlace.Push(win)
+        }
+    }
+    
+    if (windowsToPlace.Length == 0) {
+        ShowTooltip("All windows are locked - nothing to optimize")
+        return
+    }
+    
+    ; Sort windows by area (largest first) for better packing
+    Loop windowsToPlace.Length - 1 {
+        i := A_Index
+        Loop windowsToPlace.Length - i {
+            j := A_Index
+            if (windowsToPlace[j]["area"] < windowsToPlace[j + 1]["area"]) {
+                temp := windowsToPlace[j]
+                windowsToPlace[j] := windowsToPlace[j + 1]
+                windowsToPlace[j + 1] := temp
+            }
+        }
+    }
+    
+    ; Find optimal positions using space-efficient packing
+    optimizedPositions := PackWindowsOptimally(windowsToPlace, monitor)
+    
+    ; Apply optimized positions
+    repositionedCount := 0
+    for i, win in windowsToPlace {
+        if (optimizedPositions.Has(i)) {
+            newPos := optimizedPositions[i]
+            win["targetX"] := newPos["x"]
+            win["targetY"] := newPos["y"]
+            ; Add some velocity toward the target for smooth movement
+            win["vx"] := (newPos["x"] - win["x"]) * 0.1
+            win["vy"] := (newPos["y"] - win["y"]) * 0.1
+            repositionedCount++
+        }
+    }
+    
+    ShowTooltip("Optimized " repositionedCount " window positions for better space utilization")
+}
+
+; Advanced space packing algorithm to find optimal window positions
+PackWindowsOptimally(windows, monitor) {
+    if (windows.Length == 0)
+        return Map()
+    
+    positions := Map()
+    placedWindows := []
+    
+    ; Define usable area with margins
+    useableLeft := monitor["Left"] + Config["MinMargin"]
+    useableTop := monitor["Top"] + Config["MinMargin"] 
+    useableRight := monitor["Right"] - Config["MinMargin"]
+    useableBottom := monitor["Bottom"] - Config["MinMargin"]
+    useableWidth := useableRight - useableLeft
+    useableHeight := useableBottom - useableTop
+    
+    ; Grid-based space mapping for efficient placement
+    gridSize := 50  ; pixels per grid cell
+    gridCols := Floor(useableWidth / gridSize)
+    gridRows := Floor(useableHeight / gridSize)
+    
+    ; Place windows using a smart packing algorithm
+    for i, win in windows {
+        bestPos := FindBestPosition(win, placedWindows, monitor, gridSize, gridCols, gridRows)
+        if (bestPos.Count > 0) {
+            positions[i] := bestPos
+            placedWindows.Push(Map(
+                "x", bestPos["x"],
+                "y", bestPos["y"], 
+                "width", win["width"],
+                "height", win["height"],
+                "hwnd", win["hwnd"]
+            ))
+        }
+    }
+    
+    return positions
+}
+
+; Find the best position for a window considering existing windows and available space
+FindBestPosition(window, placedWindows, monitor, gridSize, gridCols, gridRows) {
+    useableLeft := monitor["Left"] + Config["MinMargin"]
+    useableTop := monitor["Top"] + Config["MinMargin"]
+    useableRight := monitor["Right"] - Config["MinMargin"] - window["width"]
+    useableBottom := monitor["Bottom"] - Config["MinMargin"] - window["height"]
+    
+    bestPos := Map()
+    bestScore := -999999
+    
+    ; Try multiple placement strategies
+    strategies := [
+        "topLeft",      ; Pack from top-left
+        "center",       ; Try near center first
+        "edges",        ; Prefer screen edges
+        "gaps"          ; Fill gaps between existing windows
+    ]
+    
+    for strategy in strategies {
+        candidatePositions := GeneratePositionCandidates(window, placedWindows, monitor, strategy)
+        
+        for pos in candidatePositions {
+            ; Ensure position is within bounds
+            if (pos["x"] < useableLeft || pos["x"] > useableRight || 
+                pos["y"] < useableTop || pos["y"] > useableBottom)
+                continue
+                
+            ; Check if position overlaps with existing windows
+            testWindow := Map(
+                "x", pos["x"], "y", pos["y"],
+                "width", window["width"], "height", window["height"],
+                "hwnd", window["hwnd"]
+            )
+            
+            if (!IsOverlapping(testWindow, placedWindows)) {
+                score := ScorePosition(pos, window, placedWindows, monitor, strategy)
+                if (score > bestScore) {
+                    bestScore := score
+                    bestPos := pos.Clone()
+                }
+            }
+        }
+        
+        ; If we found a good position, use it
+        if (bestPos.Count > 0 && bestScore > 0)
+            break
+    }
+    
+    return bestPos
+}
+
+; Generate candidate positions based on different strategies
+GeneratePositionCandidates(window, placedWindows, monitor, strategy) {
+    candidates := []
+    useableLeft := monitor["Left"] + Config["MinMargin"]
+    useableTop := monitor["Top"] + Config["MinMargin"]
+    useableRight := monitor["Right"] - Config["MinMargin"] - window["width"]
+    useableBottom := monitor["Bottom"] - Config["MinMargin"] - window["height"]
+    
+    switch strategy {
+        case "topLeft":
+            ; Grid-based placement from top-left
+            stepX := 60
+            stepY := 60
+            yPos := useableTop
+            while (yPos <= useableBottom) {
+                xPos := useableLeft
+                while (xPos <= useableRight) {
+                    candidates.Push(Map("x", xPos, "y", yPos))
+                    if (candidates.Length > 100)  ; Limit candidates for performance
+                        return candidates
+                    xPos += stepX
+                }
+                yPos += stepY
+            }
+            
+        case "center":
+            ; Spiral outward from center
+            centerX := monitor["CenterX"] - window["width"]/2
+            centerY := monitor["CenterY"] - window["height"]/2
+            candidates.Push(Map("x", centerX, "y", centerY))
+            
+            maxRadius := 300
+            radius := 50
+            while (radius <= maxRadius) {
+                angles := Max(8, Floor(radius / 25))
+                angleStep := 1
+                while (angleStep <= angles) {
+                    angle := (angleStep - 1) * (2 * 3.14159 / angles)
+                    xPos := centerX + radius * Cos(angle)
+                    yPos := centerY + radius * Sin(angle)
+                    if (xPos >= useableLeft && xPos <= useableRight && yPos >= useableTop && yPos <= useableBottom)
+                        candidates.Push(Map("x", xPos, "y", yPos))
+                    angleStep++
+                }
+                radius += 50
+            }
+            
+        case "edges":
+            ; Prefer positions along screen edges
+            margin := 20
+            ; Top edge
+            xPos := useableLeft
+            while (xPos <= useableRight) {
+                candidates.Push(Map("x", xPos, "y", useableTop))
+                xPos += 80
+            }
+            ; Left edge  
+            yPos := useableTop
+            while (yPos <= useableBottom) {
+                candidates.Push(Map("x", useableLeft, "y", yPos))
+                yPos += 80
+            }
+            ; Right edge
+            yPos := useableTop
+            while (yPos <= useableBottom) {
+                candidates.Push(Map("x", useableRight, "y", yPos))
+                yPos += 80
+            }
+            ; Bottom edge
+            xPos := useableLeft
+            while (xPos <= useableRight) {
+                candidates.Push(Map("x", xPos, "y", useableBottom))
+                xPos += 80
+            }
+            
+        case "gaps":
+            ; Find gaps between existing windows
+            if (placedWindows.Length > 0) {
+                for placed in placedWindows {
+                    ; Try positions adjacent to existing windows
+                    adjacentPositions := [
+                        Map("x", placed["x"] + placed["width"] + Config["MinGap"], "y", placed["y"]),  ; Right
+                        Map("x", placed["x"] - window["width"] - Config["MinGap"], "y", placed["y"]),   ; Left
+                        Map("x", placed["x"], "y", placed["y"] + placed["height"] + Config["MinGap"]),  ; Below
+                        Map("x", placed["x"], "y", placed["y"] - window["height"] - Config["MinGap"])   ; Above
+                    ]
+                    for pos in adjacentPositions {
+                        if (pos["x"] >= useableLeft && pos["x"] <= useableRight && 
+                            pos["y"] >= useableTop && pos["y"] <= useableBottom)
+                            candidates.Push(pos)
+                    }
+                }
+            }
+    }
+    
+    return candidates
+}
+
+; Score a position based on various criteria
+ScorePosition(pos, window, placedWindows, monitor, strategy) {
+    score := 1000  ; Base score
+    
+    ; Distance from center (closer = better for most strategies)
+    centerX := monitor["CenterX"]
+    centerY := monitor["CenterY"]
+    distFromCenter := Sqrt((pos["x"] + window["width"]/2 - centerX)**2 + (pos["y"] + window["height"]/2 - centerY)**2)
+    
+    switch strategy {
+        case "center":
+            score -= distFromCenter * 0.5  ; Prefer center
+        case "edges":
+            score += distFromCenter * 0.3   ; Prefer edges (farther from center)
+        case "topLeft":
+            score -= (pos["x"] + pos["y"]) * 0.1  ; Prefer top-left
+    }
+    
+    ; Bonus for not being too close to other windows
+    for placed in placedWindows {
+        centerDist := Sqrt((pos["x"] + window["width"]/2 - placed["x"] - placed["width"]/2)**2 + 
+                          (pos["y"] + window["height"]/2 - placed["y"] - placed["height"]/2)**2)
+        if (centerDist < 100)
+            score -= (100 - centerDist) * 2  ; Penalty for being too close
+        else if (centerDist > 200)
+            score += 50  ; Bonus for good spacing
+    }
+    
+    ; Bonus for being within the screen nicely
+    margin := Config["MinMargin"]
+    if (pos["x"] > monitor["Left"] + margin && pos["x"] < monitor["Right"] - window["width"] - margin &&
+        pos["y"] > monitor["Top"] + margin && pos["y"] < monitor["Bottom"] - window["height"] - margin)
+        score += 200
+    
+    return score
+}
+
+; Calculate force to move windows toward less crowded areas of the screen
+CalculateSpaceSeekingForce(win, allWindows) {
+    if (allWindows.Length <= 2)
+        return Map()  ; Not enough windows to need space seeking
+    
+    ; Get current monitor bounds
+    try {
+        MonitorGet win["monitor"], &mL, &mT, &mR, &mB
+    } catch {
+        return Map()
+    }
+    
+    winCenterX := win["x"] + win["width"]/2
+    winCenterY := win["y"] + win["height"]/2
+    
+    ; Calculate local density around this window
+    densityRadius := 250  ; pixels
+    localDensity := 0
+    
+    for other in allWindows {
+        if (other["hwnd"] == win["hwnd"])
+            continue
+            
+        otherCenterX := other["x"] + other["width"]/2
+        otherCenterY := other["y"] + other["height"]/2
+        dist := Sqrt((winCenterX - otherCenterX)**2 + (winCenterY - otherCenterY)**2)
+        
+        if (dist < densityRadius) {
+            ; Weight by window size and proximity
+            proximityWeight := (densityRadius - dist) / densityRadius
+            sizeWeight := Sqrt(other["width"] * other["height"]) / 1000
+            localDensity += proximityWeight * sizeWeight
+        }
+    }
+    
+    ; If not crowded, no space seeking needed
+    if (localDensity < 2.0)
+        return Map()
+    
+    ; Find direction toward less crowded space
+    bestDirection := FindLeastCrowdedDirection(win, allWindows, mL, mT, mR, mB)
+    
+    if (bestDirection.Count == 0)
+        return Map()
+    
+    ; Calculate force magnitude based on crowding level
+    forceMagnitude := Min(localDensity - 2.0, 3.0)  ; Cap the force
+    
+    return Map(
+        "vx", bestDirection["x"] * forceMagnitude,
+        "vy", bestDirection["y"] * forceMagnitude
+    )
+}
+
+; Find the direction with the least window density
+FindLeastCrowdedDirection(win, allWindows, mL, mT, mR, mB) {
+    winCenterX := win["x"] + win["width"]/2
+    winCenterY := win["y"] + win["height"]/2
+    
+    ; Test 8 directions around the window
+    directions := [
+        Map("x", 0, "y", -1),    ; North
+        Map("x", 1, "y", -1),    ; Northeast  
+        Map("x", 1, "y", 0),     ; East
+        Map("x", 1, "y", 1),     ; Southeast
+        Map("x", 0, "y", 1),     ; South
+        Map("x", -1, "y", 1),    ; Southwest
+        Map("x", -1, "y", 0),    ; West
+        Map("x", -1, "y", -1)    ; Northwest
+    ]
+    
+    bestDirection := Map()
+    lowestDensity := 999999
+    searchDistance := 200  ; How far to look ahead
+    
+    for dir in directions {
+        ; Calculate test point in this direction
+        testX := winCenterX + dir["x"] * searchDistance
+        testY := winCenterY + dir["y"] * searchDistance
+        
+        ; Skip if test point would be outside screen bounds
+        if (testX < mL + win["width"]/2 || testX > mR - win["width"]/2 ||
+            testY < mT + win["height"]/2 || testY > mB - win["height"]/2)
+            continue
+        
+        ; Calculate density at test point
+        density := CalculateDensityAtPoint(testX, testY, allWindows, win["hwnd"])
+        
+        if (density < lowestDensity) {
+            lowestDensity := density
+            bestDirection := dir.Clone()
+        }
+    }
+    
+    return bestDirection
+}
+
+; Calculate window density at a specific point
+CalculateDensityAtPoint(testX, testY, allWindows, excludeHwnd := 0) {
+    density := 0
+    influenceRadius := 150
+    
+    for win in allWindows {
+        if (excludeHwnd != 0 && win["hwnd"] == excludeHwnd)
+            continue
+            
+        winCenterX := win["x"] + win["width"]/2
+        winCenterY := win["y"] + win["height"]/2
+        dist := Sqrt((testX - winCenterX)**2 + (testY - winCenterY)**2)
+        
+        if (dist < influenceRadius) {
+            ; Closer windows contribute more to density
+            influence := (influenceRadius - dist) / influenceRadius
+            sizeWeight := Sqrt(win["width"] * win["height"]) / 1000
+            density += influence * sizeWeight
+        }
+    }
+    
+    return density
 }
 
 WindowMoveHandler(wParam, lParam, msg, hwnd) {
@@ -1475,7 +2150,13 @@ GetTaskbarRect() {
 UpdateWindowStates() {
     global g, Config
     try {
-        currentMonitor := GetCurrentMonitorInfo()
+        ; Use virtual desktop bounds if seamless floating is enabled
+        if (Config["SeamlessMonitorFloat"]) {
+            currentMonitor := GetVirtualDesktopBounds()
+        } else {
+            currentMonitor := GetCurrentMonitorInfo()
+        }
+        
         g["Monitor"] := currentMonitor
         g["Windows"] := GetVisibleWindows(currentMonitor)
         ClearManualFlags()
@@ -1483,8 +2164,10 @@ UpdateWindowStates() {
             CalculateDynamicLayout()
     }
     catch {
+        ; Initialize with appropriate monitor bounds
+        initialMonitor := Config["SeamlessMonitorFloat"] ? GetVirtualDesktopBounds() : GetCurrentMonitorInfo()
         g := Map(
-            "Monitor", GetCurrentMonitorInfo(),
+            "Monitor", initialMonitor,
             "ArrangementActive", true,
             "LastUserMove", 0,
             "ActiveWindow", 0,
@@ -1502,12 +2185,14 @@ UpdateWindowStates() {
 
 ^!Space::ToggleArrangement()      ; Ctrl+Alt+Space to toggle
 ^!P::TogglePhysics()              ; Ctrl+Alt+P for physics
-^!F::ToggleFairyDust()            ; Ctrl+Alt+F for effects
-^!O::OptimizeWindowPositions()    ; Ctrl+Alt+O to optimize
+^!F::ToggleTimePhasing()          ; Ctrl+Alt+F for time phasing effects
+^!M::ToggleSeamlessMonitorFloat() ; Ctrl+Alt+M for seamless multi-monitor floating
+^!O::OptimizeWindowPositions()    ; Ctrl+Alt+O to optimize space utilization
+^!L::ToggleWindowLock()           ; Ctrl+Alt+L to lock/unlock active window
 
 SetTimer(UpdateWindowStates, Config["PhysicsTimeStep"])
 SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
-SetTimer(FairyDust.UpdateTrails.Bind(FairyDust), Config["VisualTimeStep"])
+SetTimer(TimePhasing.UpdateEchoes.Bind(TimePhasing), Config["VisualTimeStep"])
 UpdateWindowStates()
 
 OnMessage(0x0003, WindowMoveHandler)
@@ -1516,7 +2201,7 @@ OnMessage(0x0005, WindowSizeHandler)
 OnExit(*) {
     for hwnd in g["ManualWindows"]
         RemoveManualWindowBorder(hwnd)
-    FairyDust.CleanupEffects()
+    TimePhasing.CleanupEffects()
     DllCall("winmm\timeEndPeriod", "UInt", 1)
 }
 
@@ -1527,14 +2212,108 @@ MoveWindowAPI(hwnd, x, y, w := "", h := "") {
     return DllCall("SetWindowPos", "Ptr", hwnd, "Ptr", 0, "Int", x, "Int", y, "Int", w, "Int", h, "UInt", 0x0014)
 }
 
+global PartitionGridSize := 400  ; pixels per grid cell (tune for your window sizes)
 
+PartitionWindows(windows) {
+    global PartitionGridSize
+    buckets := Map()
+    for win in windows {
+        gx := Floor(win["x"] / PartitionGridSize)
+        gy := Floor(win["y"] / PartitionGridSize)
+        key := gx "," gy
+        if !buckets.Has(key)
+            buckets[key] := []
+        buckets[key].Push(win)
+        win["_grid"] := [gx, gy]
+    }
+    return buckets
+}
 
+; Add this Clamp helper function near the top-level (outside any class)
+Clamp(val, min, max) {
+    return val < min ? min : val > max ? max : val
+}
 
+; Z-index ordering: smaller windows on top so they don't get lost behind larger ones
+; Only applies to DAW plugin windows to prevent flashing of regular windows
+OrderWindowsBySize() {
+    global g
+    
+    if (g["Windows"].Length <= 1)
+        return
+    
+    ; Create array of DAW plugin windows with their areas, excluding active window
+    windowAreas := []
+    for win in g["Windows"] {
+        if (win["hwnd"] != g["ActiveWindow"] && IsDAWPlugin(win)) {
+            windowAreas.Push({
+                hwnd: win["hwnd"],
+                area: win["width"] * win["height"],
+                lastZOrder: win.Has("lastZOrder") ? win["lastZOrder"] : 0
+            })
+        }
+    }
+    
+    if (windowAreas.Length <= 1)
+        return
+    
+    ; Sort by area (largest first) - manual bubble sort since AHK v2 arrays don't have built-in sort
+    Loop windowAreas.Length - 1 {
+        i := A_Index
+        Loop windowAreas.Length - i {
+            j := A_Index
+            if (windowAreas[j].area < windowAreas[j + 1].area) {
+                ; Swap elements
+                temp := windowAreas[j]
+                windowAreas[j] := windowAreas[j + 1]
+                windowAreas[j + 1] := temp
+            }
+        }
+    }
+    
+    ; Set Z-order for DAW plugin windows only: largest plugins at bottom, smallest at top
+    ; This ensures tiny plugin windows are never hidden behind larger ones
+    ; Use gentle reordering to prevent flashing
+    for i, winData in windowAreas {
+        try {
+            ; Only reorder if the window's z-order actually needs to change
+            newZOrder := (i <= windowAreas.Length // 2) ? 1 : 0  ; 1 for bottom, 0 for top
+            
+            if (winData.lastZOrder != newZOrder) {
+                ; Use SWP_NOACTIVATE and SWP_NOMOVE to prevent flashing and focus changes
+                ; 0x0010 = SWP_NOACTIVATE, 0x0002 = SWP_NOMOVE, 0x0001 = SWP_NOSIZE
+                flags := 0x0010 | 0x0002 | 0x0001  ; Don't activate, move, or resize
+                
+                if (newZOrder == 1) {
+                    ; Larger plugin windows go to bottom (HWND_BOTTOM = 1)
+                    DllCall("SetWindowPos", "Ptr", winData.hwnd, "Ptr", 1, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
+                } else {
+                    ; Smaller plugin windows stay on top (HWND_TOP = 0)
+                    DllCall("SetWindowPos", "Ptr", winData.hwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
+                }
+                
+                ; Update the stored z-order for this window
+                for win in g["Windows"] {
+                    if (win["hwnd"] == winData.hwnd) {
+                        win["lastZOrder"] := newZOrder
+                        break
+                    }
+                }
+            }
+        }
+        catch {
+            continue
+        }
+    }
+}
 
-
-; This script is the brainchild of:
-; Human: Flalaski, 
-; AI: DeepSeek+Gemini+CoPilot, 
-; Lots of back & forth, toss around, backups & redo's, 
-; until finally I (the human) got this to do what I've been trying to find as a software. 
-; Hope it's helpful! ♥
+; Helper function to identify DAW plugin windows
+IsDAWPlugin(win) {
+    try {
+        ; Use the consolidated IsPluginWindow function
+        return IsPluginWindow(win["hwnd"])
+    }
+    catch {
+        return false
+    }
+}

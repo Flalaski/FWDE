@@ -1797,131 +1797,128 @@ GeneratePositionCandidates(window, placedWindows, monitor, strategy) {
     useableTop := monitor["Top"] + Config["MinMargin"]
     useableRight := monitor["Right"] - Config["MinMargin"] - window["width"]
     useableBottom := monitor["Bottom"] - Config["MinMargin"] - window["height"]
-    
+
     switch strategy {
         case "topLeft":
             ; Grid-based placement from top-left
             stepX := 60
             stepY := 60
-            yPos := useableTop
-            while (yPos <= useableBottom) {
-                xPos := useableLeft
-                while (xPos <= useableRight) {
-                    candidates.Push(Map("x", xPos, "y", yPos))
-                    if (candidates.Length > 100)  ; Limit candidates for performance
+            posY := useableTop
+            while (posY <= useableBottom) {
+                posX := useableLeft
+                while (posX <= useableRight) {
+                    candidates.Push(Map("x", posX, "y", posY))
+                    if (candidates.Length > 100)
                         return candidates
-                    xPos += stepX
+                    posX += stepX
                 }
-                yPos += stepY
+                posY += stepY
             }
-            
         case "center":
             ; Spiral outward from center
             centerX := monitor["CenterX"] - window["width"]/2
             centerY := monitor["CenterY"] - window["height"]/2
             candidates.Push(Map("x", centerX, "y", centerY))
-            
-            maxRadius := 300
-            radius := 50
-            while (radius <= maxRadius) {
-                angles := Max(8, Floor(radius / 25))
-                angleStep := 1
-                while (angleStep <= angles) {
-                    angle := (angleStep - 1) * (2 * 3.14159 / angles)
-                    xPos := centerX + radius * Cos(angle)
-                    yPos := centerY + radius * Sin(angle)
-                    if (xPos >= useableLeft && xPos <= useableRight && yPos >= useableTop && yPos <= useableBottom)
-                        candidates.Push(Map("x", xPos, "y", yPos))
-                    angleStep++
+            maxSpiralRadius := 300
+            spiralRadius := 50
+            while (spiralRadius <= maxSpiralRadius) {
+                spiralAngles := Max(8, Floor(spiralRadius / 25))
+                spiralAngleStep := 1
+                while (spiralAngleStep <= spiralAngles) {
+                    angle := (spiralAngleStep - 1) * (2 * 3.14159 / spiralAngles)
+                    posX := centerX + spiralRadius * Cos(angle)
+                    posY := centerY + spiralRadius * Sin(angle)
+                    if (posX >= useableLeft && posX <= useableRight && posY >= useableTop && posY <= useableBottom)
+                        candidates.Push(Map("x", posX, "y", posY))
+                    spiralAngleStep++
                 }
-                radius += 50
+                spiralRadius += 50
             }
-            
         case "edges":
             ; Prefer positions along screen edges
             margin := 20
             ; Top edge
-            xPos := useableLeft
-            while (xPos <= useableRight) {
-                candidates.Push(Map("x", xPos, "y", useableTop))
-                xPos += 80
+            posX := useableLeft
+            while (posX <= useableRight) {
+                candidates.Push(Map("x", posX, "y", useableTop))
+                posX += 80
             }
-            ; Left edge  
-            yPos := useableTop
-            while (yPos <= useableBottom) {
-                candidates.Push(Map("x", useableLeft, "y", yPos))
-                yPos += 80
+            ; Left edge
+            posY := useableTop
+            while (posY <= useableBottom) {
+                candidates.Push(Map("x", useableLeft, "y", posY))
+                posY += 80
             }
             ; Right edge
-            yPos := useableTop
-            while (yPos <= useableBottom) {
-                candidates.Push(Map("x", useableRight, "y", yPos))
-                yPos += 80
+            posY := useableTop
+            while (posY <= useableBottom) {
+                candidates.Push(Map("x", useableRight, "y", posY))
+                posY += 80
             }
             ; Bottom edge
-            xPos := useableLeft
-            while (xPos <= useableRight) {
-                candidates.Push(Map("x", xPos, "y", useableBottom))
-                xPos += 80
+            posX := useableLeft
+            while (posX <= useableRight) {
+                candidates.Push(Map("x", posX, "y", useableBottom))
+                posX += 80
             }
-            
         case "gaps":
-            ; Find gaps between existing windows
+            ; Fill gaps between existing windows
             if (placedWindows.Length > 0) {
                 for placed in placedWindows {
-                    ; Try positions adjacent to existing windows
                     adjacentPositions := [
-                        Map("x", placed["x"] + placed["width"] + Config["MinGap"], "y", placed["y"]),  ; Right
-                        Map("x", placed["x"] - window["width"] - Config["MinGap"], "y", placed["y"]),   ; Left
-                        Map("x", placed["x"], "y", placed["y"] + placed["height"] + Config["MinGap"]),  ; Below
-                        Map("x", placed["x"], "y", placed["y"] - window["height"] - Config["MinGap"])   ; Above
+                        Map("x", placed["x"] + placed["width"] + Config["MinGap"], "y", placed["y"]),
+                        Map("x", placed["x"] - window["width"] - Config["MinGap"], "y", placed["y"]),
+                        Map("x", placed["x"], "y", placed["y"] + placed["height"] + Config["MinGap"]),
+                        Map("x", placed["x"], "y", placed["y"] - window["height"] - Config["MinGap"])
                     ]
                     for pos in adjacentPositions {
-                        if (pos["x"] >= useableLeft && pos["x"] <= useableRight && 
+                        if (pos["x"] >= useableLeft && pos["x"] <= useableRight &&
                             pos["y"] >= useableTop && pos["y"] <= useableBottom)
                             candidates.Push(pos)
                     }
                 }
             }
     }
-    
-    return candidates
+    ; Optimize: Remove duplicate positions
+    unique := Map()
+    for pos in candidates {
+        key := pos["x"] "," pos["y"]
+        if !unique.Has(key)
+            unique[key] := pos
+    }
+    return unique.Values()
 }
 
 ; Score a position based on various criteria
 ScorePosition(pos, window, placedWindows, monitor, strategy) {
-    score := 1000  ; Base score
-    
-    ; Distance from center (closer = better for most strategies)
+    score := 1000
     centerX := monitor["CenterX"]
     centerY := monitor["CenterY"]
     distFromCenter := Sqrt((pos["x"] + window["width"]/2 - centerX)**2 + (pos["y"] + window["height"]/2 - centerY)**2)
-    
+
     switch strategy {
         case "center":
-            score -= distFromCenter * 0.5  ; Prefer center
+            score -= distFromCenter * 0.5
         case "edges":
-            score += distFromCenter * 0.3   ; Prefer edges (farther from center)
+            score += distFromCenter * 0.3
         case "topLeft":
-            score -= (pos["x"] + pos["y"]) * 0.1  ; Prefer top-left
+            score -= (pos["x"] + pos["y"]) * 0.1
     }
-    
-    ; Bonus for not being too close to other windows
+
     for placed in placedWindows {
-        centerDist := Sqrt((pos["x"] + window["width"]/2 - placed["x"] - placed["width"]/2)**2 + 
+        centerDist := Sqrt((pos["x"] + window["width"]/2 - placed["x"] - placed["width"]/2)**2 +
                           (pos["y"] + window["height"]/2 - placed["y"] - placed["height"]/2)**2)
         if (centerDist < 100)
-            score -= (100 - centerDist) * 2  ; Penalty for being too close
+            score -= (100 - centerDist) * 2
         else if (centerDist > 200)
-            score += 50  ; Bonus for good spacing
+            score += 50
     }
-    
-    ; Bonus for being within the screen nicely
+
     margin := Config["MinMargin"]
     if (pos["x"] > monitor["Left"] + margin && pos["x"] < monitor["Right"] - window["width"] - margin &&
         pos["y"] > monitor["Top"] + margin && pos["y"] < monitor["Bottom"] - window["height"] - margin)
         score += 200
-    
+
     return score
 }
 

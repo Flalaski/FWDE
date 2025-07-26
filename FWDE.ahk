@@ -33,7 +33,7 @@ global Config := Map(
     "MinMargin", 42,
     "MinGap", 21,
     "ManualGapBonus", 369,
-    "AttractionForce", 0.01,   ; << restore to a small value (not 3.2)
+    "AttractionForce", 0.0001,   ; << restore to a small value (not 3.2)
     "RepulsionForce", 0.369,    ; << restore to a small value (not 28)
     "ManualRepulsionMultiplier", 1.3,
     "EdgeRepulsionForce", 0.80,
@@ -79,7 +79,7 @@ global Config := Map(
     "VisualTimeStep", 2,    ; Lower = smoother visuals (try 16-33ms for 60-30fps)
     "Smoothing", 0.5,  ; Higher = smoother but more lag (0.9-0.99)
     "Stabilization", Map(
-        "MinSpeedThreshold", 0.6,  ; Lower values high-DPI (0.05-0.15) ~ Higher values (0.2-0.5)  low-performance systems
+        "MinSpeedThreshold", 0.369,  ; Lower values high-DPI (0.05-0.15) ~ Higher values (0.2-0.5)  low-performance systems
         "EnergyThreshold", 0.06,     ; Lower values (0.05-0.1): Early stabilization, prevents overshooting
         "DampingBoost", 0.12,       ; 0.01-0.05: Subtle braking (smooth stops) ~ 0.1+: Strong braking (quick stops but may feel robotic)
         "OverlapTolerance", 0     ; Zero tolerance for overlaps unless forced by constraints
@@ -349,8 +349,10 @@ FindNonOverlappingPosition(window, otherWindows, monitor) {
         }
     }
     
-    ; Fallback: slight offset from original position
-    return Map("x", window["x"] + 20, "y", window["y"] + 20)
+    ; Fallback: slight offset from original position, but clamp to visible area
+    fallbackX := Clamp(window["x"] + 20, monitor["Left"] + Config["MinMargin"], monitor["Right"] - window["width"] - Config["MinMargin"])
+    fallbackY := Clamp(window["y"] + 20, monitor["Top"] + Config["MinMargin"], monitor["Bottom"] - window["height"] - Config["MinMargin"])
+    return Map("x", fallbackX, "y", fallbackY)
 }
 
 IsOverlapping(window, otherWindows) {
@@ -514,7 +516,6 @@ IsWindowFloating(hwnd) {
 GetVisibleWindows(monitor) {
     global Config, g
     WinList := []
-    
     allWindows := []
     for hwnd in WinGetList() {
         try {
@@ -590,14 +591,12 @@ GetVisibleWindows(monitor) {
                 if (Config["SeamlessMonitorFloat"]) {
                     ; Use virtual desktop bounds for seamless floating
                     virtualBounds := GetVirtualDesktopBounds()
-                    window["x"] := Max(virtualBounds["Left"] + Config["MinMargin"], 
-                                     Min(window["x"], virtualBounds["Right"] - window["width"] - Config["MinMargin"]))
-                    window["y"] := Max(virtualBounds["Top"] + Config["MinMargin"], 
-                                     Min(window["y"], virtualBounds["Bottom"] - window["height"] - Config["MinMargin"]))
+                    window["x"] := Clamp(window["x"], virtualBounds["Left"] + Config["MinMargin"], virtualBounds["Right"] - window["width"] - Config["MinMargin"])
+                    window["y"] := Clamp(window["y"], virtualBounds["Top"] + Config["MinMargin"], virtualBounds["Bottom"] - window["height"] - Config["MinMargin"])
                 } else {
                     ; Apply margin constraints for current monitor
-                    window["x"] := Max(mL + Config["MinMargin"], Min(window["x"], mR - window["width"] - Config["MinMargin"]))
-                    window["y"] := Max(mT + Config["MinMargin"], Min(window["y"], mB - window["height"] - Config["MinMargin"]))
+                    window["x"] := Clamp(window["x"], mL + Config["MinMargin"], mR - window["width"] - Config["MinMargin"])
+                    window["y"] := Clamp(window["y"], mT + Config["MinMargin"], mB - window["height"] - Config["MinMargin"])
                 }
                 
                 ; Find existing window data if available
@@ -1707,24 +1706,33 @@ PackWindowsOptimally(windows, monitor) {
     
     positions := Map()
     placedWindows := []
-    
-    ; Define usable area with margins
-    useableLeft := monitor["Left"] + Config["MinMargin"]
-    useableTop := monitor["Top"] + Config["MinMargin"] 
-    useableRight := monitor["Right"] - Config["MinMargin"]
-    useableBottom := monitor["Bottom"] - Config["MinMargin"]
-    useableWidth := useableRight - useableLeft
-    useableHeight := useableBottom - useableTop
-    
-    ; Grid-based space mapping for efficient placement
-    gridSize := 50  ; pixels per grid cell
-    gridCols := Floor(useableWidth / gridSize)
-    gridRows := Floor(useableHeight / gridSize)
-    
-    ; Place windows using a smart packing algorithm
+    gridSize := 50  ; pixels per grid cell (tune for your window sizes)
+
     for i, win in windows {
+        ; Calculate usable area for this window
+        useableLeft := monitor["Left"] + Config["MinMargin"]
+        useableTop := monitor["Top"] + Config["MinMargin"]
+        useableRight := monitor["Right"] - Config["MinMargin"] - win["width"]
+        useableBottom := monitor["Bottom"] - Config["MinMargin"] - win["height"]
+        useableWidth := useableRight - useableLeft
+        useableHeight := useableBottom - useableTop
+        gridCols := Floor(useableWidth / gridSize)
+        gridRows := Floor(useableHeight / gridSize)
+
+        ; Store original height if not already stored
+        if (!win.Has("origHeight"))
+            win["origHeight"] := win["height"]
+
         bestPos := FindBestPosition(win, placedWindows, monitor, gridSize, gridCols, gridRows)
         if (bestPos.Count > 0) {
+            ; If window would float below the screen, shrink its height
+            if (bestPos["y"] + win["height"] > monitor["Bottom"] - Config["MinMargin"]) {
+                newHeight := Max(80, monitor["Bottom"] - Config["MinMargin"] - bestPos["y"])
+                win["height"] := newHeight
+            } else if (win.Has("origHeight") && win["height"] != win["origHeight"]) {
+                ; Restore original height if space allows
+                win["height"] := win["origHeight"]
+            }
             positions[i] := bestPos
             placedWindows.Push(Map(
                 "x", bestPos["x"],
@@ -1765,11 +1773,17 @@ FindBestPosition(window, placedWindows, monitor, gridSize, gridCols, gridRows) {
             if (pos["x"] < useableLeft || pos["x"] > useableRight || 
                 pos["y"] < useableTop || pos["y"] > useableBottom)
                 continue
-                
+
+            ; --- Resize window height if it would exceed monitor bottom margin ---
+            tempHeight := window["height"]
+            if (pos["y"] + tempHeight > monitor["Bottom"] - Config["MinMargin"]) {
+                tempHeight := Max(80, monitor["Bottom"] - Config["MinMargin"] - pos["y"])
+            }
+
             ; Check if position overlaps with existing windows
             testWindow := Map(
                 "x", pos["x"], "y", pos["y"],
-                "width", window["width"], "height", window["height"],
+                "width", window["width"], "height", tempHeight,
                 "hwnd", window["hwnd"]
             )
             
@@ -1778,6 +1792,7 @@ FindBestPosition(window, placedWindows, monitor, gridSize, gridCols, gridRows) {
                 if (score > bestScore) {
                     bestScore := score
                     bestPos := pos.Clone()
+                    bestPos["height"] := tempHeight ; Store adjusted height
                 }
             }
         }

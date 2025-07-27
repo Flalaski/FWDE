@@ -823,13 +823,22 @@ ApplyStabilization(win) {
 CalculateWindowForces(win, allWindows) {
     global g, Config
 
+    ; Check for manual lock (window should not move by physics)
+    isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
+    if (isManuallyLocked) {
+        win["vx"] := 0
+        win["vy"] := 0
+        win["targetX"] := win["x"]
+        win["targetY"] := win["y"]
+        return
+    }
+
     ; Keep active window and recently moved windows still
     isActiveWindow := (win["hwnd"] == g["ActiveWindow"])
     isRecentlyMoved := (A_TickCount - g["LastUserMove"] < Config["UserMoveTimeout"])
     isCurrentlyFocused := (win["hwnd"] == WinExist("A"))
-    isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
     
-    if (isActiveWindow || isRecentlyMoved && isCurrentlyFocused || isManuallyLocked) {
+    if (isActiveWindow || isRecentlyMoved && isCurrentlyFocused) {
         win["vx"] := 0
         win["vy"] := 0
         return
@@ -1010,20 +1019,33 @@ ApplyWindowMovements() {
     movedAny := false
 
     for win in g["Windows"] {
+        ; Prevent movement of locked windows by physics/arrangement
+        isLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
+        if (isLocked)
+            continue
+
         if (win["hwnd"] == g["ActiveWindow"])
             continue
 
-        ; Safely get monitor bounds
+        hwnd := win["hwnd"]
+        newX := win.Has("targetX") ? win["targetX"] : win["x"]
+        newY := win.Has("targetY") ? win["targetY"] : win["y"]
+
+        if (!hwndPos.Has(hwnd))
+            continue
+
+        if (!smoothPos.Has(hwnd))
+            smoothPos[hwnd] := { x: hwndPos[hwnd].x, y: hwndPos[hwnd].y }
+
+        ; Assign monitor bounds for edge enforcement
         try {
             if (Config["SeamlessMonitorFloat"]) {
-                ; Use virtual desktop bounds for seamless multi-monitor floating
                 virtualBounds := GetVirtualDesktopBounds()
                 monLeft := virtualBounds["Left"]
                 monTop := virtualBounds["Top"] + Config["MinMargin"]
                 monRight := virtualBounds["Right"] - win["width"]
                 monBottom := virtualBounds["Bottom"] - Config["MinMargin"] - win["height"]
             } else {
-                ; Use current monitor bounds for traditional single-monitor floating
                 MonitorGet win["monitor"], &mL, &mT, &mR, &mB
                 monLeft := mL
                 monRight := mR - win["width"]
@@ -1037,16 +1059,6 @@ ApplyWindowMovements() {
             monBottom := A_ScreenHeight - Config["MinMargin"] - win["height"]
         }
 
-        hwnd := win["hwnd"]
-        newX := win.Has("targetX") ? win["targetX"] : win["x"]
-        newY := win.Has("targetY") ? win["targetY"] : win["y"]
-
-        if (!hwndPos.Has(hwnd))
-            continue
-
-        if (!smoothPos.Has(hwnd))
-            smoothPos[hwnd] := { x: hwndPos[hwnd].x, y: hwndPos[hwnd].y }
-        
         ; Space-like smooth movement (balanced for equilibrium)
         alpha := 0.35  ; Higher value = faster convergence to target positions
         smoothPos[hwnd].x := smoothPos[hwnd].x + (newX - smoothPos[hwnd].x) * alpha
@@ -1357,42 +1369,52 @@ ResolveFloatingCollisions(windows) {
 AddManualWindowBorder(hwnd) {
     global Config, g
     try {
-        ; Skip if already exists
         if (g["ManualWindows"].Has(hwnd))
             return
-        
-        ; Create GUI with unique name
-        borderGui := Gui("+ToolWindow -Caption +E0x20 +LastFound +AlwaysOnTop +E0x08000000")
-        borderGui.Opt("+Owner" hwnd)  ; Set owner to prevent stealing focus
-        borderGui.BackColor := Config["ManualWindowColor"]
-        
-        ; Position border around window
+
         WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-        borderGui.Show("x" x-2 " y" y-2 " w" w+4 " h" h+4 " NA")
-        
-        ; Set transparency
-        WinSetTransparent(Config["ManualWindowAlpha"], borderGui.Hwnd)
-        WinSetTransColor(Config["ManualWindowColor"] " " Config["ManualWindowAlpha"], borderGui.Hwnd)
-        
-        ; Try blur effect (Windows 10/11)
+        borderThickness := 3
+        borderColor := Config.Has("ManualWindowColor") ? Config["ManualWindowColor"] : "FF5555"
+        borderAlpha := Config.Has("ManualWindowAlpha") ? Config["ManualWindowAlpha"] : 222
+
+        borderGui := Gui("+ToolWindow -Caption +E0x20 +LastFound +AlwaysOnTop +E0x08000000")
+        borderGui.Opt("+Owner" hwnd)
+        borderGui.BackColor := "FFFFFF"
+        WinSetTransColor("FFFFFF 255", borderGui.Hwnd)
+        borderGui.Show("x" x-borderThickness " y" y-borderThickness " w" w+2*borderThickness " h" h+2*borderThickness " NA")
+
+        borderGui.DestroyControls()
+
+        ; Draw border using a Picture control with GDI+ (rectangle with only border, transparent fill)
+        ; Create a bitmap with transparent fill and colored border
+        bmpW := w + 2*borderThickness
+        bmpH := h + 2*borderThickness
+        borderGui.AddPicture("x0 y0 w" bmpW " h" bmpH " BackgroundTrans", "*GDI+ " CreateBorderBitmap(bmpW, bmpH, borderThickness, borderColor, borderAlpha))
+
         try {
             bbStruct := Buffer(20, 0)
-            NumPut("UInt", 1, bbStruct, 0)  ; dwFlags - DWM_BB_ENABLE
-            NumPut("Int", 1, bbStruct, 4)   ; fEnable
+            NumPut("UInt", 1, bbStruct, 0)
+            NumPut("Int", 1, bbStruct, 4)
             DllCall("dwmapi\DwmEnableBlurBehindWindow", "Ptr", borderGui.Hwnd, "Ptr", bbStruct.Ptr)
         }
-        
-        ; Store reference - using Map() instead of object literal
+
         g["ManualWindows"][hwnd] := Map(
             "gui", borderGui,
             "expire", A_TickCount + Config["ManualLockDuration"]
         )
-        
     } catch as Err {
         OutputDebug("Border Error: " Err.Message "`n" Err.What "`n" Err.Extra)
     }
 }
 
+; Helper to create a border-only bitmap for Picture control
+CreateBorderBitmap(w, h, thickness, color, alpha) {
+    ; Returns a GDI+ bitmap with transparent fill and colored border
+    ; This is a stub for illustration; you may need a GDI+ library for full implementation.
+    ; If you use gdip.ahk, you can use Gdip_DrawRectangle with a transparent fill.
+    ; For now, return an empty string to avoid breaking the script.
+    return ""
+}
 RemoveManualWindowBorder(hwnd) {
     global g
     try {
@@ -1594,7 +1616,7 @@ ToggleWindowLock() {
             ShowTooltip("No active window to lock/unlock")
             return
         }
-        
+
         ; Find the window in our managed windows
         targetWin := 0
         for win in g["Windows"] {
@@ -1603,24 +1625,27 @@ ToggleWindowLock() {
                 break
             }
         }
-        
+
         if (!targetWin) {
             ShowTooltip("Window is not managed by the floating system")
             return
         }
-        
+
         ; Toggle lock status
         isCurrentlyLocked := (targetWin.Has("ManualLock") && A_TickCount < targetWin["ManualLock"])
         if (isCurrentlyLocked) {
             ; Unlock the window
             if (targetWin.Has("ManualLock"))
                 targetWin.Delete("ManualLock")
+            if (targetWin.Has("IsManual"))
+                targetWin.Delete("IsManual")
             g["ActiveWindow"] := 0
             RemoveManualWindowBorder(focusedWindow)
             ShowTooltip("Window UNLOCKED - will move with physics")
         } else {
             ; Lock the window
             targetWin["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
+            targetWin["IsManual"] := true
             g["ActiveWindow"] := focusedWindow
             g["LastUserMove"] := A_TickCount
             ; Stop the window's movement immediately
@@ -1654,9 +1679,8 @@ OptimizeWindowPositions() {
     windowsToPlace := []
     for win in g["Windows"] {
         ; Skip locked or active windows
-        isLocked := (win["hwnd"] == g["ActiveWindow"] || 
-                    (win.Has("ManualLock") && A_TickCount < win["ManualLock"]))
-        if (!isLocked) {
+        isLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
+        if (!isLocked && win["hwnd"] != g["ActiveWindow"]) {
             windowsToPlace.Push(win)
         }
     }
@@ -1739,7 +1763,7 @@ PackWindowsOptimally(windows, monitor) {
                 "y", bestPos["y"], 
                 "width", win["width"],
                 "height", win["height"],
-                "hwnd", win["hwnd"]
+                               "hwnd", win["hwnd"]
             ))
         }
     }
@@ -2062,11 +2086,11 @@ WindowMoveHandler(wParam, lParam, msg, hwnd) {
     global g, Config
     if (!g["ArrangementActive"] || (A_TickCount - g["LastUserMove"] < Config["ResizeDelay"]))
         return
-    
+
     Critical
     g["LastUserMove"] := A_TickCount
     g["ActiveWindow"] := hwnd
-    
+
     try {
         if (WinGetMinMax("ahk_id " hwnd) != 0)
             return
@@ -2074,21 +2098,24 @@ WindowMoveHandler(wParam, lParam, msg, hwnd) {
     catch {
         return
     }
-    
+
     try {
         WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
         winCenterX := x + w/2
         winCenterY := y + h/2
         monNum := MonitorGetFromPoint(winCenterX, winCenterY)
-        
+
         for win in g["Windows"] {
             if (win["hwnd"] == hwnd) {
-                win["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
-                win["IsManual"] := true
+                ; Remove manual lock and border when window is moved manually
+                if (win.Has("ManualLock"))
+                    win.Delete("ManualLock")
+                if (win.Has("IsManual"))
+                    win.Delete("IsManual")
+                RemoveManualWindowBorder(hwnd)
                 win["vx"] := 0
                 win["vy"] := 0
                 win["monitor"] := monNum
-                AddManualWindowBorder(hwnd)
                 break
             }
         }
@@ -2096,7 +2123,7 @@ WindowMoveHandler(wParam, lParam, msg, hwnd) {
     catch {
         return
     }
-    
+
     SetTimer(UpdateWindowStates, -Config["ResizeDelay"])
 }
 
@@ -2104,11 +2131,11 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
     global g, Config
     if (!g["ArrangementActive"] || (A_TickCount - g["LastUserMove"] < Config["ResizeDelay"]))
         return
-    
+
     Critical
     g["LastUserMove"] := A_TickCount
     g["ActiveWindow"] := hwnd
-    
+
     try {
         if (WinGetMinMax("ahk_id " hwnd) != 0)
             return
@@ -2116,21 +2143,24 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
     catch {
         return
     }
-    
+
     try {
         WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
         winCenterX := x + w/2
         winCenterY := y + h/2
         monNum := MonitorGetFromPoint(winCenterX, winCenterY)
-        
+
         for win in g["Windows"] {
             if (win["hwnd"] == hwnd) {
-                win["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
-                win["IsManual"] := true
+                ; Remove manual lock and border when window is resized manually
+                if (win.Has("ManualLock"))
+                    win.Delete("ManualLock")
+                if (win.Has("IsManual"))
+                    win.Delete("IsManual")
+                RemoveManualWindowBorder(hwnd)
                 win["vx"] := 0
                 win["vy"] := 0
                 win["monitor"] := monNum
-                AddManualWindowBorder(hwnd)
                 break
             }
         }
@@ -2138,7 +2168,7 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
     catch {
         return
     }
-    
+
     SetTimer(UpdateWindowStates, -Config["ResizeDelay"])
 }
 

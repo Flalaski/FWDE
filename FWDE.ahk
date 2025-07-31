@@ -1387,10 +1387,7 @@ AddManualWindowBorder(hwnd) {
 
         ; Draw border using a Picture control with GDI+ (rectangle with only border, transparent fill)
         ; Create a bitmap with transparent fill and colored border
-        bmpW := w + 2*borderThickness
-        bmpH := h + 2*borderThickness
-        borderGui.AddPicture("x0 y0 w" bmpW " h" bmpH " BackgroundTrans", "*GDI+ " CreateBorderBitmap(bmpW, bmpH, borderThickness, borderColor, borderAlpha))
-
+     
         try {
             bbStruct := Buffer(20, 0)
             NumPut("UInt", 1, bbStruct, 0)

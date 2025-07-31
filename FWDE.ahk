@@ -7,7 +7,6 @@
 A_IconTip := "Floating Windows - Dynamic Equilibrium"
 ProcessSetPriority("High")
 
-
 #DllLoad "gdi32.dll"
 #DllLoad "user32.dll"
 #DllLoad "dwmapi.dll" ; Desktop Composition API
@@ -64,6 +63,80 @@ global g_PhysicsBuffer := Buffer(4096)
     - Iterative collaboration and refinement for a robust, creative window management tool.
 */
 
+// =======================
+// CODE COMPREHENSION
+// =======================
+// Purpose: This script is a dynamic window manager for Windows, focusing on creative/DAW workflows, using physics-based logic to arrange, float, and optimize windows across one or more monitors.
+// Main Components:
+//   - Config/global state: Stores all tunable parameters and runtime state.
+//   - NoiseAnimator/TimePhasing: Animation and visual effects for plugin windows.
+//   - Window detection/classification: Determines which windows are managed and how.
+//   - Physics/Arrangement: Calculates and applies forces to move/arrange windows.
+//   - Manual handling: Lock/unlock windows, draw borders, handle manual moves.
+//   - Optimization/Packing: Attempts to maximize usable space.
+//   - Event handlers/hotkeys: User interaction and real-time updates.
+//   - Helpers: Monitor/window utilities, collision resolution, etc.
+// Dependencies:
+//   - External: AutoHotkey v2, Windows API (DllCall), GDI+ (for border drawing, currently stubbed), gdip.ahk (recommended for border drawing).
+//   - Internal: No external libraries, relies on AHK built-ins and Windows system calls.
+// Data Flow: Window detection → Physics calculation → Movement application → Visual/manual effects → User interaction.
+// Edge Cases/Assumptions: Assumes all windows can be moved, plugin detection is sufficient, monitor detection is accurate, GDI+ border drawing is stubbed, physics parameters are tuned for DAW use, etc.
+
+// =======================
+// PROJECT GOAL INFERENCE
+// =======================
+// Goal: Provide automated, physics-based floating window management, especially for DAW/plugin workflows, with multi-monitor support, visual feedback, and user control.
+// Current Limitations/Scope Gaps:
+//   - GDI+ border drawing not implemented (stub).
+//   - No persistent configuration or user profiles.
+//   - No advanced error handling for API failures.
+//   - Visual effects limited to plugin windows.
+//   - No UI for configuration beyond tooltips.
+//   - No explicit window snapping/grouping.
+//   - Physics parameters may need further tuning for non-DAW use.
+
+// =======================
+// CONSTRUCTIVE TODO COMMENTS
+// =======================
+
+// TODO (Low): Expand NoiseAnimator for more advanced or user-customizable animation effects if needed.
+
+// TODO (Medium): Allow user configuration of echo parameters (duration, opacity, etc.) for more personalized visual feedback.
+
+// TODO (High): Implement GDI+ border drawing using gdip.ahk or similar to provide visible, styled borders for locked/manual windows.
+
+// TODO (Medium): Refine plugin window detection logic to reduce false positives/negatives, especially for non-DAW workflows or edge-case plugins.
+
+// TODO (Medium): Expand floating window detection to support more window types or user-defined rules.
+
+// TODO (Medium): Optimize window enumeration for performance if managing large numbers of windows.
+// TODO (Low): Add logging or diagnostics for window inclusion/exclusion decisions to aid troubleshooting.
+
+
+// TODO (Core Feature, High): Ensure smooth, flicker-free movement for all managed windows, especially across monitors and during rapid user interaction.
+// TODO (Medium): Add optional animation easing or user-tunable smoothing for movement transitions.
+
+
+// TODO (Goal Completion, High): Improve packing algorithm to better utilize available screen space, especially for irregular window sizes or aspect ratios.
+// TODO (Medium): Provide user feedback or a preview before applying optimized positions.
+
+
+// TODO (Medium): Support more advanced packing strategies (e.g., bin packing, rectangle packing) for dense window arrangements.
+
+
+// TODO (Medium): Add persistent configuration saving/loading so user preferences and window states survive script restarts.
+
+// TODO (Low): Consider adding a GUI or tray menu for easier configuration and feature toggling.
+
+// TODO (Medium): Add error handling and user notifications for failed window moves, API errors, or unsupported window types.
+
+// TODO (Low): Add support for window snapping, grouping, or user-defined window layouts as optional advanced features.
+
+// TODO (Medium): Extend visual feedback (e.g., border color, animation) to more window types or states as needed.
+
+// =======================
+// GLOBAL CONFIGURATION
+// =======================
 
 ; NEW FEATURE: Seamless Multi-Monitor Floating
 ; Toggle with Ctrl+Alt+M to allow windows to float freely across all monitors
@@ -1453,6 +1526,7 @@ CreateBorderBitmap(w, h, thickness, color, alpha) {
     ; This is a stub for illustration; you may need a GDI+ library for full implementation.
     ; If you use gdip.ahk, you can use Gdip_DrawRectangle with a transparent fill.
     ; For now, return an empty string to avoid breaking the script.
+    ; TODO (High): Implement GDI+ border drawing using gdip.ahk or similar to provide visible, styled borders for locked/manual windows.
     return ""
 }
 RemoveManualWindowBorder(hwnd) {
@@ -2318,7 +2392,7 @@ Clamp(val, min, max) {
 }
 
 ; Z-index ordering: smaller windows on top so they don't get lost behind larger ones
-; Only applies to DAW plugin windows to prevent flashing of regular windows
+; Only applies to DAW plugin windows to prevent flashing
 OrderWindowsBySize() {
     global g
     

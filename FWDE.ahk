@@ -1082,10 +1082,6 @@ ApplyWindowMovements() {
             smoothPos[hwnd].y := Lerp(smoothPos[hwnd].y, monBottom - edgeBuffer, resistance * 0.1)
         }
 
-        ; Final hard clamp (fallback only)
-        smoothPos[hwnd].x := Max(monLeft, Min(smoothPos[hwnd].x, monRight))
-        smoothPos[hwnd].y := Max(monTop, Min(smoothPos[hwnd].y, monBottom))
-
         if (!lastPositions.Has(hwnd))
             lastPositions[hwnd] := { x: hwndPos[hwnd].x, y: hwndPos[hwnd].y }
 
@@ -1140,6 +1136,7 @@ CalculateFutureOverlap(win, x, y, otherWindows) {
 
         overlapX := Max(0, Min(x + win["width"], other["x"] + other["width"]) - Max(x, other["x"]))
         overlapY := Max(0, Min(y + win["height"], other["y"] + other["height"]) - Max(y, other["y"]))
+
         overlapScore += (overlapX * overlapY) / (win["width"] * win["height"])
     }
     return overlapScore
@@ -1366,91 +1363,25 @@ ResolveFloatingCollisions(windows) {
 
 
 ;;MANUAL WINDOW HANDLING
+
+; Remove border logic from lock/unlock and manual flags
 AddManualWindowBorder(hwnd) {
-    global Config, g
-    try {
-        if (g["ManualWindows"].Has(hwnd))
-            return
-
-        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-        borderThickness := 3
-        borderColor := Config.Has("ManualWindowColor") ? Config["ManualWindowColor"] : "FF5555"
-        borderAlpha := Config.Has("ManualWindowAlpha") ? Config["ManualWindowAlpha"] : 222
-
-        borderGui := Gui("+ToolWindow -Caption +E0x20 +LastFound +AlwaysOnTop +E0x08000000")
-        borderGui.Opt("+Owner" hwnd)
-        borderGui.BackColor := "FFFFFF"
-        WinSetTransColor("FFFFFF 255", borderGui.Hwnd)
-        borderGui.Show("x" x-borderThickness " y" y-borderThickness " w" w+2*borderThickness " h" h+2*borderThickness " NA")
-
-        borderGui.DestroyControls()
-
-        ; Draw border using a Picture control with GDI+ (rectangle with only border, transparent fill)
-        ; Create a bitmap with transparent fill and colored border
-        bmpW := w + 2*borderThickness
-        bmpH := h + 2*borderThickness
-        borderGui.AddPicture("x0 y0 w" bmpW " h" bmpH " BackgroundTrans", "*GDI+ " CreateBorderBitmap(bmpW, bmpH, borderThickness, borderColor, borderAlpha))
-
-        try {
-            bbStruct := Buffer(20, 0)
-            NumPut("UInt", 1, bbStruct, 0)
-            NumPut("Int", 1, bbStruct, 4)
-            DllCall("dwmapi\DwmEnableBlurBehindWindow", "Ptr", borderGui.Hwnd, "Ptr", bbStruct.Ptr)
-        }
-
-        g["ManualWindows"][hwnd] := Map(
-            "gui", borderGui,
-            "expire", A_TickCount + Config["ManualLockDuration"]
-        )
-    } catch as Err {
-        OutputDebug("Border Error: " Err.Message "`n" Err.What "`n" Err.Extra)
-    }
+    ; No longer used for lock/unlock, only for drag effect (see DragWindow)
 }
 
-; Helper to create a border-only bitmap for Picture control
-CreateBorderBitmap(w, h, thickness, color, alpha) {
-    ; Returns a GDI+ bitmap with transparent fill and colored border
-    ; This is a stub for illustration; you may need a GDI+ library for full implementation.
-    ; If you use gdip.ahk, you can use Gdip_DrawRectangle with a transparent fill.
-    ; For now, return an empty string to avoid breaking the script.
-    return ""
-}
 RemoveManualWindowBorder(hwnd) {
-    global g
-    try {
-        if (g["ManualWindows"].Has(hwnd)) {
-            g["ManualWindows"][hwnd]["gui"].Destroy()
-            g["ManualWindows"].Delete(hwnd)
-        }
-    }
+    ; No longer used for lock/unlock, only for drag effect (see DragWindow)
 }
 
 UpdateManualBorders() {
-    global g, Config
-    for hwnd, data in g["ManualWindows"].Clone() {
-        try {
-            ; Remove expired borders
-            if (A_TickCount > data["expire"]) {
-                RemoveManualWindowBorder(hwnd)
-                continue
-            }
-
-            ; Update position
-            if (WinExist("ahk_id " hwnd)) {
-                WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-                data["gui"].Show("x" x-2 " y" y-2 " w" w+4 " h" h+4 " NA")
-            } else {
-                RemoveManualWindowBorder(hwnd)
-            }
-        }
-    }
+    ; No-op, border is now only shown during drag
 }
 
 ClearManualFlags() {
     global g, Config
     for hwnd, expireTime in g["ManualWindows"].Clone() {
         if (A_TickCount > expireTime) {
-            RemoveManualWindowBorder(hwnd)
+            ; Only clear flags, do not remove border GUI (handled in DragWindow)
             for win in g["Windows"] {
                 if (win["hwnd"] == hwnd) {
                     win.Delete("ManualLock")
@@ -1458,7 +1389,28 @@ ClearManualFlags() {
                     break
                 }
             }
+            g["ManualWindows"].Delete(hwnd)
         }
+    }
+}
+
+; Show a border behind the window only while dragging
+ShowDragBorder(hwnd) {
+    global g, Config
+    try {
+        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+        borderThickness := 3
+        borderColor := Config.Has("ManualWindowColor") ? Config["ManualWindowColor"] : "FF5555"
+        ; Create a border window behind the target window
+        borderGui := Gui("+ToolWindow -Caption +E0x20")
+        borderGui.BackColor := borderColor
+        borderGui.Show("x" x-borderThickness " y" y-borderThickness " w" w+2*borderThickness " h" h+2*borderThickness " NA")
+        ; Place border behind the window
+        DllCall("SetWindowPos", "Ptr", borderGui.Hwnd, "Ptr", hwnd, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", 0x0010 | 0x0002 | 0x0001)
+        return borderGui
+    } catch as Err {
+        OutputDebug("Border Error: " Err.Message "`n" Err.What "`n" Err.Extra)
+        return 0
     }
 }
 
@@ -1484,6 +1436,9 @@ DragWindow() {
     g["ActiveWindow"] := winID
     g["LastUserMove"] := A_TickCount
 
+    ; Show border behind window during drag
+    borderGui := ShowDragBorder(winID)
+
     ; Pause arrangement/physics timers while dragging
     SetTimer(CalculateDynamicLayout, 0)
     SetTimer(ApplyWindowMovements, 0)
@@ -1502,7 +1457,6 @@ DragWindow() {
                 win["vx"] := 0
                 win["vy"] := 0
                 win["monitor"] := monNum
-                AddManualWindowBorder(winID)
                 break
             }
         }
@@ -1521,6 +1475,10 @@ DragWindow() {
             newY := Max(mT + Config["MinMargin"], Min(newY, mB - h - Config["MinMargin"]))
 
             try WinMove(newX, newY,,, "ahk_id " winID)
+
+            ; Move border along with window
+            if (borderGui)
+                borderGui.Show("x" newX-3 " y" newY-3 " w" w+6 " h" h+6 " NA")
 
             for win in g["Windows"] {
                 if (win["hwnd"] == winID) {
@@ -1541,6 +1499,10 @@ DragWindow() {
     isDragging := false
     g["ActiveWindow"] := 0
     DllCall("winmm\timeEndPeriod", "UInt", 1)
+
+    ; Destroy border after drag ends
+    if (borderGui)
+        borderGui.Destroy()
 
     ; Resume arrangement/physics timers after dragging
     if (g["ArrangementActive"]) {
@@ -1640,7 +1602,6 @@ ToggleWindowLock() {
             if (targetWin.Has("IsManual"))
                 targetWin.Delete("IsManual")
             g["ActiveWindow"] := 0
-            RemoveManualWindowBorder(focusedWindow)
             ShowTooltip("Window UNLOCKED - will move with physics")
         } else {
             ; Lock the window
@@ -1651,7 +1612,6 @@ ToggleWindowLock() {
             ; Stop the window's movement immediately
             targetWin["vx"] := 0
             targetWin["vy"] := 0
-            AddManualWindowBorder(focusedWindow)
             ShowTooltip("Window LOCKED - will stay in place")
         }
     }
@@ -2112,10 +2072,6 @@ WindowMoveHandler(wParam, lParam, msg, hwnd) {
                     win.Delete("ManualLock")
                 if (win.Has("IsManual"))
                     win.Delete("IsManual")
-                RemoveManualWindowBorder(hwnd)
-                win["vx"] := 0
-                win["vy"] := 0
-                win["monitor"] := monNum
                 break
             }
         }
@@ -2157,10 +2113,6 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
                     win.Delete("ManualLock")
                 if (win.Has("IsManual"))
                     win.Delete("IsManual")
-                RemoveManualWindowBorder(hwnd)
-                win["vx"] := 0
-                win["vy"] := 0
-                win["monitor"] := monNum
                 break
             }
         }
@@ -2241,8 +2193,6 @@ OnMessage(0x0003, WindowMoveHandler)
 OnMessage(0x0005, WindowSizeHandler)
 
 OnExit(*) {
-    for hwnd in g["ManualWindows"]
-        RemoveManualWindowBorder(hwnd)
     TimePhasing.CleanupEffects()
     DllCall("winmm\timeEndPeriod", "UInt", 1)
 }

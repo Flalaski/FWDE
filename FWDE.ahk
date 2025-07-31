@@ -18,13 +18,53 @@ ProcessSetPriority("High")
 global g_NoiseBuffer := Buffer(1024)
 global g_PhysicsBuffer := Buffer(4096)
 
-; This script is the brainchild of:
-; Human: Flalaski, 
-; AI: DeepSeek+Gemini+CoPilot, 
-; Lots of back & forth, toss around, backups & redo's, 
-; until finally I (the human) got this to do what I've been trying to find as a software. 
-; Hope it's helpful! ♥
-;
+/*
+    FWDE.ahk - Floating Windows Dynamic Equilibrium
+
+    Purpose:
+    -----------
+    This script provides a dynamic, physics-based window arrangement system for Windows OS,
+    primarily targeting creative and DAW (Digital Audio Workstation) workflows, but adaptable to any use case.
+    It enables windows (especially plugin windows) to "float" and arrange themselves naturally, 
+    avoiding overlaps and clustering, with smooth, animated movement and multi-monitor support.
+
+    Key Features:
+    -------------
+    - Physics-based window movement and arrangement, with configurable attraction, repulsion, and damping.
+    - Seamless multi-monitor floating: windows can move freely across all monitors (toggle with Ctrl+Alt+M).
+    - Special handling for DAW/plugin windows, including detection by class, title, and process.
+    - Manual window locking/unlocking (Ctrl+Alt+L) with visible border overlays.
+    - Space optimization: auto-pack windows to maximize usable screen area (Ctrl+Alt+O).
+    - Visual effects: "Fairy Dust" time-phasing echoes for plugin windows.
+    - Real-time response to user window moves/resizes, with intelligent re-integration into the floating system.
+    - Z-order management to keep small plugin windows visible above larger ones.
+    - Highly configurable via the `Config` map at the top of the script.
+
+    Structure:
+    ----------
+    - Global configuration and state maps.
+    - Utility functions for window/monitor management, physics, and arrangement.
+    - Classes for noise animation and time-phasing effects.
+    - Main logic for window detection, force calculation, and movement application.
+    - Manual window handling (locking, borders, etc).
+    - Hotkeys for toggling features and optimizing layout.
+    - Event/message handlers for window move/resize.
+    - Helper functions for packing, scoring, and collision resolution.
+
+    Usage:
+    ------
+    - Run the script with AutoHotkey v2.
+    - Use the provided hotkeys to toggle features and optimize your workspace.
+    - The script will automatically manage floating windows, keeping them organized and visible.
+
+    Author(s):
+    ----------
+    - Human: Flalaski
+    - AI: DeepSeek, Gemini, GitHub Copilot
+    - Iterative collaboration and refinement for a robust, creative window management tool.
+*/
+
+
 ; NEW FEATURE: Seamless Multi-Monitor Floating
 ; Toggle with Ctrl+Alt+M to allow windows to float freely across all monitors
 ; When enabled, windows are no longer confined to the current monitor boundaries
@@ -1728,6 +1768,7 @@ PackWindowsOptimally(windows, monitor) {
     if (windows.Length == 0)
         return Map()
     
+ 
     positions := Map()
     placedWindows := []
     gridSize := 50  ; pixels per grid cell (tune for your window sizes)

@@ -1453,6 +1453,7 @@ CreateBorderBitmap(w, h, thickness, color, alpha) {
     ; This is a stub for illustration; you may need a GDI+ library for full implementation.
     ; If you use gdip.ahk, you can use Gdip_DrawRectangle with a transparent fill.
     ; For now, return an empty string to avoid breaking the script.
+    ;; TODO (High): Implement GDI+ bitmap creation for border overlays to visually indicate locked/manual windows.
     return ""
 }
 RemoveManualWindowBorder(hwnd) {
@@ -1479,6 +1480,7 @@ UpdateManualBorders() {
             if (WinExist("ahk_id " hwnd)) {
                 WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
                 data["gui"].Show("x" x-2 " y" y-2 " w" w+4 " h" h+4 " NA")
+                ;; TODO (Medium): Ensure border overlays update size/position correctly on window resize/move events.
             } else {
                 RemoveManualWindowBorder(hwnd)
             }
@@ -1636,6 +1638,7 @@ ToggleSeamlessMonitorFloat() {
         ; Update monitor bounds to use virtual desktop
         g["Monitor"] := GetVirtualDesktopBounds()
         ShowTooltip("Seamless Multi-Monitor Floating: ON - Windows can float across all monitors")
+        ;; TODO (High): Test and refine seamless multi-monitor floating to ensure windows do not get lost or clipped across monitor boundaries.
     } else {
         ; Revert to current monitor
         g["Monitor"] := GetCurrentMonitorInfo()
@@ -1745,6 +1748,7 @@ OptimizeWindowPositions() {
 
     ; Find optimal positions using space-efficient packing
     optimizedPositions := PackWindowsOptimally(windowsToPlace, monitor)
+    ;; TODO (Medium): Improve packing algorithm to handle edge cases (e.g., windows of extreme aspect ratios, overlapping after packing).
 
     ; Apply optimized positions
     repositionedCount := 0
@@ -1761,13 +1765,13 @@ OptimizeWindowPositions() {
     }
 
     ShowTooltip("Optimized " repositionedCount " window positions for better space utilization")
+    ;; TODO (Low): Provide user feedback if some windows could not be repositioned due to lack of space.
 }
 
 ; Advanced space packing algorithm to find optimal window positions
 PackWindowsOptimally(windows, monitor) {
-    if (windows.Length == 0)
+    if (windows.Length ==  0)
         return Map()
-
 
     positions := Map()
     placedWindows := []
@@ -1794,6 +1798,7 @@ PackWindowsOptimally(windows, monitor) {
             if (bestPos["y"] + win["height"] > monitor["Bottom"] - Config["MinMargin"]) {
                 newHeight := Max(80, monitor["Bottom"] - Config["MinMargin"] - bestPos["y"])
                 win["height"] := newHeight
+                ;; TODO (Medium): Consider also shrinking width if window would overflow right edge.
             } else if (win.Has("origHeight") && win["height"] != win["origHeight"]) {
                 ; Restore original height if space allows
                 win["height"] := win["origHeight"]
@@ -1804,7 +1809,7 @@ PackWindowsOptimally(windows, monitor) {
                 "y", bestPos["y"],
                 "width", win["width"],
                 "height", win["height"],
-                               "hwnd", win["hwnd"]
+                "hwnd", win["hwnd"]
             ))
         }
     }
@@ -2383,6 +2388,7 @@ OrderWindowsBySize() {
                     }
                 }
             }
+            ;; TODO (Medium): Monitor for Z-order flickering or race conditions when windows are rapidly created/destroyed.
         }
         catch {
             continue
@@ -2400,3 +2406,4 @@ IsDAWPlugin(win) {
         return false
     }
 }
+;; TODO (Core Feature): Review and extend IsPluginWindow logic to support additional DAWs and plugin types as needed for broader compatibility.

@@ -7,13 +7,12 @@
 
 ## 🚀 Overview
 
-FWDE is a physics-driven window manager for Windows, designed for DAW plugins, terminals, dialogs, and floating windows. It uses real-time simulation for natural, intelligent arrangements, with multi-monitor support, manual controls, and visual effects.
+FWDE is a physics-driven window manager for Windows, designed for DAW plugins, terminals, dialogs, and floating windows. It uses real-time simulation for natural, intelligent arrangements, with multi-monitor support, manual controls, visual effects, sophisticated layout algorithms including bin packing, genetic evolution, custom presets, and **adaptive performance scaling** that automatically optimizes system resource usage.
 
 **New Features:**  
-- **Automatic window resizing:** Any window that would extend below the monitor's bottom margin is automatically resized to fit within the visible area.
-- **Configuration validation system:** Prevents invalid parameter combinations that could destabilize the physics engine.
-- **Configuration presets:** Pre-configured settings optimized for different use cases (DAW Production, Gaming, Office Work, etc.).
-- **Advanced visual feedback:** Comprehensive system tray integration, real-time notifications, and visual status indicators.
+- **Adaptive performance scaling:** Intelligent system resource monitoring with automatic quality level adjustment based on CPU, memory, and frame timing metrics
+- **Performance budget management:** Operation-specific performance budgets with automatic enforcement to maintain optimal responsiveness
+- **Emergency performance protection:** Critical resource detection with automatic system protection and recovery mechanisms
 
 ---
 
@@ -38,36 +37,44 @@ FWDE is a physics-driven window manager for Windows, designed for DAW plugins, t
 | `Ctrl + Alt + R`      | Reload configuration from file                  |
 | `Ctrl + Alt + E`      | Export configuration                            |
 | `Ctrl + Alt + I`      | Import configuration                            |
+| `Ctrl + Alt + Shift + L` | Save current layout with custom name       |
+| `Ctrl + Alt + Shift + K` | Load saved layout from selection dialog    |
+| `Ctrl + Alt + Shift + G` | Toggle genetic algorithm evolution          |
+| `Ctrl + Alt + Shift + B` | Change bin packing strategy                 |
+| `Ctrl + Alt + Shift + V` | Toggle virtual desktop integration          |
+| `Ctrl + Alt + Shift + Q` | Toggle automatic performance adjustment          |
+| `Ctrl + Alt + Shift + W` | Show comprehensive performance metrics           |
+| `Ctrl + Alt + Shift + E` | Manual quality level cycling                     |
 
-## 🎨 Visual Feedback System
+## 🧠 Sophisticated Layout Algorithms
 
-FWDE includes a comprehensive visual feedback system providing real-time status monitoring and user interaction:
+FWDE includes advanced layout optimization algorithms for intelligent window arrangement:
 
-### System Tray Integration
-- **Status Icons:** Real-time indicators showing system health (Normal, Active, Error, Paused)
-- **Context Menu:** Quick access to all major functions including configuration presets
-- **Balloon Notifications:** Important system events and status changes
-- **Performance Tooltips:** Active window count and current operational mode
+### 📦 Bin Packing Algorithms
+- **First Fit**: Places windows in the first available space for quick arrangement
+- **Best Fit**: Finds the optimal position that minimizes wasted space
+- **Next Fit**: Sequential placement for predictable arrangements
+- **Worst Fit**: Maximizes remaining space for flexible layouts
+- **Bottom-Left Fill**: Gravity-based packing for stable arrangements
+- **Guillotine**: Recursive space division for complex layouts
 
-### Window Visual Indicators  
-- **Colored Borders:** Visual feedback for window states
-  - 🔴 Red: Manually locked windows
-  - 🟢 Green: Physics-controlled windows  
-  - 🔵 Blue: User-dragged windows
-  - 🟡 Yellow: Warning states
-- **Automatic Cleanup:** Borders automatically expire based on lock duration
+### 🧬 Genetic Algorithm Evolution
+- **Adaptive Learning**: System learns your preferences and evolves optimal layouts
+- **Multi-Factor Fitness**: Considers overlap, accessibility, aesthetics, and user preferences
+- **Real-Time Evolution**: Continuously improves layouts based on usage patterns
+- **Population Management**: Maintains diverse layout solutions for different scenarios
 
-### Enhanced Notifications
-- **Smart Notifications:** Context-aware messages for all system operations
-- **Notification Themes:** Dark, Light, and Default visual themes
-- **History Management:** Automatic cleanup with configurable retention
-- **Error Tracking:** Comprehensive error reporting with recovery suggestions
+### 💾 Custom Layout Presets
+- **Named Layouts**: Save and load custom window arrangements with descriptive names
+- **Visual Thumbnails**: Preview layouts before applying with generated thumbnails
+- **Smart Matching**: Automatically matches windows across sessions for reliable restoration
+- **Layout Sharing**: Export and import layouts for team collaboration
 
-### Real-Time Status Display
-- **Performance Metrics:** Operation timing and memory usage monitoring  
-- **System Health:** Error rates, recovery status, and stability indicators
-- **Window Statistics:** Count of managed, plugin, and locked windows
-- **Configuration Status:** Real-time validation and parameter monitoring
+### 🖥️ Virtual Desktop Integration (Windows 11+)
+- **Per-Workspace Layouts**: Isolated layout management for each virtual desktop
+- **Automatic Switching**: Layouts automatically change when switching workspaces
+- **Workspace Profiles**: Customizable per-workspace physics and layout rules
+- **Seamless Integration**: Native Windows 11 virtual desktop API support
 
 ---
 
@@ -118,6 +125,12 @@ Optimized for powerful systems with many windows:
   - Manual window borders (red highlight for locked)  
   - Blur effects (desktop composition integration)
 
+- **Layout Algorithms:**
+  - Advanced bin packing for optimal space utilization
+  - Genetic algorithm evolution for adaptive layout learning
+  - Custom layout presets with visual management
+  - Virtual desktop integration for multi-workspace productivity
+
 ---
 
 ## ⚙️ Technical Specs & Configuration
@@ -159,32 +172,66 @@ global Config := Map(
 - Speed and damping combinations are validated to prevent instability
 - All parameters are range-checked against safe operational limits
 
+**Layout Algorithm Configuration:**
+```ahk
+global LayoutAlgorithms := Map(
+    "BinPacking", Map(
+        "Strategy", "BestFit",           ; FirstFit, BestFit, NextFit, WorstFit
+        "AllowRotation", false,          ; Allow window rotation for better fit
+        "PackingEfficiency", 0.85        ; Target packing efficiency (0.0-1.0)
+    ),
+    "GeneticAlgorithm", Map(
+        "PopulationSize", 50,            ; Size of layout population
+        "MutationRate", 0.1,             ; Rate of layout mutations (0.0-1.0)
+        "CrossoverRate", 0.8,            ; Rate of layout crossover (0.0-1.0)
+        "FitnessWeights", Map(           ; Weights for fitness calculation
+            "Overlap", 0.3,              ; Penalty for window overlaps
+            "ScreenUsage", 0.25,         ; Reward for efficient screen usage
+            "Accessibility", 0.2,        ; Reward for accessible layouts
+            "UserPreference", 0.15,      ; Reward for user preference alignment
+            "Aesthetics", 0.1            ; Reward for aesthetic appeal
+        )
+    )
+)
+```
+
+**Layout Management Commands:**
+- Save current layout: `Ctrl + Alt + Shift + L`
+- Load saved layout: `Ctrl + Alt + Shift + K`
+- Toggle genetic evolution: `Ctrl + Alt + Shift + G`
+- Change packing strategy: `Ctrl + Alt + Shift + B`
+- Virtual desktop toggle: `Ctrl + Alt + Shift + V`
+
 ---
 
-## 🛠️ Supported Applications
+## ⚡ Adaptive Performance Scaling
 
-- **DAW/Audio:** Reaper, Ableton Live, FL Studio, Cubase, Studio One, Bitwig, Pro Tools, VST/JS plugin windows
-- **Development/System:** Command Prompt, Windows Terminal, console apps, dialogs
-- **General:** Any window matching patterns, tool windows, floating panels
+FWDE includes an intelligent performance scaling system that monitors system resources and automatically adjusts quality settings:
 
----
+### 📊 Real-Time Resource Monitoring
+- **CPU Usage Tracking**: Continuous monitoring of system CPU load with historical analysis
+- **Memory Usage Analysis**: Real-time memory consumption tracking with threshold detection
+- **Frame Timing Metrics**: Frame rate and timing variance analysis for smooth operation
+- **Performance Trend Analysis**: Historical performance data for predictive optimization
 
-## 🧠 How the Physics Works
+### 🎚️ Automatic Quality Adjustment
+- **Five-Tier Quality System**: Ultra, High, Medium, Low, and Minimal quality levels
+- **Intelligent Quality Selection**: Automatic quality level recommendation based on system performance
+- **Smooth Quality Transitions**: Seamless quality adjustments with user notification
+- **Emergency Performance Protection**: Automatic critical resource detection and protection
 
-1. **Forces:**  
-   - Center attraction  
-   - Inter-window repulsion  
-   - Edge barriers  
-   - Space-seeking
+### 📈 Performance Budget Management
+- **Operation-Specific Budgets**: Individual performance budgets for physics, movement, and visual operations
+- **Automatic Budget Enforcement**: Real-time performance monitoring with automatic adjustment
+- **Performance Metrics Dashboard**: Comprehensive real-time performance statistics and trends
+- **User-Controllable Settings**: Manual override and configuration of automatic performance scaling
 
-2. **Energy Management:**  
-   - Normal/chaos states  
-   - Stabilization/damping
-
-3. **Smart Behaviors:**  
-   - Active windows freeze  
-   - User interaction timeouts  
-   - Small/plugin windows prioritized
+### Quality Level Characteristics:
+- **Ultra**: Maximum quality for high-end systems (1ms physics/visual updates, all advanced features)
+- **High**: High quality for powerful systems (1-2ms updates, advanced visuals enabled)
+- **Medium**: Balanced quality for most systems (2-3ms updates, selective advanced features)
+- **Low**: Performance optimized for older systems (3-5ms updates, essential features only)
+- **Minimal**: Minimum resource usage for limited systems (5-10ms updates, basic functionality)
 
 ---
 
@@ -207,11 +254,24 @@ Edit the Config map for:
 - **Visuals:** Animation/smoothing, border colors, echo parameters
 - **Presets:** Use hotkeys Ctrl+Alt+1-5 to quickly switch between optimized configurations
 
+Edit the LayoutAlgorithms map for:
+
+- **Bin Packing:** Strategy selection, rotation options, efficiency targets
+- **Genetic Algorithm:** Population size, mutation rates, fitness weights
+- **Custom Layouts:** Auto-save options, layout directory, maximum saved layouts
+- **Virtual Desktop:** Per-workspace settings, automatic switching, workspace profiles
+
 **Configuration Management:**
 - Real-time validation prevents destabilizing parameter combinations
 - Automatic fallback to safe defaults if validation fails
 - Configuration status checking with Ctrl+Alt+C
 - Easy preset switching for different workflow requirements
+
+**Advanced Layout Configuration:**
+- **Algorithm Selection**: Choose optimal packing strategy based on your workflow
+- **Evolution Parameters**: Tune genetic algorithm for faster or more thorough optimization
+- **Workspace Management**: Configure per-desktop layout rules and automatic switching
+- **Performance Optimization**: Adjust algorithm timing and efficiency for your system
 
 ---
 
@@ -221,6 +281,10 @@ Edit the Config map for:
 - **Low-Performance:** Higher MinSpeedThreshold (0.2-0.5), increase TimeStep
 - **Strict Spacing:** Lower OverlapTolerance (0-5)
 - **Loose Grouping:** Higher OverlapTolerance (20+)
+- **Layout Optimization:** Use genetic algorithm for workflows requiring perfect arrangements
+- **Space Efficiency:** Enable bin packing for maximum screen utilization
+- **Multi-Workspace:** Virtual desktop integration for complex professional workflows
+- **Performance Tuning:** Adjust algorithm parameters based on window count and system specs
 
 ---
 
@@ -233,6 +297,10 @@ Edit the Config map for:
 - Configuration errors: Check status with `Ctrl + Alt + C` and load Default preset (`Ctrl + Alt + 1`)
 - Visual feedback issues: Check system tray for error indicators or reset system state
 - Window clipped at bottom: Window will be automatically resized to fit the monitor margin during optimization or placement.
+- **Layout issues**: Try different bin packing strategies (`Ctrl + Alt + Shift + B`) or reset genetic algorithm
+- **Virtual desktop problems**: Check Windows 11 virtual desktop settings and restart FWDE
+- **Performance with many windows**: Disable genetic algorithm or reduce population size
+- **Layout restoration failures**: Verify window titles and classes haven't changed
 
 **System Tray Troubleshooting:**
 - Right-click system tray icon for quick access to all functions
@@ -246,6 +314,18 @@ Edit the Config map for:
 - Invalid parameter combinations are automatically detected and prevented
 - System includes automatic fallback to safe defaults on critical errors
 - Visual notifications confirm all configuration changes and status
+
+**Layout Algorithm Troubleshooting:**
+- **Poor packing efficiency**: Try Best Fit or Guillotine strategies for complex arrangements
+- **Genetic algorithm not improving**: Increase population size or adjust fitness weights
+- **Layout presets not loading**: Check layout file integrity and window matching criteria
+- **Virtual desktop integration issues**: Ensure Windows 11 virtual desktop API is available
+
+**Performance Issues:**
+- **High resource usage**: System automatically reduces quality level with notification
+- **Critical resource situations**: Emergency performance reduction with automatic recovery
+- **Performance monitoring**: Use `Ctrl + Alt + Shift + W` for comprehensive performance metrics
+- **Manual quality control**: Use `Ctrl + Alt + Shift + E` to manually cycle through quality levels
 
 ---
 

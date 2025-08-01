@@ -1759,4 +1759,149 @@ OptimizeWindowPositions() {
     OutputDebug(resultMsg)
 }
 
-; ...existing code...
+; Add this Clamp helper function near the top-level (outside any class)
+Clamp(val, min, max) {
+    return val < min ? min : val > max ? max : val
+}
+
+; Generate candidate positions based on different strategies
+GeneratePositionCandidates(window, placedWindows, monitor, strategy) {
+    candidates := []
+    useableLeft := monitor["Left"] + Config["MinMargin"]
+    useableTop := monitor["Top"] + Config["MinMargin"]
+    useableRight := monitor["Right"] - Config["MinMargin"] - window["width"]
+    useableBottom := monitor["Bottom"] - Config["MinMargin"] - window["height"]
+
+    switch strategy {
+        case "topLeft":
+            ; Grid-based placement from top-left
+            stepX := 60
+            stepY := 60
+            posY := useableTop
+            while (posY <= useableBottom) {
+                posX := useableLeft
+                while (posX <= useableRight) {
+                   
+                    candidates.Push(Map("x", posX, "y", posY))
+                    if (candidates.Length > 100)
+                        return candidates
+                    posX += stepX
+                }
+                posY += stepY
+            }
+        case "center":
+            ; Spiral outward from center
+            centerX := monitor["CenterX"] - window["width"]/2
+            centerY := monitor["CenterY"] - window["height"]/2
+            candidates.Push(Map("x", centerX, "y", centerY))
+            maxSpiralRadius := 300
+            spiralRadius := 50
+            while (spiralRadius <= maxSpiralRadius) {
+                spiralAngles := Max(8, Floor(spiralRadius / 25))
+                spiralAngleStep := 1
+                while (spiralAngleStep <= spiralAngles) {
+                    angle := (spiralAngleStep - 1) * (2 * 3.14159 / spiralAngles)
+                    posX := centerX + spiralRadius * Cos(angle)
+                    posY := centerY + spiralRadius * Sin(angle)
+                    if (posX >= useableLeft && posX <= useableRight && posY >= useableTop && posY <= useableBottom)
+                        candidates.Push(Map("x", posX, "y", posY))
+                    spiralAngleStep++
+                }
+                spiralRadius += 50
+            }
+        case "edges":
+            ; Prefer positions along screen edges
+            margin := 0
+            ; Top edge
+            posX := useableLeft
+            while (posX <= useableRight) {
+                candidates.Push(Map("x", posX, "y", useableTop))
+                posX += 60
+            }
+            ; Left edge
+            posY := useableTop
+            while (posY <= useableBottom) {
+                candidates.Push(Map("x", useableLeft, "y", posY))
+                posY += 60
+            }
+            ; Right edge
+            posY := useableTop
+            while (posY <= useableBottom) {
+                candidates.Push(Map("x", useableRight, "y", posY))
+                posY += 60
+            }
+            ; Bottom edge
+            posX := useableLeft
+            while (posX <= useableRight) {
+                candidates.Push(Map("x", posX, "y", useableBottom))
+                posX += 60
+            }
+        case "gaps":
+            ; Fill gaps between existing windows
+            if (placedWindows.Length > 0) {
+                for placed in placedWindows {
+                    adjacentPositions := [
+                        Map("x", placed["x"] + placed["width"] + Config["MinGap"], "y", placed["y"]),
+                        Map("x", placed["x"] - window["width"] - Config["MinGap"], "y", placed["y"]),
+                        Map("x", placed["x"], "y", placed["y"] + placed["height"] + Config["MinGap"]),
+                        Map("x", placed["x"], "y", placed["y"] - window["height"] - Config["MinGap"])
+                    ]
+                    for pos in adjacentPositions {
+                        if (pos["x"] >= useableLeft && pos["x"] <= useableRight &&
+                            pos["y"] >= useableTop && pos["y"] <= useableBottom)
+                            candidates.Push(pos)
+                    }
+                }
+            }
+    }
+    ; Optimize: Remove duplicate positions
+    unique := Map()
+    for pos in candidates {
+        key := pos["x"] "," pos["y"]
+        if !unique.Has(key)
+            unique[key] := pos
+    }
+    
+    ; Convert Map to Array manually since v2 Maps don't have Values() method
+    result := []
+    for key, pos in unique {
+        result.Push(pos)
+    }
+    return result
+}
+
+; Returns a Map with the usable area (monitor minus all taskbars)
+GetSafeArea(monitor) {
+    left := monitor["Left"]
+    top := monitor["Top"]
+    right := monitor["Right"]
+    bottom := monitor["Bottom"]
+    ; Shrink area for each overlapping taskbar
+    for rect in GetTaskbarRects() {
+        ; Only consider taskbars that overlap this monitor
+        if (rect.right <= left || rect.left >= right || rect.bottom <= top || rect.top >= bottom)
+            continue
+        ; Top taskbar
+        if (rect.top == top && rect.left <= right && rect.right >= left)
+            top := Max(top, rect.bottom)
+        ; Bottom taskbar
+        if (rect.bottom == bottom && rect.left <= right && rect.right >= left)
+            bottom := Min(bottom, rect.top)
+        ; Left taskbar
+        if (rect.left == left && rect.top <= bottom && rect.bottom >= top)
+            left := Max(left, rect.right)
+        ; Right taskbar
+        if (rect.right == right && rect.top <= bottom && rect.bottom >= top)
+            right := Min(right, rect.left)
+    }
+    return Map(
+        "Left", left,
+        "Top", top,
+        "Right", right,
+        "Bottom", bottom,
+        "Width", right - left,
+        "Height", bottom - top,
+        "CenterX", (right + left) // 2,
+        "CenterY", (bottom + top) // 2
+    )
+}

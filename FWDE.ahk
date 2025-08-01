@@ -2147,3 +2147,334 @@ ScorePosition(pos, window, placedWindows, monitor, strategy) {
 
     return score
 }
+
+; Generate candidate positions based on different strategies
+GeneratePositionCandidates(window, placedWindows, monitor, strategy) {
+    candidates := []
+    useableLeft := monitor["Left"] + Config["MinMargin"]
+    useableTop := monitor["Top"] + Config["MinMargin"]
+    useableRight := monitor["Right"] - Config["MinMargin"] - window["width"]
+    useableBottom := monitor["Bottom"] - Config["MinMargin"] - window["height"]
+
+    switch strategy {
+        case "topLeft":
+            ; Grid-based placement from top-left
+            stepX := 60
+            stepY := 60
+            posY := useableTop
+            while (posY <= useableBottom) {
+                posX := useableLeft
+                while (posX <= useableRight) {
+                    candidates.Push(Map("x", posX, "y", posY))
+                    if (candidates.Length > 100)
+                        return candidates
+                    posX += stepX
+                }
+                posY += stepY
+            }
+        case "center":
+            ; Spiral outward from center
+            centerX := monitor["CenterX"] - window["width"]/2
+            centerY := monitor["CenterY"] - window["height"]/2
+            candidates.Push(Map("x", centerX, "y", centerY))
+            maxSpiralRadius := 300
+            spiralRadius := 50
+            while (spiralRadius <= maxSpiralRadius) {
+                spiralAngles := Max(8, Floor(spiralRadius / 25))
+                spiralAngleStep := 1
+                while (spiralAngleStep <= spiralAngles) {
+                    angle := (spiralAngleStep - 1) * (2 * 3.14159 / spiralAngles)
+                    posX := centerX + spiralRadius * Cos(angle)
+                    posY := centerY + spiralRadius * Sin(angle)
+                    if (posX >= useableLeft && posX <= useableRight && posY >= useableTop && posY <= useableBottom)
+                        candidates.Push(Map("x", posX, "y", posY))
+                    spiralAngleStep++
+                }
+                spiralRadius += 50
+            }
+        case "edges":
+            ; Prefer positions along screen edges
+            ; Top edge
+            posX := useableLeft
+            while (posX <= useableRight) {
+                candidates.Push(Map("x", posX, "y", useableTop))
+                posX += 60
+            }
+            ; Left edge
+            posY := useableTop
+            while (posY <= useableBottom) {
+                candidates.Push(Map("x", useableLeft, "y", posY))
+                posY += 60
+            }
+            ; Right edge
+            posY := useableTop
+            while (posY <= useableBottom) {
+                candidates.Push(Map("x", useableRight, "y", posY))
+                posY += 60
+            }
+            ; Bottom edge
+            posX := useableLeft
+            while (posX <= useableRight) {
+                candidates.Push(Map("x", posX, "y", useableBottom))
+                posX += 60
+            }
+        case "gaps":
+            ; Fill gaps between existing windows
+            if (placedWindows.Length > 0) {
+                for placed in placedWindows {
+                    adjacentPositions := [
+                        Map("x", placed["x"] + placed["width"] + Config["MinGap"], "y", placed["y"]),
+                        Map("x", placed["x"] - window["width"] - Config["MinGap"], "y", placed["y"]),
+                        Map("x", placed["x"], "y", placed["y"] + placed["height"] + Config["MinGap"]),
+                        Map("x", placed["x"], "y", placed["y"] - window["height"] - Config["MinGap"])
+                    ]
+                    for pos in adjacentPositions {
+                        if (pos["x"] >= useableLeft && pos["x"] <= useableRight &&
+                            pos["y"] >= useableTop && pos["y"] <= useableBottom)
+                            candidates.Push(pos)
+                    }
+                }
+            }
+        case "grid":
+            ; Grid-based placement with larger steps
+            stepX := 80
+            stepY := 80
+            posY := useableTop
+            while (posY <= useableBottom) {
+                posX := useableLeft
+                while (posX <= useableRight) {
+                    candidates.Push(Map("x", posX, "y", posY))
+                    if (candidates.Length > 100)
+                        return candidates
+                    posX += stepX
+                }
+                posY += stepY
+            }
+    }
+    
+    ; Optimize: Remove duplicate positions
+    unique := Map()
+    for pos in candidates {
+        key := pos["x"] "," pos["y"]
+        if !unique.Has(key)
+            unique[key] := pos
+    }
+    
+    ; Convert Map to Array manually since v2 Maps don't have Values() method
+    result := []
+    for key, pos in unique {
+        result.Push(pos)
+    }
+    return result
+}
+
+; Returns a Map with the usable area (monitor minus all taskbars)
+GetSafeArea(monitor) {
+    left := monitor["Left"]
+    top := monitor["Top"]
+    right := monitor["Right"]
+    bottom := monitor["Bottom"]
+    ; Shrink area for each overlapping taskbar
+    for rect in GetTaskbarRects() {
+        ; Only consider taskbars that overlap this monitor
+        if (rect.right <= left || rect.left >= right || rect.bottom <= top || rect.top >= bottom)
+            continue
+        ; Top taskbar
+        if (rect.top == top && rect.left <= right && rect.right >= left)
+            top := Max(top, rect.bottom)
+        ; Bottom taskbar
+        if (rect.bottom == bottom && rect.left <= right && rect.right >= left)
+            bottom := Min(bottom, rect.top)
+        ; Left taskbar
+        if (rect.left == left && rect.top <= bottom && rect.bottom >= top)
+            left := Max(left, rect.right)
+        ; Right taskbar
+        if (rect.right == right && rect.top <= bottom && rect.bottom >= top)
+            right := Min(right, rect.left)
+    }
+    return Map(
+        "Left", left,
+        "Top", top,
+        "Right", right,
+        "Bottom", bottom,
+        "Width", right - left,
+        "Height", bottom - top,
+        "CenterX", (right + left) // 2,
+        "CenterY", (bottom + top) // 2
+    )
+}
+
+GetTaskbarRects() {
+    ; Returns an array of all taskbar rectangles (supports multi-monitor/taskbar mods)
+    rects := []
+    ; Helper for v2: get work area as a Map
+    SysGetWorkArea() {
+        l := SysGet(48)  ; MONITORINFOF_PRIMARY left
+        t := SysGet(49)  ; MONITORINFOF_PRIMARY top
+        r := SysGet(50)  ; MONITORINFOF_PRIMARY right
+        b := SysGet(51)  ; MONITORINFOF_PRIMARY bottom
+        return Map("Left", l, "Top", t, "Right", r, "Bottom", b)
+    }
+    ; Standard Windows taskbar(s)
+    for hwnd in WinGetList("ahk_class Shell_TrayWnd") {
+        if !SafeWinExist(hwnd)
+            continue
+        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+        if (w > 0 && h > 0)
+            rects.Push({ left: x, top: y, right: x + w, bottom: y + h })
+    }
+    ; RetroBar (alternative taskbar)
+    for hwnd in WinGetList("ahk_class RetroBarWnd") {
+        if !SafeWinExist(hwnd)
+            continue
+        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+        if (w > 0 && h > 0)
+            rects.Push({ left: x, top: y, right: x + w, bottom: y + h })
+    }
+    for hwnd in WinGetList("ahk_exe RetroBar.exe") {
+        if !SafeWinExist(hwnd)
+            continue
+        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+        if (w > 0 && h > 0)
+            rects.Push({ left: x, top: y, right: x + w, bottom: y + h })
+    }
+    ; ExplorerPatcher/TaskbarX/other mods (common classes)
+    for hwnd in WinGetList("ahk_class MSTaskSwWClass") {
+        wa := SysGetWorkArea()
+        sw := SysGet(78)  ; SM_CXSCREEN
+        sh := SysGet(79)  ; SM_CYSCREEN
+        if (wa && wa.Has("Right") && wa.Has("Bottom") && wa.Has("Left") && wa.Has("Top")) {
+            ; If SysGet succeeded
+            if (wa["Right"] < sw || wa["Bottom"] < sh) {
+                ; Bottom or right taskbar
+                if (wa["Bottom"] < sh)
+                    rects.Push({ left: 0, top: wa["Bottom"], right: sw, bottom: sh })
+                if (wa["Right"] < sw)
+                    rects.Push({ left: wa["Right"], top: 0, right: sw, bottom: sh })
+            }
+            if (wa["Left"] > 0)
+                rects.Push({ left: 0, top: 0, right: wa["Left"], bottom: sh })
+            if (wa["Top"] > 0)
+                rects.Push({ left: 0, top: 0, right: sw, bottom: wa["Top"] })
+        } else {
+            ; Default fallback: bottom 44px
+            rects.Push({ left: 0, top: A_ScreenHeight - 44, right: A_ScreenWidth, bottom: A_ScreenHeight })
+        }
+    }
+    return rects
+}
+
+;HOTKEYS
+
+^!Space::ToggleArrangement()      ; Ctrl+Alt+Space to toggle
+^!P::TogglePhysics()              ; Ctrl+Alt+P for physics
+^!F::ToggleTimePhasing()          ; Ctrl+Alt+F for time phasing effects
+^!M::ToggleSeamlessMonitorFloat() ; Ctrl+Alt+M for seamless multi-monitor floating
+^!O::OptimizeWindowPositions()    ; Ctrl+Alt+O to optimize space utilization
+^!L::ToggleWindowLock()           ; Ctrl+Alt+L to lock/unlock active window
+
+SetTimer(UpdateWindowStates, Config["PhysicsTimeStep"])
+SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
+SetTimer(TimePhasing.UpdateEchoes.Bind(TimePhasing), Config["VisualTimeStep"])
+UpdateWindowStates()
+
+OnMessage(0x0003, WindowMoveHandler)
+OnMessage(0x0005, WindowSizeHandler)
+
+OnExit(*) {
+    for hwnd in g["ManualWindows"]
+        RemoveManualWindowBorder(hwnd)
+    TimePhasing.CleanupEffects()
+    DllCall("winmm\timeEndPeriod", "UInt", 1)
+}
+
+WindowMoveHandler(wParam, lParam, msg, hwnd) {
+    global g, Config
+    if (!g["ArrangementActive"] || (A_TickCount - g["LastUserMove"] < Config["ResizeDelay"]))
+        return
+
+    Critical
+    g["LastUserMove"] := A_TickCount
+    g["ActiveWindow"] := hwnd
+
+    try {
+        if (WinGetMinMax("ahk_id " hwnd) != 0)
+            return
+    }
+    catch {
+        return
+    }
+
+    try {
+        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+        winCenterX := x + w/2
+        winCenterY := y + h/2
+        monNum := MonitorGetFromPoint(winCenterX, winCenterY)
+        MonitorGet monNum, &mL, &mT, &mR, &mB
+
+        for win in g["Windows"] {
+            if (win["hwnd"] == hwnd) {
+                ; Remove manual lock and border when window is moved manually
+                if (win.Has("ManualLock"))
+                    win.Delete("ManualLock")
+                if (win.Has("IsManual"))
+                    win.Delete("IsManual")
+                RemoveManualWindowBorder(hwnd)
+                win["vx"] := 0
+                win["vy"] := 0
+                win["monitor"] := monNum
+                break
+            }
+        }
+    }
+    catch {
+        return
+    }
+
+    SetTimer(UpdateWindowStates, -Config["ResizeDelay"])
+}
+
+WindowSizeHandler(wParam, lParam, msg, hwnd) {
+    global g, Config
+    if (!g["ArrangementActive"] || (A_TickCount - g["LastUserMove"] < Config["ResizeDelay"]))
+        return
+
+    Critical
+    g["LastUserMove"] := A_TickCount
+    g["ActiveWindow"] := hwnd
+
+    try {
+        if (WinGetMinMax("ahk_id " hwnd) != 0)
+            return
+    }
+    catch {
+        return
+    }
+
+    try {
+        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+        winCenterX := x + w/2
+        winCenterY := y + h/2
+        monNum := MonitorGetFromPoint(winCenterX, winCenterY)
+
+        for win in g["Windows"] {
+            if (win["hwnd"] == hwnd) {
+                ; Remove manual lock and border when window is resized manually
+                if (win.Has("ManualLock"))
+                    win.Delete("ManualLock")
+                if (win.Has("IsManual"))
+                    win.Delete("IsManual")
+                RemoveManualWindowBorder(hwnd)
+                win["vx"] := 0
+                win["vy"] := 0
+                win["monitor"] := monNum
+                break
+            }
+        }
+    }
+    catch {
+        return
+    }
+
+    SetTimer(UpdateWindowStates, -Config["ResizeDelay"])
+}

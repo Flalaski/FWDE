@@ -1764,144 +1764,372 @@ Clamp(val, min, max) {
     return val < min ? min : val > max ? max : val
 }
 
-; Generate candidate positions based on different strategies
-GeneratePositionCandidates(window, placedWindows, monitor, strategy) {
-    candidates := []
+; Calculate force to move windows toward less crowded areas of the screen
+CalculateSpaceSeekingForce(win, allWindows) {
+    if (allWindows.Length <= 2)
+        return Map()  ; Not enough windows to need space seeking
+
+    ; Get current monitor bounds
+    try {
+        MonitorGet win["monitor"], &mL, &mT, &mR, &mB
+    } catch {
+        return Map()
+    }
+
+    winCenterX := win["x"] + win["width"]/2
+    winCenterY := win["y"] + win["height"]/2
+
+    ; Calculate local density around this window
+    densityRadius := 250  ; pixels
+    localDensity := 0
+
+    for other in allWindows {
+        if (other["hwnd"] == win["hwnd"])
+            continue
+
+        otherCenterX := other["x"] + other["width"]/2
+        otherCenterY := other["y"] + other["height"]/2
+        dist := Sqrt((winCenterX - otherCenterX)**2 + (winCenterY - otherCenterY)**2)
+
+        if (dist < densityRadius) {
+            ; Weight by window size and proximity
+            proximityWeight := (densityRadius - dist) / densityRadius
+            sizeWeight := Sqrt(other["width"] * other["height"]) / 1000
+            localDensity += proximityWeight * sizeWeight
+        }
+    }
+
+    ; If not crowded, no space seeking needed
+    if (localDensity < 2.0)
+        return Map()
+
+    ; Find direction toward less crowded space
+    bestDirection := FindLeastCrowdedDirection(win, allWindows, mL, mT, mR, mB)
+
+    if (bestDirection.Count == 0)
+        return Map()
+
+    ; Calculate force magnitude based on crowding level
+    forceMagnitude := Min(localDensity - 2.0, 3.0)  ; Cap the force
+
+    return Map(
+        "vx", bestDirection["x"] * forceMagnitude,
+        "vy", bestDirection["y"] * forceMagnitude
+    )
+}
+
+; Find the direction with the least window density
+FindLeastCrowdedDirection(win, allWindows, mL, mT, mR, mB) {
+    winCenterX := win["x"] + win["width"]/2
+    winCenterY := win["y"] + win["height"]/2
+
+    ; Test 8 directions around the window
+    directions := [
+        Map("x", 0, "y", -1),    ; North
+        Map("x", 1, "y", -1),    ; Northeast
+        Map("x", 1, "y", 0),     ; East
+        Map("x", 1, "y", 1),     ; Southeast
+        Map("x", 0, "y", 1),     ; South
+        Map("x", -1, "y", 1),    ; Southwest
+        Map("x", -1, "y", 0),    ; West
+        Map("x", -1, "y", -1)    ; Northwest
+    ]
+
+    bestDirection := Map()
+    lowestDensity := 999999
+    searchDistance := 200  ; How far to look ahead
+
+    for dir in directions {
+        ; Calculate test point in this direction
+        testX := winCenterX + dir["x"] * searchDistance
+        testY := winCenterY + dir["y"] * searchDistance
+
+        ; Skip if test point would be outside screen bounds
+        if (testX < mL + win["width"]/2 || testX > mR - win["width"]/2 ||
+            testY < mT + win["height"]/2 || testY > mB - win["height"]/2)
+            continue
+
+        ; Calculate density at test point
+        density := CalculateDensityAtPoint(testX, testY, allWindows, win["hwnd"])
+
+        if (density < lowestDensity) {
+            lowestDensity := density
+            bestDirection := dir.Clone()
+        }
+    }
+
+    return bestDirection
+}
+
+; Calculate window density at a specific point
+CalculateDensityAtPoint(testX, testY, allWindows, excludeHwnd := 0) {
+    density := 0
+    influenceRadius := 150
+
+    for win in allWindows {
+        if (excludeHwnd != 0 && win["hwnd"] == excludeHwnd)
+            continue
+
+        winCenterX := win["x"] + win["width"]/2
+        winCenterY := win["y"] + win["height"]/2
+        dist := Sqrt((testX - winCenterX)**2 + (testY - winCenterY)**2)
+
+        if (dist < influenceRadius) {
+            ; Closer windows contribute more to density
+            influence := (influenceRadius - dist) / influenceRadius
+            sizeWeight := Sqrt(win["width"] * win["height"]) / 1000
+            density += influence * sizeWeight
+        }
+    }
+
+    return density
+}
+
+; Move window using Windows API
+MoveWindowAPI(hwnd, x, y, w := "", h := "") {
+    if (w == "" || h == "")
+        WinGetPos(,, &w, &h, "ahk_id " hwnd)
+    return DllCall("SetWindowPos", "Ptr", hwnd, "Ptr", 0, "Int", x, "Int", y, "Int", w, "Int", h, "UInt", 0x0014)
+}
+
+; Helper function to identify DAW plugin windows
+IsDAWPlugin(win) {
+    try {
+        ; Use the consolidated IsPluginWindow function
+        return IsPluginWindow(win["hwnd"])
+    }
+    catch {
+        return false
+    }
+}
+
+; Z-index ordering: smaller windows on top so they don't get lost behind larger ones
+OrderWindowsBySize() {
+    global g
+
+    if (g["Windows"].Length <= 1)
+        return
+
+    ; Create array of DAW plugin windows with their areas, excluding active window
+    windowAreas := []
+    for win in g["Windows"] {
+        if (win["hwnd"] != g["ActiveWindow"] && IsDAWPlugin(win)) {
+            windowAreas.Push({
+                hwnd: win["hwnd"],
+                area: win["width"] * win["height"],
+                lastZOrder: win.Has("lastZOrder") ? win["lastZOrder"] : 0
+            })
+        }
+    }
+
+    if (windowAreas.Length <= 1)
+        return
+
+    ; Sort by area (largest first) - manual bubble sort since AHK v2 arrays don't have built-in sort
+    Loop windowAreas.Length - 1 {
+        i := A_Index
+        Loop windowAreas.Length - i {
+            j := A_Index
+            if (windowAreas[j].area < windowAreas[j + 1].area) {
+                ; Swap elements
+                temp := windowAreas[j]
+                windowAreas[j] := windowAreas[j + 1]
+                windowAreas[j + 1] := temp
+            }
+        }
+    }
+
+    ; Set Z-order for DAW plugin windows only: largest plugins at bottom, smallest at top
+    for i, winData in windowAreas {
+        try {
+            ; Only reorder if the window's z-order actually needs to change
+            newZOrder := (i <= windowAreas.Length // 2) ? 1 : 0  ; 1 for bottom, 0 for top
+
+            if (winData.lastZOrder != newZOrder) {
+                ; Use SWP_NOACTIVATE and SWP_NOMOVE to prevent flashing and focus changes
+                flags := 0x0010 | 0x0002 | 0x0001  ; Don't activate, move, or resize
+
+                if (newZOrder == 1) {
+                    ; Larger plugin windows go to bottom (HWND_BOTTOM = 1)
+                    DllCall("SetWindowPos", "Ptr", winData.hwnd, "Ptr", 1, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
+                } else {
+                    ; Smaller plugin windows stay on top (HWND_TOP = 0)
+                    DllCall("SetWindowPos", "Ptr", winData.hwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
+                }
+
+                ; Update the stored z-order for this window
+                for win in g["Windows"] {
+                    if (win["hwnd"] == winData.hwnd) {
+                        win["lastZOrder"] := newZOrder
+                        break
+                    }
+                }
+            }
+        }
+        catch {
+            continue
+        }
+    }
+}
+
+; Update window states and refresh physics
+UpdateWindowStates() {
+    global g, Config
+    try {
+        ; Use virtual desktop bounds if seamless floating is enabled
+        if (Config["SeamlessMonitorFloat"]) {
+            currentMonitor := GetVirtualDesktopBounds()
+        } else {
+            currentMonitor := GetCurrentMonitorInfo()
+        }
+
+        g["Monitor"] := currentMonitor
+        g["Windows"] := GetVisibleWindows(currentMonitor)
+        ClearManualFlags()
+        if (g["ArrangementActive"] && g["PhysicsEnabled"])
+            CalculateDynamicLayout()
+    }
+    catch {
+        ; Initialize with appropriate monitor bounds
+        initialMonitor := Config["SeamlessMonitorFloat"] ? GetVirtualDesktopBounds() : GetCurrentMonitorInfo()
+        g := Map(
+            "Monitor", initialMonitor,
+            "ArrangementActive", true,
+            "LastUserMove", 0,
+            "ActiveWindow", 0,
+            "Windows", [],
+            "PhysicsEnabled", true,
+            "FairyDustEnabled", true,
+            "ManualWindows", Map(),
+            "SystemEnergy", 0
+        )
+    }
+}
+
+; Advanced space packing algorithm to find optimal window positions
+PackWindowsOptimally(windows, monitor) {
+    if (windows.Length == 0)
+        return Map()
+
+    positions := Map()
+    placedWindows := []
+    gridSize := 50  ; pixels per grid cell
+
+    for i, win in windows {
+        ; Calculate usable area for this window
+        useableLeft := monitor["Left"] + Config["MinMargin"]
+        useableTop := monitor["Top"] + Config["MinMargin"]
+        useableRight := monitor["Right"] - Config["MinMargin"] - win["width"]
+        useableBottom := monitor["Bottom"] - Config["MinMargin"] - win["height"]
+
+        ; Store original height if not already stored
+        if (!win.Has("origHeight"))
+            win["origHeight"] := win["height"]
+
+        bestPos := FindBestPosition(win, placedWindows, monitor, gridSize, 0, 0)
+        if (bestPos.Count > 0) {
+            ; If window would float below the screen, shrink its height
+            if (bestPos["y"] + win["height"] > monitor["Bottom"] - Config["MinMargin"]) {
+                newHeight := Max(80, monitor["Bottom"] - Config["MinMargin"] - bestPos["y"])
+                win["height"] := newHeight
+            } else if (win.Has("origHeight") && win["height"] != win["origHeight"]) {
+                ; Restore original height if space allows
+                win["height"] := win["origHeight"]
+            }
+            positions[i] := bestPos
+            placedWindows.Push(Map(
+                "x", bestPos["x"],
+                "y", bestPos["y"],
+                "width", win["width"],
+                "height", win["height"],
+                "hwnd", win["hwnd"]
+            ))
+        }
+    }
+
+    return positions
+}
+
+; Find the best position for a window considering existing windows and available space
+FindBestPosition(window, placedWindows, monitor, gridSize, gridCols, gridRows) {
     useableLeft := monitor["Left"] + Config["MinMargin"]
     useableTop := monitor["Top"] + Config["MinMargin"]
     useableRight := monitor["Right"] - Config["MinMargin"] - window["width"]
     useableBottom := monitor["Bottom"] - Config["MinMargin"] - window["height"]
 
-    switch strategy {
-        case "topLeft":
-            ; Grid-based placement from top-left
-            stepX := 60
-            stepY := 60
-            posY := useableTop
-            while (posY <= useableBottom) {
-                posX := useableLeft
-                while (posX <= useableRight) {
-                   
-                    candidates.Push(Map("x", posX, "y", posY))
-                    if (candidates.Length > 100)
-                        return candidates
-                    posX += stepX
-                }
-                posY += stepY
-            }
-        case "center":
-            ; Spiral outward from center
-            centerX := monitor["CenterX"] - window["width"]/2
-            centerY := monitor["CenterY"] - window["height"]/2
-            candidates.Push(Map("x", centerX, "y", centerY))
-            maxSpiralRadius := 300
-            spiralRadius := 50
-            while (spiralRadius <= maxSpiralRadius) {
-                spiralAngles := Max(8, Floor(spiralRadius / 25))
-                spiralAngleStep := 1
-                while (spiralAngleStep <= spiralAngles) {
-                    angle := (spiralAngleStep - 1) * (2 * 3.14159 / spiralAngles)
-                    posX := centerX + spiralRadius * Cos(angle)
-                    posY := centerY + spiralRadius * Sin(angle)
-                    if (posX >= useableLeft && posX <= useableRight && posY >= useableTop && posY <= useableBottom)
-                        candidates.Push(Map("x", posX, "y", posY))
-                    spiralAngleStep++
-                }
-                spiralRadius += 50
-            }
-        case "edges":
-            ; Prefer positions along screen edges
-            margin := 0
-            ; Top edge
-            posX := useableLeft
-            while (posX <= useableRight) {
-                candidates.Push(Map("x", posX, "y", useableTop))
-                posX += 60
-            }
-            ; Left edge
-            posY := useableTop
-            while (posY <= useableBottom) {
-                candidates.Push(Map("x", useableLeft, "y", posY))
-                posY += 60
-            }
-            ; Right edge
-            posY := useableTop
-            while (posY <= useableBottom) {
-                candidates.Push(Map("x", useableRight, "y", posY))
-                posY += 60
-            }
-            ; Bottom edge
-            posX := useableLeft
-            while (posX <= useableRight) {
-                candidates.Push(Map("x", posX, "y", useableBottom))
-                posX += 60
-            }
-        case "gaps":
-            ; Fill gaps between existing windows
-            if (placedWindows.Length > 0) {
-                for placed in placedWindows {
-                    adjacentPositions := [
-                        Map("x", placed["x"] + placed["width"] + Config["MinGap"], "y", placed["y"]),
-                        Map("x", placed["x"] - window["width"] - Config["MinGap"], "y", placed["y"]),
-                        Map("x", placed["x"], "y", placed["y"] + placed["height"] + Config["MinGap"]),
-                        Map("x", placed["x"], "y", placed["y"] - window["height"] - Config["MinGap"])
-                    ]
-                    for pos in adjacentPositions {
-                        if (pos["x"] >= useableLeft && pos["x"] <= useableRight &&
-                            pos["y"] >= useableTop && pos["y"] <= useableBottom)
-                            candidates.Push(pos)
-                    }
+    bestPos := Map()
+    bestScore := -999999
+
+    ; Try multiple placement strategies
+    strategies := [
+        "topLeft",      ; Pack from top-left
+        "center",       ; Try near center first
+        "edges",        ; Prefer screen edges
+        "gaps"          ; Fill gaps between existing windows
+    ]
+
+    for strategy in strategies {
+        candidatePositions := GeneratePositionCandidates(window, placedWindows, monitor, strategy)
+
+        for pos in candidatePositions {
+            ; Ensure position is within bounds
+            if (pos["x"] < useableLeft || pos["x"] > useableRight ||
+                pos["y"] < useableTop || pos["y"] > useableBottom)
+                continue
+
+            ; Check if position overlaps with existing windows
+            testWindow := Map(
+                "x", pos["x"], "y", pos["y"],
+                "width", window["width"], "height", window["height"],
+                "hwnd", window["hwnd"]
+            )
+
+            if (!IsOverlapping(testWindow, placedWindows)) {
+                score := ScorePosition(pos, window, placedWindows, monitor, strategy)
+                if (score > bestScore) {
+                    bestScore := score
+                    bestPos := pos.Clone()
                 }
             }
+        }
+
+        ; If we found a good position, use it
+        if (bestPos.Count > 0 && bestScore > 0)
+            break
     }
-    ; Optimize: Remove duplicate positions
-    unique := Map()
-    for pos in candidates {
-        key := pos["x"] "," pos["y"]
-        if !unique.Has(key)
-            unique[key] := pos
-    }
-    
-    ; Convert Map to Array manually since v2 Maps don't have Values() method
-    result := []
-    for key, pos in unique {
-        result.Push(pos)
-    }
-    return result
+
+    return bestPos
 }
 
-; Returns a Map with the usable area (monitor minus all taskbars)
-GetSafeArea(monitor) {
-    left := monitor["Left"]
-    top := monitor["Top"]
-    right := monitor["Right"]
-    bottom := monitor["Bottom"]
-    ; Shrink area for each overlapping taskbar
-    for rect in GetTaskbarRects() {
-        ; Only consider taskbars that overlap this monitor
-        if (rect.right <= left || rect.left >= right || rect.bottom <= top || rect.top >= bottom)
-            continue
-        ; Top taskbar
-        if (rect.top == top && rect.left <= right && rect.right >= left)
-            top := Max(top, rect.bottom)
-        ; Bottom taskbar
-        if (rect.bottom == bottom && rect.left <= right && rect.right >= left)
-            bottom := Min(bottom, rect.top)
-        ; Left taskbar
-        if (rect.left == left && rect.top <= bottom && rect.bottom >= top)
-            left := Max(left, rect.right)
-        ; Right taskbar
-        if (rect.right == right && rect.top <= bottom && rect.bottom >= top)
-            right := Min(right, rect.left)
+; Score a position based on various criteria
+ScorePosition(pos, window, placedWindows, monitor, strategy) {
+    score := 1000
+    centerX := monitor["CenterX"]
+    centerY := monitor["CenterY"]
+    distFromCenter := Sqrt((pos["x"] + window["width"]/2 - centerX)**2 + (pos["y"] + window["height"]/2 - centerY)**2)
+
+    switch strategy {
+        case "center":
+            score -= distFromCenter * 0.5
+        case "edges":
+            score += distFromCenter * 0.3
+        case "topLeft":
+            score -= (pos["x"] + pos["y"]) * 0.1
     }
-    return Map(
-        "Left", left,
-        "Top", top,
-        "Right", right,
-        "Bottom", bottom,
-        "Width", right - left,
-        "Height", bottom - top,
-        "CenterX", (right + left) // 2,
-        "CenterY", (bottom + top) // 2
-    )
+
+    for placed in placedWindows {
+        centerDist := Sqrt((pos["x"] + window["width"]/2 - placed["x"] - placed["width"]/2)**2 +
+                          (pos["y"] + window["height"]/2 - placed["y"] - placed["height"]/2)**2)
+        if (centerDist < 100)
+            score -= (100 - centerDist) * 2
+        else if (centerDist > 200)
+            score += 50
+    }
+
+    margin := Config["MinMargin"]
+    if (pos["x"] > monitor["Left"] + margin && pos["x"] < monitor["Right"] - window["width"] - margin &&
+        pos["y"] > monitor["Top"] + margin && pos["y"] < monitor["Bottom"] - window["height"] - margin)
+        score += 200
+
+    return score
 }

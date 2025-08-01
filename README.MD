@@ -9,6 +9,9 @@
 
 FWDE is a physics-driven window manager for Windows, designed for DAW plugins, terminals, dialogs, and floating windows. It uses real-time simulation for natural, intelligent arrangements, with multi-monitor support, manual controls, and visual effects.
 
+**New Feature:**  
+- **Automatic window resizing:** Any window that would extend below the monitor's bottom margin is automatically resized to fit within the visible area.
+
 ---
 
 ## 🎮 Controls & Hotkeys
@@ -151,10 +154,10 @@ Edit the Config map for:
 - Too aggressive: Increase damping, reduce forces
 - Performance: Increase PhysicsTimeStep/VisualTimeStep
 - Multi-monitor: Toggle seamless floating (`Ctrl + Alt + M`)
-- Window clipped at bottom: Window will be automatically resized to fit the monitor margin.
+- Window clipped at bottom:  
+  **New:** Window will be automatically resized to fit the monitor margin during optimization or placement.
 
 ---
 
 *Created by Flalaski with AI assistance (DeepSeek, Gemini, CoPilot)*  
 *Countless iterations for the perfect balance of automatic organization and user control. Hope it's helpful! ♥*
-*This tool represents countless iterations and refinements to achieve the perfect balance of automatic organization and user control. Hope it's helpful! ♥*

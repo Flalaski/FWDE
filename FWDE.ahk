@@ -249,6 +249,10 @@ Lerp(a, b, t) {
     return a + (b - a) * t
 }
 
+Clamp(value, min, max) {
+    return Max(min, Min(value, max))
+}
+
 EaseOutCubic(t) {
     return 1 - (1 - t) ** 3
 }
@@ -480,12 +484,20 @@ IsWindowFloating(hwnd) {
 
         winClass := WinGetClass("ahk_id " hwnd)
         processName := WinGetProcessName("ahk_id " hwnd)
+        
+        ; Get window styles
         style := WinGetStyle("ahk_id " hwnd)
         exStyle := WinGetExStyle("ahk_id " hwnd)
 
-        ; Debug output - remove after testing if not needed
+        ; Debug output for troubleshooting
         OutputDebug("Window Check - Class: " winClass " | Process: " processName " | Title: " title)
 
+        ; Allow more windows to float by default (less restrictive)
+        if (title != "" && winClass != "WorkerW" && winClass != "Shell_TrayWnd" 
+            && winClass != "Progman" && title != "Start" && !InStr(winClass, "TaskListThumbnailWnd"))
+            return true
+
+        ; Keep all the other checks as fallback
         ; 1. First check for forced processes (simplified)
         for pattern in Config["ForceFloatProcesses"] {
             if (processName ~= "i)^" pattern "$") {  ; Exact match with case insensitivity
@@ -1778,8 +1790,18 @@ OptimizeWindowPositions() {
     ; Always show result, even if 0
     resultMsg := "Optimization complete: " repositionedCount " windows repositioned"
     if (repositionedCount == 0) {
+
+
+
         resultMsg .= " (all windows already optimally placed)"
     }
+    ShowTooltip(resultMsg)
+}
+
+; Calculate space-seeking force to move windows toward less crowded areas
+CalculateSpaceSeekingForce(win, allWindows) {
+    winCenterX := win["x"] + win["width"]/2
+    winCenterY := win["y"] + win["height"]/2
     densityRadius := 250  ; pixels
     localDensity := 0
 
@@ -1804,7 +1826,7 @@ OptimizeWindowPositions() {
         return Map()
 
     ; Find direction toward less crowded space
-    bestDirection := FindLeastCrowdedDirection(win, allWindows, mL, mT, mR, mB)
+    bestDirection := FindLeastCrowdedDirection(win, allWindows, 0, 0, A_ScreenWidth, A_ScreenHeight)
 
     if (bestDirection.Count == 0)
         return Map()
@@ -1902,6 +1924,9 @@ IsDAWPlugin(win) {
         return false
     }
 }
+
+; Add missing hotkey for dragging windows
+~LButton::DragWindow()
 
 ; Z-index ordering: smaller windows on top so they don't get lost behind larger ones
 ; Only applies to DAW plugin windows to prevent flashing of regular windows
@@ -2372,6 +2397,8 @@ GetTaskbarRects() {
 ^!M::ToggleSeamlessMonitorFloat() ; Ctrl+Alt+M for seamless multi-monitor floating
 ^!O::OptimizeWindowPositions()    ; Ctrl+Alt+O to optimize space utilization
 ^!L::ToggleWindowLock()           ; Ctrl+Alt+L to lock/unlock active window
+^!D::DebugWindowManagement()       ; Ctrl+Alt+D to show debug info
+^!U::UpdateConfig()               ; Ctrl+Alt+U to update configuration
 
 SetTimer(UpdateWindowStates, Config["PhysicsTimeStep"])
 SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
@@ -2477,4 +2504,91 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
     }
 
     SetTimer(UpdateWindowStates, -Config["ResizeDelay"])
+}
+
+UpdateConfig() {
+    global Config
+    ; Simple configuration update function
+    ShowTooltip("Configuration updated - Current settings applied")
+    
+    ; You can add specific config updates here if needed
+    ; For example:
+    ; Config["AttractionForce"] := 0.0001
+    ; Config["RepulsionForce"] := 0.369
+    
+    ; Force window state refresh
+    if (g.Has("ArrangementActive") && g["ArrangementActive"]) {
+        UpdateWindowStates()
+    }
+}
+
+DebugWindowManagement() {
+    global g, Config
+    
+    try {
+        allWindows := WinGetList()
+        debugText := ""
+        count := 0
+        floatingCount := 0
+        managedCount := g["Windows"].Length
+
+        debugText .= "=================`n"
+        debugText .= "FWDE Debug Info:`n"
+        debugText .= "Arrangement Active: " (g["ArrangementActive"] ? "Yes" : "No") "`n"
+        debugText .= "Physics Enabled: " (g["PhysicsEnabled"] ? "Yes" : "No") "`n"
+        debugText .= "Seamless Monitor Float: " (Config["SeamlessMonitorFloat"] ? "Yes" : "No") "`n"
+        debugText .= "Managed Windows: " managedCount "`n`n"
+
+        for hwnd in allWindows {
+            try {
+                if (!IsWindowValid(hwnd))
+                    continue
+                    
+                isFloating := IsWindowFloating(hwnd)
+                winClass := WinGetClass("ahk_id " hwnd)
+                title := WinGetTitle("ahk_id " hwnd)
+                
+                if (title == "" || StrLen(title) > 50)
+                    title := SubStr(title, 1, 50) "..."
+
+                debugText .= "Window: " title "`n"
+                debugText .= "  Class: " winClass "`n"
+                debugText .= "  Floating: " (isFloating ? "Yes" : "No") "`n"
+
+                if (isFloating) {
+                    floatingCount++
+                    ; Check if it's in our managed list
+                    isManaged := false
+                    for win in g["Windows"] {
+                        if (win["hwnd"] == hwnd) {
+                            isManaged := true
+                            debugText .= "  Managed: Yes`n"
+                            break
+                        }
+                    }
+                    if (!isManaged)
+                        debugText .= "  Managed: No`n"
+                }
+                debugText .= "`n"
+            }
+            catch as e {
+                debugText .= "Error processing window: " e.Message "`n"
+            }
+            count++
+            if (count >= 10)    ; Limit to first 10 windows for debug output
+                break
+        }
+
+        debugText .= "=================`n"
+        debugText .= "Total Windows Checked: " count "`n"
+        debugText .= "Total Floating Windows: " floatingCount "`n"
+        debugText .= "Currently Managed: " managedCount "`n"
+
+        ; Show debug info in a message box for now
+        MsgBox(debugText, "FWDE Debug Information", "OK")
+        
+    }
+    catch as e {
+        MsgBox("Debug error: " e.Message, "FWDE Debug Error", "OK")
+    }
 }

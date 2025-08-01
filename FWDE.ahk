@@ -30,8 +30,8 @@ global g_PhysicsBuffer := Buffer(4096)
 ; When enabled, windows are no longer confined to the current monitor boundaries
 
 global Config := Map(
-    "MinMargin", 42,
-    "MinGap", 21,
+    "MinMargin", 0,
+    "MinGap", 0,
     "ManualGapBonus", 369,
     "AttractionForce", 0.0001,   ; << restore to a small value (not 3.2)
     "RepulsionForce", 0.369,    ; << restore to a small value (not 28)
@@ -1798,7 +1798,7 @@ FindBestPosition(window, placedWindows, monitor, gridSize, gridCols, gridRows) {
             ; --- Resize window height if it would exceed monitor bottom margin ---
             tempHeight := window["height"]
             if (pos["y"] + tempHeight > monitor["Bottom"] - Config["MinMargin"]) {
-                tempHeight := Max(80, monitor["Bottom"] - Config["MinMargin"] - pos["y"])
+                tempHeight := Max(99, monitor["Bottom"] - Config["MinMargin"] - pos["y"])
             }
 
             ; Check if position overlaps with existing windows
@@ -1872,30 +1872,30 @@ GeneratePositionCandidates(window, placedWindows, monitor, strategy) {
             }
         case "edges":
             ; Prefer positions along screen edges
-            margin := 20
+            margin := 0
             ; Top edge
             posX := useableLeft
             while (posX <= useableRight) {
                 candidates.Push(Map("x", posX, "y", useableTop))
-                posX += 80
+                posX += 0
             }
             ; Left edge
             posY := useableTop
             while (posY <= useableBottom) {
                 candidates.Push(Map("x", useableLeft, "y", posY))
-                posY += 80
+                posY += 0
             }
             ; Right edge
             posY := useableTop
             while (posY <= useableBottom) {
                 candidates.Push(Map("x", useableRight, "y", posY))
-                posY += 80
+                posY += 0
             }
             ; Bottom edge
             posX := useableLeft
             while (posX <= useableRight) {
                 candidates.Push(Map("x", posX, "y", useableBottom))
-                posX += 80
+                posX += 0
             }
         case "gaps":
             ; Fill gaps between existing windows
@@ -2031,7 +2031,7 @@ FindLeastCrowdedDirection(win, allWindows, mL, mT, mR, mB) {
 
     bestDirection := Map()
     lowestDensity := 999999
-    searchDistance := 200  ; How far to look ahead
+    searchDistance := 2000  ; How far to look ahead
 
     for dir in directions {
         ; Calculate test point in this direction
@@ -2058,7 +2058,7 @@ FindLeastCrowdedDirection(win, allWindows, mL, mT, mR, mB) {
 ; Calculate window density at a specific point
 CalculateDensityAtPoint(testX, testY, allWindows, excludeHwnd := 0) {
     density := 0
-    influenceRadius := 150
+    influenceRadius := 50
 
     for win in allWindows {
         if (excludeHwnd != 0 && win["hwnd"] == excludeHwnd)

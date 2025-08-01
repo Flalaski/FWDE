@@ -7,6 +7,15 @@
 A_IconTip := "Floating Windows - Dynamic Equilibrium"
 ProcessSetPriority("High")
 
+; Enhanced debug logging system
+global DebugLevel := 3  ; 0=None, 1=Error, 2=Warning, 3=Info, 4=Verbose, 5=Trace
+global DebugToFile := true
+global DebugFile := A_ScriptDir "\FWDE_Debug.log"
+
+; Initialize debug log
+DebugLog("SYSTEM", "FWDE Starting - Debug Level: " DebugLevel, 1)
+DebugLog("SYSTEM", "Script Path: " A_ScriptFullPath, 2)
+DebugLog("SYSTEM", "Working Directory: " A_WorkingDir, 2)
 
 #DllLoad "gdi32.dll"
 #DllLoad "user32.dll"
@@ -114,6 +123,18 @@ global Config := Map(
     "PhysicsUpdateInterval", 200,
 )
 
+; Log configuration values
+DebugLog("CONFIG", "Configuration loaded with " Config.Count " parameters", 2)
+for key, value in Config {
+    if (Type(value) = "Array") {
+        DebugLog("CONFIG", key ": [Array with " value.Length " items]", 4)
+    } else if (Type(value) = "Map") {
+        DebugLog("CONFIG", key ": [Map with " value.Count " items]", 4)
+    } else {
+        DebugLog("CONFIG", key ": " String(value), 4)
+    }
+}
+
 global g := Map(
     "Monitor", Config["SeamlessMonitorFloat"] ? GetVirtualDesktopBounds() : GetCurrentMonitorInfo(),
     "ArrangementActive", true,
@@ -129,118 +150,116 @@ global g := Map(
     "LastScreenshotCheck", 0          ; Throttle screenshot detection
 )
 
-class NoiseAnimator {
-    static permutations := [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,35,11,32,57,177,33,88,237,149,56,87,174,20,125,136,171,168,68,175,74,165,71,134,139,48,27,166,77,146,158,231,83,111,229,122,60,211,133,230,220,105,92,41,55,46,245,40,244,102,143,54,65,25,63,161,1,216,80,73,209,76,132,187,208,89,18,169,200,196,135,130,116,188,159,86,164,100,109,198,173,186,3,64,52,217,226,250,124,123,5,202,38,147,118,126,255,82,85,212,207,206,59,227,47,16,58,17,182,189,28,42,223,183,170,213,119,248,152,2,44,154,163,70,221,153,101,155,167,43,172,9,129,22,39,253,19,98,108,110,79,113,224,232,178,185,112,104,218,246,97,228,251,34,242,193,238,210,144,12,191,179,162,241,81,51,145,235,249,14,239,107,49,192,214,31,181,199,106,157,184,84,204,176,115,121,50,45,127,4,150,254,138,236,205,93,222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180]
+DebugLog("INIT", "Global state initialized. Monitor bounds: " g["Monitor"]["Left"] "," g["Monitor"]["Top"] " to " g["Monitor"]["Right"] "," g["Monitor"]["Bottom"], 2)
 
-    static grad3 := [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],[1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],[0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]]
-
-    static F2 := 0.5*(Sqrt(3)-1)
-    static G2 := (3-Sqrt(3))/6
-
-    static noise(x, y) {
-        s := (x + y) * this.F2
-        i := Floor(x + s)
-        j := Floor(y + s)
-
-        t := (i + j) * this.G2
-        X0 := i - t
-        Y0 := j - t
-        x0 := x - X0
-        y0 := y - Y0
-
-        i1 := x0 > y0 ? 1 : 0
-        j1 := x0 > y0 ? 0 : 1
-
-        x1 := x0 - i1 + this.G2
-        y1 := y0 - j1 + this.G2
-        x2 := x0 - 1 + 2*this.G2
-        y2 := y0 - 1 + 2*this.G2
-
-        ii := Mod(i, 256) + 1
-        jj := Mod(j, 256) + 1
-
-        p := this.permutations
-        a := p.Has(ii) ? p[ii] : 0
-        b := p.Has(jj) ? p[jj] : 0
-        aa := p.Has(ii + i1) ? p[ii + i1] : 0
-        ab := p.Has(jj + j1) ? p[jj + j1] : 0
-        ba := p.Has(ii + 1) ? p[ii + 1] : 0
-        bb := p.Has(jj + 1) ? p[jj + 1] : 0
-
-        gi0 := Mod(a + b, 12) + 1
-        gi1 := Mod(aa + ab, 12) + 1
-        gi2 := Mod(ba + bb, 12) + 1
-
-        t0 := 0.5 - x0*x0 - y0*y0
-        n0 := 0
-        if (t0 >= 0) {
-            grad := this.grad3.Has(gi0) ? this.grad3[gi0] : [0,0,0]
-            n0 := t0**4 * (grad[1]*x0 + grad[2]*y0)
+; Enhanced debug logging function
+DebugLog(category, message, level := 3) {
+    global DebugLevel, DebugToFile, DebugFile
+    
+    if (level > DebugLevel)
+        return
+    
+    timestamp := FormatTime(A_Now, "yyyy-MM-dd HH:mm:ss.fff")
+    levelName := ["", "ERROR", "WARN", "INFO", "VERBOSE", "TRACE"][level + 1]
+    logMessage := timestamp " [" levelName "] " category ": " message
+    
+    ; Output to debug console
+    OutputDebug(logMessage)
+    
+    ; Optional file logging
+    if (DebugToFile) {
+        try {
+            FileAppend(logMessage "`n", DebugFile)
         }
-
-        t1 := 0.5 - x1*x1 - y1*y1
-        n1 := 0
-        if (t1 >= 0) {
-            grad := this.grad3.Has(gi1) ? this.grad3[gi1] : [0,0,0]
-            n1 := t1**4 * (grad[1]*x1 + grad[2]*y1)
-        }
-
-        t2 := 0.5 - x2*x2 - y2*y2
-        n2 := 0
-        if (t2 >= 0) {
-            grad := this.grad3.Has(gi2) ? this.grad3[gi2] : [0,0,0]
-            n2 := t2**4 * (grad[1]*x2 + grad[2]*y2)
-        }
-
-        return 70*(n0 + n1 + n2)
     }
+}
+
+; Performance monitoring helpers
+StartPerfTimer(name) {
+    global PerfTimers := Map()
+    PerfTimers[name] := A_TickCount
+    DebugLog("PERF", "Timer started: " name, 5)
+}
+
+EndPerfTimer(name) {
+    global PerfTimers
+    if (!PerfTimers.Has(name))
+        return 0
+    elapsed := A_TickCount - PerfTimers[name]
+    DebugLog("PERF", "Timer ended: " name " (" elapsed "ms)", elapsed > 50 ? 3 : 4)
+    PerfTimers.Delete(name)
+    return elapsed
 }
 
 SafeWinExist(hwnd) {
     try {
-        return WinExist("ahk_id " hwnd)
+        result := WinExist("ahk_id " hwnd)
+        DebugLog("WINDOW", "SafeWinExist(" hwnd "): " (result ? "exists" : "not found"), 5)
+        return result
     }
-    catch {
+    catch as e {
+        DebugLog("WINDOW", "SafeWinExist(" hwnd ") error: " e.Message, 2)
         return 0
     }
 }
 
 IsWindowValid(hwnd) {
+    DebugLog("VALIDATION", "Checking window validity for hwnd: " hwnd, 5)
+    
     try {
-        if (!SafeWinExist(hwnd))
+        if (!SafeWinExist(hwnd)) {
+            DebugLog("VALIDATION", "Window " hwnd " does not exist", 4)
             return false
+        }
 
         try {
-            if (WinGetMinMax("ahk_id " hwnd) != 0)
+            minMax := WinGetMinMax("ahk_id " hwnd)
+            if (minMax != 0) {
+                DebugLog("VALIDATION", "Window " hwnd " is minimized/maximized (state: " minMax ")", 4)
                 return false
+            }
         }
-        catch {
+        catch as e {
+            DebugLog("VALIDATION", "Error getting MinMax for " hwnd ": " e.Message, 2)
             return false
         }
 
         try {
             title := WinGetTitle("ahk_id " hwnd)
-            if (title == "" || title == "Program Manager")
+            if (title == "" || title == "Program Manager") {
+                DebugLog("VALIDATION", "Window " hwnd " has invalid title: '" title "'", 4)
                 return false
+            }
         }
-        catch {
+        catch as e {
+            DebugLog("VALIDATION", "Error getting title for " hwnd ": " e.Message, 2)
             return false
         }
 
         try {
-            if (WinGetExStyle("ahk_id " hwnd) & 0x80)
+            exStyle := WinGetExStyle("ahk_id " hwnd)
+            style := WinGetStyle("ahk_id " hwnd)
+            
+            if (exStyle & 0x80) {
+                DebugLog("VALIDATION", "Window " hwnd " has WS_EX_TOOLWINDOW style", 4)
                 return false
+            }
 
-            if (!(WinGetStyle("ahk_id " hwnd) & 0x10000000))
+            if (!(style & 0x10000000)) {
+                DebugLog("VALIDATION", "Window " hwnd " is not visible", 4)
                 return false
+            }
         }
-        catch {
+        catch as e {
+            DebugLog("VALIDATION", "Error getting styles for " hwnd ": " e.Message, 2)
             return false
         }
 
+        DebugLog("VALIDATION", "Window " hwnd " is valid", 5)
         return true
     }
-    catch {
+    catch as e {
+        DebugLog("VALIDATION", "Unexpected error validating window " hwnd ": " e.Message, 1)
         return false
     }
 }
@@ -264,14 +283,19 @@ ShowTooltip(text) {
 }
 
 GetCurrentMonitorInfo() {
+    DebugLog("MONITOR", "Getting current monitor info", 4)
     static lastPos := [0, 0], lastMonitor := Map()
     CoordMode "Mouse", "Screen"
     MouseGetPos(&mx, &my)
 
-    if (Abs(mx - lastPos[1]) < 50 && Abs(my - lastPos[2]) < 50 && lastMonitor.Count)
+    if (Abs(mx - lastPos[1]) < 50 && Abs(my - lastPos[2]) < 50 && lastMonitor.Count) {
+        DebugLog("MONITOR", "Using cached monitor info (mouse position unchanged)", 5)
         return lastMonitor
+    }
 
     lastPos := [mx, my]
+    DebugLog("MONITOR", "Mouse position: " mx "," my, 4)
+    
     if (monNum := MonitorGetFromPoint(mx, my)) {
         MonitorGet monNum, &L, &T, &R, &B
         lastMonitor := Map(
@@ -279,70 +303,68 @@ GetCurrentMonitorInfo() {
             "Width", R - L, "Height", B - T, "Number", monNum,
             "CenterX", (R + L) // 2, "CenterY", (B + T) // 2
         )
+        DebugLog("MONITOR", "Current monitor #" monNum ": " L "," T " to " R "," B " (size: " (R-L) "x" (B-T) ")", 3)
         return lastMonitor
     }
+    
+    DebugLog("MONITOR", "Could not determine monitor from mouse position, falling back to primary", 2)
     return GetPrimaryMonitorCoordinates()
 }
 
 MonitorGetFromPoint(x, y) {
+    DebugLog("MONITOR", "Finding monitor for point " x "," y, 5)
     try {
         Loop MonitorGetCount() {
             MonitorGet A_Index, &L, &T, &R, &B
-            if (x >= L && x < R && y >= T && y < B)
+            if (x >= L && x < R && y >= T && y < B) {
+                DebugLog("MONITOR", "Point " x "," y " is on monitor #" A_Index, 5)
                 return A_Index
+            }
         }
+        DebugLog("MONITOR", "Point " x "," y " is not on any monitor", 2)
+    }
+    catch as e {
+        DebugLog("MONITOR", "Error finding monitor for point " x "," y ": " e.Message, 1)
     }
     return 0
 }
 
-GetPrimaryMonitorCoordinates() {
-    try {
-        primaryNum := MonitorGetPrimary()
-        MonitorGet primaryNum, &L, &T, &R, &B
-        return Map(
-            "Left", L, "Right", R, "Top", T, "Bottom", B,
-            "Width", R - L, "Height", B - T, "Number", primaryNum,
-            "CenterX", (R + L) // 2, "CenterY", (B + T) // 2
-        )
-    }
-    catch {
-        return Map(
-            "Left", 0, "Right", A_ScreenWidth, "Top", 0, "Bottom", A_ScreenHeight,
-            "Width", A_ScreenWidth, "Height", A_ScreenHeight, "Number", 1,
-            "CenterX", A_ScreenWidth // 2, "CenterY", A_ScreenHeight // 2
-        )
-    }
-}
-
 GetVirtualDesktopBounds() {
-    ; Get the combined bounds of all monitors for seamless floating
+    DebugLog("MONITOR", "Getting virtual desktop bounds for seamless floating", 3)
     global Config
 
     if (!Config["SeamlessMonitorFloat"]) {
-        ; Return current monitor bounds if seamless floating is disabled
+        DebugLog("MONITOR", "Seamless floating disabled, returning current monitor bounds", 4)
         return GetCurrentMonitorInfo()
     }
 
     try {
         minLeft := 999999, maxRight := -999999
         minTop := 999999, maxBottom := -999999
+        monitorCount := MonitorGetCount()
 
-        Loop MonitorGetCount() {
+        DebugLog("MONITOR", "Processing " monitorCount " monitors for virtual desktop", 4)
+
+        Loop monitorCount {
             MonitorGet A_Index, &L, &T, &R, &B
+            DebugLog("MONITOR", "Monitor #" A_Index ": " L "," T " to " R "," B, 5)
             minLeft := Min(minLeft, L)
             maxRight := Max(maxRight, R)
             minTop := Min(minTop, T)
             maxBottom := Max(maxBottom, B)
         }
 
-        return Map(
+        bounds := Map(
             "Left", minLeft, "Right", maxRight, "Top", minTop, "Bottom", maxBottom,
             "Width", maxRight - minLeft, "Height", maxBottom - minTop, "Number", 0,
             "CenterX", (maxRight + minLeft) // 2, "CenterY", (maxBottom + minTop) // 2
         )
+        
+        DebugLog("MONITOR", "Virtual desktop bounds: " minLeft "," minTop " to " maxRight "," maxBottom " (size: " (maxRight-minLeft) "x" (maxBottom-minTop) ")", 3)
+        return bounds
     }
-    catch {
-        ; Fallback to primary monitor
+    catch as e {
+        DebugLog("MONITOR", "Error getting virtual desktop bounds: " e.Message ", falling back to primary", 1)
         return GetPrimaryMonitorCoordinates()
     }
 }
@@ -398,10 +420,14 @@ IsOverlapping(window, otherWindows) {
     return false
 }
 IsPluginWindow(hwnd) {
+    DebugLog("PLUGIN", "Checking if window " hwnd " is a plugin", 5)
+    
     try {
         winClass := WinGetClass("ahk_id " hwnd)
         title := WinGetTitle("ahk_id " hwnd)
         processName := WinGetProcessName("ahk_id " hwnd)
+
+        DebugLog("PLUGIN", "Window " hwnd " - Class: '" winClass "', Title: '" title "', Process: '" processName "'", 5)
 
         ; Common DAW plugin window classes and patterns
         pluginClasses := [
@@ -426,6 +452,7 @@ IsPluginWindow(hwnd) {
         for daw in dawProcesses {
             if (InStr(processName, daw)) {
                 isDAWProcess := true
+                DebugLog("PLUGIN", "Window " hwnd " is from DAW process: " processName, 4)
                 break
             }
         }
@@ -434,53 +461,76 @@ IsPluginWindow(hwnd) {
         if (isDAWProcess) {
             ; Check window class patterns
             for pattern in pluginClasses {
-                if (InStr(winClass, pattern))
+                if (InStr(winClass, pattern)) {
+                    DebugLog("PLUGIN", "Window " hwnd " matches plugin class pattern: " pattern, 3)
                     return true
+                }
             }
 
             ; Check window title patterns
             for pattern in pluginTitlePatterns {
-                if (InStr(title, pattern))
+                if (InStr(title, pattern)) {
+                    DebugLog("PLUGIN", "Window " hwnd " matches plugin title pattern: " pattern, 3)
                     return true
+                }
             }
 
             ; Check for small window dimensions typical of plugin UIs
             try {
                 WinGetPos(,, &w, &h, "ahk_id " hwnd)
-                if (w < 800 && h < 600)
+                if (w < 800 && h < 600) {
+                    DebugLog("PLUGIN", "Window " hwnd " has plugin-like dimensions: " w "x" h, 4)
                     return true
+                }
+            }
+            catch as e {
+                DebugLog("PLUGIN", "Error getting dimensions for window " hwnd ": " e.Message, 2)
             }
         } else {
             ; For non-DAW processes, use basic patterns
-            if (winClass ~= "i)(Vst|JS|Plugin|Float|Dock)")
+            if (winClass ~= "i)(Vst|JS|Plugin|Float|Dock)") {
+                DebugLog("PLUGIN", "Window " hwnd " matches basic plugin class pattern", 4)
                 return true
-            if (title ~= "i)(VST|JS:|Plugin|FX)")
+            }
+            if (title ~= "i)(VST|JS:|Plugin|FX)") {
+                DebugLog("PLUGIN", "Window " hwnd " matches basic plugin title pattern", 4)
                 return true
+            }
         }
 
+        DebugLog("PLUGIN", "Window " hwnd " is not a plugin", 5)
         return false
     }
-    catch {
+    catch as e {
+        DebugLog("PLUGIN", "Error checking plugin status for window " hwnd ": " e.Message, 1)
         return false
     }
 }
 
 IsWindowFloating(hwnd) {
     global Config
+    DebugLog("FLOATING", "Checking if window " hwnd " should float", 5)
 
     ; Basic window existence check
-    if (!SafeWinExist(hwnd))
+    if (!SafeWinExist(hwnd)) {
+        DebugLog("FLOATING", "Window " hwnd " does not exist", 4)
         return false
+    }
 
     try {
         ; Skip minimized/maximized windows
-        if (WinGetMinMax("ahk_id " hwnd) != 0)
+        minMax := WinGetMinMax("ahk_id " hwnd)
+        if (minMax != 0) {
+            DebugLog("FLOATING", "Window " hwnd " is minimized/maximized (state: " minMax ")", 4)
             return false
+        }
 
         ; Get window properties
         title := WinGetTitle("ahk_id " hwnd)
-        if (title == "" || title == "Program Manager")
+        if (title == "" || title == "Program Manager") {
+            DebugLog("FLOATING", "Window " hwnd " has invalid title: '" title "'", 4)
             return false
+        }
 
         winClass := WinGetClass("ahk_id " hwnd)
         processName := WinGetProcessName("ahk_id " hwnd)
@@ -489,46 +539,56 @@ IsWindowFloating(hwnd) {
         style := WinGetStyle("ahk_id " hwnd)
         exStyle := WinGetExStyle("ahk_id " hwnd)
 
-        ; Debug output for troubleshooting
-        OutputDebug("Window Check - Class: " winClass " | Process: " processName " | Title: " title)
+        DebugLog("FLOATING", "Window " hwnd " analysis - Class: '" winClass "', Process: '" processName "', Title: '" SubStr(title, 1, 30) "...'", 4)
 
         ; Allow more windows to float by default (less restrictive)
         if (title != "" && winClass != "WorkerW" && winClass != "Shell_TrayWnd" 
-            && winClass != "Progman" && title != "Start" && !InStr(winClass, "TaskListThumbnailWnd"))
+            && winClass != "Progman" && title != "Start" && !InStr(winClass, "TaskListThumbnailWnd")) {
+            DebugLog("FLOATING", "Window " hwnd " passes basic floating criteria", 4)
             return true
+        }
 
         ; Keep all the other checks as fallback
         ; 1. First check for forced processes (simplified)
         for pattern in Config["ForceFloatProcesses"] {
             if (processName ~= "i)^" pattern "$") {  ; Exact match with case insensitivity
+                DebugLog("FLOATING", "Window " hwnd " matches forced float process: " pattern, 3)
                 return true
             }
         }
 
         ; 2. Special cases that should always float
         if (winClass == "ConsoleWindowClass" || winClass == "CASCADIA_HOSTING_WINDOW_CLASS") {
+            DebugLog("FLOATING", "Window " hwnd " is console/terminal window", 3)
             return true  ; CMD and Windows Terminal
         }
 
         ; 3. Plugin window detection (basic but effective)
         if (winClass ~= "i)(Vst|JS|Plugin|Float)") {
+            DebugLog("FLOATING", "Window " hwnd " matches plugin class pattern", 3)
             return true
         }
 
         if (title ~= "i)(VST|JS:|Plugin|FX)") {
+            DebugLog("FLOATING", "Window " hwnd " matches plugin title pattern", 3)
             return true
         }
 
         ; 4. Standard floating window checks
-        if (exStyle & 0x80)  ; WS_EX_TOOLWINDOW
+        if (exStyle & 0x80) { ; WS_EX_TOOLWINDOW
+            DebugLog("FLOATING", "Window " hwnd " has tool window style", 4)
             return true
+        }
 
-        if (!(style & 0x10000000))  ; WS_VISIBLE
+        if (!(style & 0x10000000)) { ; WS_VISIBLE
+            DebugLog("FLOATING", "Window " hwnd " is not visible", 4)
             return true
+        }
 
         ; 5. Check class patterns from config
         for pattern in Config["FloatClassPatterns"] {
             if (winClass ~= "i)" pattern) {
+                DebugLog("FLOATING", "Window " hwnd " matches config class pattern: " pattern, 3)
                 return true
             }
         }
@@ -536,14 +596,22 @@ IsWindowFloating(hwnd) {
         ; 6. Check title patterns from config
         for pattern in Config["FloatTitlePatterns"] {
             if (title ~= "i)" pattern) {
+                DebugLog("FLOATING", "Window " hwnd " matches config title pattern: " pattern, 3)
                 return true
             }
         }
 
         ; 7. Final style check
-        return (style & Config["FloatStyles"]) != 0
+        styleCheck := (style & Config["FloatStyles"]) != 0
+        if (styleCheck) {
+            DebugLog("FLOATING", "Window " hwnd " matches float styles", 4)
+        } else {
+            DebugLog("FLOATING", "Window " hwnd " does not qualify for floating", 5)
+        }
+        return styleCheck
     }
-    catch {
+    catch as e {
+        DebugLog("FLOATING", "Error checking floating status for window " hwnd ": " e.Message, 1)
         return false
     }
 }
@@ -552,21 +620,40 @@ IsWindowFloating(hwnd) {
 
 GetVisibleWindows(monitor) {
     global Config, g
+    DebugLog("WINDOWS", "Getting visible windows for monitor", 4)
+    StartPerfTimer("GetVisibleWindows")
+    
     WinList := []
     allWindows := []
-    for hwnd in WinGetList() {
+    windowCount := 0
+    validCount := 0
+    pluginCount := 0
+    
+    hwndList := WinGetList()
+    DebugLog("WINDOWS", "Processing " hwndList.Length " total windows", 3)
+    
+    for hwnd in hwndList {
+        windowCount++
         try {
             ; Skip invalid windows
-            if (!IsWindowValid(hwnd))
+            if (!IsWindowValid(hwnd)) {
+                DebugLog("WINDOWS", "Window " hwnd " failed validation", 5)
                 continue
+            }
+            validCount++
 
             ; Get window properties
             WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-            if (w == 0 || h == 0)
+            if (w == 0 || h == 0) {
+                DebugLog("WINDOWS", "Window " hwnd " has zero dimensions: " w "x" h, 4)
                 continue
+            }
 
             ; Special handling for plugin windows
             isPlugin := IsPluginWindow(hwnd)
+            if (isPlugin) {
+                pluginCount++
+            }
 
             ; Force include plugin windows or check floating status
             if (isPlugin || IsWindowFloating(hwnd)) {
@@ -577,17 +664,25 @@ GetVisibleWindows(monitor) {
                     "isPlugin", isPlugin,
                     "lastSeen", A_TickCount
                 ))
+                DebugLog("WINDOWS", "Added window " hwnd " (" w "x" h " at " x "," y ") - Plugin: " (isPlugin ? "Yes" : "No"), 5)
+            } else {
+                DebugLog("WINDOWS", "Skipped window " hwnd " (not floating)", 5)
             }
         }
-        catch {
+        catch as e {
+            DebugLog("WINDOWS", "Error processing window " hwnd ": " e.Message, 2)
             continue
         }
     }
+
+    DebugLog("WINDOWS", "Window analysis: " windowCount " total, " validCount " valid, " allWindows.Length " candidates, " pluginCount " plugins", 3)
 
     ; Get current mouse position for monitor check
     CoordMode "Mouse", "Screen"
     MouseGetPos(&mx, &my)
     activeMonitor := MonitorGetFromPoint(mx, my)
+    includedCount := 0
+    excludedCount := 0
 
     for window in allWindows {
         try {
@@ -603,6 +698,7 @@ GetVisibleWindows(monitor) {
                 ; Fallback to primary monitor if detection fails
                 winMonitor := MonitorGetPrimary()
                 MonitorGet winMonitor, &mL, &mT, &mR, &mB
+                DebugLog("WINDOWS", "Could not determine monitor for window " window["hwnd"] ", using primary", 2)
             }
 
             ; Check if window should be included based on floating mode
@@ -611,6 +707,7 @@ GetVisibleWindows(monitor) {
             if (Config["SeamlessMonitorFloat"]) {
                 ; In seamless mode, include all windows from all monitors
                 includeWindow := true
+                DebugLog("WINDOWS", "Window " window["hwnd"] " included (seamless mode)", 5)
             } else {
                 ; In traditional mode, only include windows on current monitor or already tracked
                 isTracked := false
@@ -621,9 +718,16 @@ GetVisibleWindows(monitor) {
                     }
                 }
                 includeWindow := (winMonitor == monitor["Number"] || isTracked || window["isPlugin"])
+                if (includeWindow) {
+                    reason := winMonitor == monitor["Number"] ? "on current monitor" : (isTracked ? "already tracked" : "is plugin")
+                    DebugLog("WINDOWS", "Window " window["hwnd"] " included (" reason ")", 5)
+                } else {
+                    DebugLog("WINDOWS", "Window " window["hwnd"] " excluded (wrong monitor: " winMonitor " vs " monitor["Number"] ")", 5)
+                }
             }
 
             if (includeWindow) {
+                includedCount++
                 ; Apply margin constraints based on floating mode
                 if (Config["SeamlessMonitorFloat"]) {
                     ; Use virtual desktop bounds for seamless floating
@@ -647,7 +751,7 @@ GetVisibleWindows(monitor) {
                 }
 
                 ; Create window entry with physics properties
-                WinList.Push(Map(
+                newWin := Map(
                     "hwnd", window["hwnd"],
                     "x", window["x"], "y", window["y"],
                     "width", window["width"], "height", window["height"],
@@ -661,40 +765,59 @@ GetVisibleWindows(monitor) {
                     "isPlugin", window["isPlugin"],
                     "lastSeen", window["lastSeen"],
                     "lastZOrder", existingWin ? existingWin.Get("lastZOrder", -1) : -1  ; Cache z-order state
-                ))
+                )
+                
+                WinList.Push(newWin)
 
                 ; Add time-phasing echo for plugin windows
                 if (window["isPlugin"] && g["FairyDustEnabled"]) {
                     TimePhasing.AddEcho(window["hwnd"])
                 }
+            } else {
+                excludedCount++
             }
         }
-        catch {
+        catch as e {
+            DebugLog("WINDOWS", "Error processing window " window["hwnd"] " for inclusion: " e.Message, 2)
             continue
         }
     }
 
+    DebugLog("WINDOWS", "Final result: " includedCount " included, " excludedCount " excluded from " allWindows.Length " candidates", 3)
+
     ; Clean up windows that are no longer valid
     CleanupStaleWindows()
 
+    elapsed := EndPerfTimer("GetVisibleWindows")
+    DebugLog("WINDOWS", "GetVisibleWindows completed in " elapsed "ms", 3)
     return WinList
 }
 
 CleanupStaleWindows() {
     global g
+    DebugLog("CLEANUP", "Starting stale window cleanup", 4)
     threshold := 5000 ; 5 seconds
+    cleaned := 0
 
     ; Use a while loop instead of for-loop with index to avoid 'i' variable issues
     index := g["Windows"].Length
     while (index >= 1) {
         win := g["Windows"][index]
         if (A_TickCount - win["lastSeen"] > threshold && !SafeWinExist(win["hwnd"])) {
+            DebugLog("CLEANUP", "Removing stale window " win["hwnd"] " (last seen " (A_TickCount - win["lastSeen"]) "ms ago)", 3)
             g["Windows"].RemoveAt(index)
             if (g["ManualWindows"].Has(win["hwnd"])) {
                 RemoveManualWindowBorder(win["hwnd"])
             }
+            cleaned++
         }
         index--
+    }
+    
+    if (cleaned > 0) {
+        DebugLog("CLEANUP", "Cleaned up " cleaned " stale windows", 3)
+    } else {
+        DebugLog("CLEANUP", "No stale windows found", 4)
     }
 }
 
@@ -1059,18 +1182,24 @@ ApplyWindowMovements() {
     for win in g["Windows"] {
         ; Prevent movement of locked windows by physics/arrangement
         isLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
-        if (isLocked)
+        if (isLocked) {
+            DebugLog("MOVE", "Skipping locked window " win["hwnd"], 4)
             continue
+        }
 
-        if (win["hwnd"] == g["ActiveWindow"])
+        if (win["hwnd"] == g["ActiveWindow"]) {
+            DebugLog("MOVE", "Skipping active window " win["hwnd"], 4)
             continue
+        }
 
         hwnd := win["hwnd"]
         newX := win.Has("targetX") ? win["targetX"] : win["x"]
         newY := win.Has("targetY") ? win["targetY"] : win["y"]
 
-        if (!hwndPos.Has(hwnd))
+        if (!hwndPos.Has(hwnd)) {
+            DebugLog("MOVE", "Window position not cached, skipping: " hwnd, 4)
             continue
+        }
 
         if (!smoothPos.Has(hwnd))
             smoothPos[hwnd] := { x: hwndPos[hwnd].x, y: hwndPos[hwnd].y }
@@ -1261,143 +1390,16 @@ ResolveCollisions(positions) {
                 try {
                     MonitorGet pos["monitor"], &mL, &mT, &mR, &mB
                     monitor := Map(
-                        "Left", mL, "Right", mR,
-                        "Top", mT, "Bottom", mB,
-                        "CenterX", (mL + mR)/2,
-                        "CenterY", (mT + mB)/2
+                        "Left", mL, 
+                        "Right", mR
                     )
-                    newPos := FindNonOverlappingPosition(pos, otherWindows, monitor)
-                    pos["x"] := newPos["x"]
-                    pos["y"] := newPos["y"]
-                }
-                catch {
-                    continue
-                }
-            }
-        }
-    }
-
-    return positions
-}
-
-CalculateDynamicLayout() {
-    global g, Config
-    static forceMultipliers := Map("normal", 1.0, "chaos", 0.6)
-    static lastState := "normal"
-    static transitionTime := 300
-    static lastFocusCheck := 0
-
-    ; Update active window detection periodically
-    if (A_TickCount - lastFocusCheck > 250) {  ; Check every 250ms
-        try {
-            focusedWindow := WinExist("A")
-            if (focusedWindow && focusedWindow != g["ActiveWindow"]) {
-                ; Check if the focused window is one of our managed windows
-                for win in g["Windows"] {
-                    if (win["hwnd"] == focusedWindow) {
-                        g["ActiveWindow"] := focusedWindow
-                        g["LastUserMove"] := A_TickCount  ; Reset timeout when focus changes
-                        break
-                    }
-                }
-            }
-
-            ; Clear active window if timeout expired and it's no longer focused
-            if (g["ActiveWindow"] != 0 &&
-                A_TickCount - g["LastUserMove"] > Config["UserMoveTimeout"] &&
-                focusedWindow != g["ActiveWindow"]) {
-                g["ActiveWindow"] := 0
-            }
-        }
-        lastFocusCheck := A_TickCount
-    }
-
-    ; Dynamic force adjustment based on system energy
-    currentEnergy := 0
-    for win in g["Windows"] {
-        CalculateWindowForces(win, g["Windows"]) ; Pass all windows for dynamic interactions
-        currentEnergy += win["vx"]**2 + win["vy"]**2
-    }
-    g["SystemEnergy"] := Lerp(g["SystemEnergy"], currentEnergy, 0.1)
-
-    ; State machine for natural motion transitions
-    newState := (g["SystemEnergy"] > Config["Stabilization"]["EnergyThreshold"] * 2) ? "chaos" : "normal"
-
-    if (newState != lastState) {
-        transitionTime := (newState == "chaos") ? 200 : 800  ; Quick chaos entry, slow stabilization
-        g["ForceTransition"] := A_TickCount + transitionTime
-    }
-
-    ; Smooth force transition for natural feel
-    if (A_TickCount < g["ForceTransition"]) {
-        t := (g["ForceTransition"] - A_TickCount) / transitionTime
-        currentMultiplier := Lerp(forceMultipliers[newState], forceMultipliers[lastState], SmoothStep(t))
-    } else {
-        currentMultiplier := forceMultipliers[newState]
-    }
-
-    ; Apply space-like physics adjustments
-    for win in g["Windows"] {
-        ; Preserve momentum but allow gentle course corrections
-        win["vx"] *= currentMultiplier
-        win["vy"] *= currentMultiplier
-
-        ; Higher speed limits for floating feel
-        maxSpeed := Config["MaxSpeed"] * 1.5
-        win["vx"] := Min(Max(win["vx"], -maxSpeed), maxSpeed)
-        win["vy"] := Min(Max(win["vy"], -maxSpeed), maxSpeed)
-    }
-
-    ; Gentle collision resolution (no rigid partitioning)
-    if (g["Windows"].Length > 1) {
-        ResolveFloatingCollisions(g["Windows"])
-    }
-
-    lastState := newState
-}
-
-; New floating collision system
-ResolveFloatingCollisions(windows) {
-    global Config
-
-    ; More aggressive but gentle collision resolution for overlapping windows
-    for i, win1 in windows {
-        for j, win2 in windows {
-            if (i >= j)
-                continue
-
-            ; Check for overlap with smaller tolerance for quicker separation
-            overlapX := Max(0, Min(win1["x"] + win1["width"], win2["x"] + win2["width"]) - Max(win1["x"], win2["x"]))
-            overlapY := Max(0, Min(win1["y"] + win1["height"], win2["y"] + win2["height"]) - Max(win1["y"], win2["y"]))
-
-            if (overlapX > 2 && overlapY > 2) {  ; Reduced from 5 for quicker response
-                ; Gentle separation force
-                centerX1 := win1["x"] + win1["width"]/2
-                centerY1 := win1["y"] + win1["height"]/2
-                centerX2 := win2["x"] + win2["width"]/2
-                centerY2 := win2["y"] + win2["height"]/2
-
-                dx := centerX1 - centerX2
-                dy := centerY1 - centerY2
-                dist := Max(Sqrt(dx*dx + dy*dy), 1)
-
-                ; Stronger separation for small windows or high overlap
-                overlapArea := overlapX * overlapY
-                avgSize := (win1["width"] * win1["height"] + win2["width"] * win2["height"]) / 2
-                overlapRatio := overlapArea / avgSize
-
-                ; Progressive force based on overlap severity
-                separationForce := (overlapX + overlapY) * 0.02 * (1 + overlapRatio * 3)  ; Increased base force and scaling
-
-                ; Small window bonus for faster separation
-                if (win1["width"] < 300 || win1["height"] < 200 || win2["width"] < 300 || win2["height"] < 200) {
                     separationForce *= 1.5
                 }
 
-                win1["vx"] += dx * separationForce / dist
-                win1["vy"] += dy * separationForce / dist
-                win2["vx"] -= dx * separationForce / dist
-                win2["vy"] -= dy * separationForce / dist
+                pos1["vx"] += dx * separationForce / dist
+                pos1["vy"] += dy * separationForce / dist
+                pos2["vx"] -= dx * separationForce / dist
+                pos2["vy"] -= dy * separationForce / dist
             }
         }
     }
@@ -2034,6 +2036,19 @@ UpdateWindowStates() {
     }
 }
 
+; Missing function implementation
+CalculateDynamicLayout() {
+    global g, Config
+    if (!g["ArrangementActive"] || !g["PhysicsEnabled"])
+        return
+
+    ; Calculate physics for each window
+    for win in g["Windows"] {
+        CalculateWindowForces(win, g["Windows"])
+        ApplyStabilization(win)
+    }
+}
+
 ; Advanced space packing algorithm to find optimal window positions
 PackWindowsOptimally(windows, monitor) {
     if (windows.Length == 0)
@@ -2280,14 +2295,14 @@ GeneratePositionCandidates(window, placedWindows, monitor, strategy) {
     ; Optimize: Remove duplicate positions
     unique := Map()
     for pos in candidates {
-        key := pos["x"] "," pos["y"]
-        if !unique.Has(key)
-            unique[key] := pos
+        posKey := pos["x"] "," pos["y"]
+        if !unique.Has(posKey)
+            unique[posKey] := pos
     }
     
     ; Convert Map to Array manually since v2 Maps don't have Values() method
     result := []
-    for key, pos in unique {
+    for posKey, pos in unique {
         result.Push(pos)
     }
     return result
@@ -2387,6 +2402,37 @@ GetTaskbarRects() {
         }
     }
     return rects
+}
+
+GetPrimaryMonitorCoordinates() {
+    try {
+        monNum := MonitorGetPrimary()
+        MonitorGet monNum, &L, &T, &R, &B
+        return Map(
+            "Left", L,
+            "Top", T,
+            "Right", R,
+            "Bottom", B,
+            "Width", R - L,
+            "Height", B - T,
+            "Number", monNum,
+            "CenterX", (R + L) // 2,
+            "CenterY", (B + T) // 2
+        )
+    } catch {
+        ; Fallback to screen size if MonitorGetPrimary fails
+        return Map(
+            "Left", 0,
+            "Top", 0,
+            "Right", A_ScreenWidth,
+            "Bottom", A_ScreenHeight,
+            "Width", A_ScreenWidth,
+            "Height", A_ScreenHeight,
+            "Number", 1,
+            "CenterX", A_ScreenWidth // 2,
+            "CenterY", A_ScreenHeight // 2
+        )
+    }
 }
 
 ;HOTKEYS

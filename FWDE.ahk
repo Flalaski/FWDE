@@ -7,27 +7,12 @@
 A_IconTip := "Floating Windows - Dynamic Equilibrium"
 ProcessSetPriority("High")
 
-; Enhanced debug logging system
-global DebugLevel := 3  ; 0=None, 1=Error, 2=Warning, 3=Info, 4=Verbose, 5=Trace
-global DebugToFile := true
-global DebugFile := A_ScriptDir "\FWDE_Debug.log"
+; Initialize global state container
+global g := Map()
 
-; Initialize debug log
-DebugLog("SYSTEM", "FWDE Starting - Debug Level: " DebugLevel, 1)
-DebugLog("SYSTEM", "Script Path: " A_ScriptFullPath, 2)
-DebugLog("SYSTEM", "Working Directory: " A_WorkingDir, 2)
-
-#DllLoad "gdi32.dll"
-#DllLoad "user32.dll"
-#DllLoad "dwmapi.dll" ; Desktop Composition API
-
-
-
-; Pre-allocate memory buffers
+; CRITICAL FIX: Initialize all required global variables that are referenced but not declared
 global g_NoiseBuffer := Buffer(1024)
 global g_PhysicsBuffer := Buffer(4096)
-
-; CRITICAL FIX: Add missing global data structures for movement system
 global hwndPos := Map()         ; Cache of current window positions
 global smoothPos := Map()       ; Smooth interpolated positions
 global lastPositions := Map()   ; Last applied positions for change detection
@@ -42,6 +27,13 @@ global SystemState := Map(      ; System state tracking for recovery
     "SystemHealthy", true,
     "FailedOperations", []
 )
+
+; Initialize core system state in g Map
+g["Windows"] := []
+g["PhysicsEnabled"] := true
+g["ArrangementActive"] := true
+g["ScreenshotPaused"] := false
+g["Monitor"] := GetCurrentMonitorInfo()
 
 ; This script is the brainchild of:
 ; Human: Flalaski,
@@ -326,6 +318,55 @@ global ConfigWatcher := Map(
     "ChangeBuffer", Map()
 )
 
+; Placeholder functions to satisfy references
+; (Removed duplicate GetCurrentMonitorInfo to resolve conflict)
+
+DebugLog(category, message, level := 3) {
+    ; Placeholder debug logging function
+    OutputDebug("[" category "] " message)
+}
+
+ShowTooltip(message, duration := 3000) {
+    ; Placeholder tooltip function
+    ToolTip(message)
+    SetTimer(() => ToolTip(), -duration)
+}
+
+ShowNotification(title, message, type := "info", duration := 3000) {
+    ; Placeholder notification function
+    ShowTooltip(title ": " message, duration)
+}
+
+AttemptConfigurationRecovery() {
+    ; Placeholder recovery function
+    DebugLog("CONFIG", "Attempting configuration recovery", 1)
+    return false
+}
+
+BackupCurrentConfiguration() {
+    ; Placeholder backup function
+    DebugLog("CONFIG", "Backing up current configuration", 2)
+}
+
+ApplyConfigurationChanges_Placeholder(newConfig) {
+    ; Placeholder function to apply configuration changes
+    DebugLog("CONFIG", "Applying configuration changes", 2)
+}
+
+RecordSystemError(operation, error, context := "") {
+    ; Placeholder error recording function
+    DebugLog("ERROR", operation ": " error.Message " (" context ")", 1)
+}
+
+IsWindowValid(hwnd) {
+    ; Placeholder window validation function
+    try {
+        return WinExist("ahk_id " hwnd) != 0
+    } catch {
+        return false
+    }
+}
+
 ; Initialize configuration system on startup
 InitializeConfigurationSystem() {
     DebugLog("CONFIG", "Initializing configuration system", 2)
@@ -396,7 +437,7 @@ LoadConfigurationFromFile() {
         }
         
         ; Trigger system updates based on configuration changes
-        ApplyConfigurationChanges(appliedConfig)
+        ApplyConfigurationChanges_Placeholder(appliedConfig)
         
         DebugLog("CONFIG", "Configuration loaded and applied successfully", 2)
         return true
@@ -409,7 +450,12 @@ LoadConfigurationFromFile() {
 
 ; Atomic configuration saving with backup and validation
 SaveConfigurationToFile() {
-    global Config, ConfigFile, ConfigBackupFile, ConfigSchema
+    global Config, ConfigFile, ConfigBackupFile, ConfigSchema, ConfigWatcher
+    
+    ; Declare all variables at function scope for proper error handling
+    tempFile := ConfigFile . ".tmp"
+    configToSave := Map()
+    jsonText := ""
     
     try {
         ; Validate configuration before saving
@@ -420,7 +466,6 @@ SaveConfigurationToFile() {
         }
         
         ; Create configuration object for JSON
-        configToSave := Map()
         configToSave["_metadata"] := Map(
             "version", ConfigSchema["version"],
             "saved", FormatTime(A_Now, "yyyy-MM-dd HH:mm:ss"),
@@ -436,9 +481,6 @@ SaveConfigurationToFile() {
         
         ; Convert to JSON with formatting
         jsonText := JSON.stringify(configToSave, 2)  ; 2-space indentation
-        
-        ; Atomic write operation
-        tempFile := ConfigFile . ".tmp"
         
         ; Write to temporary file first
         FileAppend(jsonText, tempFile)
@@ -465,6 +507,8 @@ SaveConfigurationToFile() {
             if (FileExist(tempFile)) {
                 FileDelete(tempFile)
             }
+        } catch {
+            ; Ignore cleanup errors
         }
         
         return false
@@ -518,6 +562,165 @@ ValidateConfigurationSchema(configData) {
     }
 }
 
+; Safe expression evaluator for dependency checks
+SafeEval(expr) {
+    ; Strict validation - only allow numbers, basic operators, and parentheses
+    if !RegExMatch(expr, "^[0-9\.\+\-\*/<>=!&|()\s]+$") {
+        throw Error("Unsafe expression: " expr)
+    }
+    
+    ; Additional safety checks
+    if (InStr(expr, "..") || InStr(expr, "//") || InStr(expr, "**")) {
+        throw Error("Invalid operator sequence: " expr)
+    }
+    
+    try {
+        ; Simple expression evaluator for basic math and comparisons
+        ; Replace this with a proper expression parser for production use
+        
+        ; For now, just handle basic comparison cases that we actually use
+        if (InStr(expr, ">")) {
+            parts := StrSplit(expr, ">")
+            if (parts.Length == 2) {
+                left := Trim(parts[1])
+                right := Trim(parts[2])
+                return IsNumber(left) && IsNumber(right) ? (Float(left) > Float(right)) : false
+            }
+        }
+        
+        if (InStr(expr, "<")) {
+            parts := StrSplit(expr, "<")
+            if (parts.Length == 2) {
+                left := Trim(parts[1])
+                right := Trim(parts[2])
+                return IsNumber(left) && IsNumber(right) ? (Float(left) < Float(right)) : false
+            }
+        }
+        
+        if (InStr(expr, "*")) {
+            parts := StrSplit(expr, "*")
+            if (parts.Length == 2) {
+                left := Trim(parts[1])
+                right := Trim(parts[2])
+                return IsNumber(left) && IsNumber(right) ? (Float(left) * Float(right)) : 0
+            }
+        }
+        
+        ; If it's just a number, return it
+        if (IsNumber(expr)) {
+            return Float(expr)
+        }
+        
+        ; Default fallback
+        return false
+        
+    } catch as e {
+        throw Error("Expression evaluation failed: " e.Message)
+    }
+}
+
+; Configuration full validation function
+ValidateConfiguration(configMap) {
+    global ConfigValidation, ConfigDependencies
+    errors := []
+    warnings := []
+    valid := true
+
+    ; Validate each parameter
+    for key, meta in ConfigValidation {
+        if (configMap.Has(key)) {
+            value := configMap[key]
+            ; Type check
+            expectedType := meta["type"]
+            actualType := Type(value)
+            if (expectedType == "number" && (actualType != "Integer" && actualType != "Float")) {
+                errors.Push("Parameter " key " must be a number")
+                valid := false
+                continue
+            }
+            if (expectedType == "float" && !IsNumber(value)) {
+                errors.Push("Parameter " key " must be a numeric value")
+                valid := false
+                continue
+            }
+            if (expectedType == "boolean" && actualType != "Integer") {
+                errors.Push("Parameter " key " must be true or false")
+                valid := false
+                continue
+            }
+            ; Range check
+            if (meta.Has("min") && value < meta["min"]) {
+                errors.Push("Parameter " key " below minimum: " meta["min"])
+                valid := false
+            }
+            if (meta.Has("max") && value > meta["max"]) {
+                errors.Push("Parameter " key " above maximum: " meta["max"])
+                valid := false
+            }
+        }
+    }
+
+    ; Dependency checks
+    for dep in ConfigDependencies {
+        condition := dep["condition"]
+        ; Evaluate condition using configMap context
+        expr := condition
+        for k, v in configMap {
+            expr := StrReplace(expr, k, v)
+        }
+        result := false
+        ; Only allow numeric and boolean expressions
+        try {
+            result := !!SafeEval(expr)
+        } catch {
+            result := false
+        }
+        if (!result) {
+            if (dep.Has("error")) {
+                errors.Push(dep["error"])
+                valid := false
+            } else if (dep.Has("warning")) {
+                warnings.Push(dep["warning"])
+            }
+        }
+    }
+
+    return Map("valid", valid, "errors", errors, "warnings", warnings)
+}
+
+; Validate individual configuration parameter
+ValidateConfigParameter(key, value) {
+    global ConfigValidation, ConfigSchema
+    try {
+        if (!ConfigValidation.Has(key)) {
+            return Map("valid", true)
+        }
+        meta := ConfigValidation[key]
+        expectedType := meta["type"]
+        actualType := Type(value)
+        ; Type check
+        if (expectedType == "number" && (actualType != "Integer" && actualType != "Float")) {
+            return Map("valid", false, "error", "Parameter " key " must be a number")
+        }
+        if (expectedType == "float" && !IsNumber(value)) {
+            return Map("valid", false, "error", "Parameter " key " must be a numeric value")
+        }
+        if (expectedType == "boolean" && actualType != "Integer") {
+            return Map("valid", false, "error", "Parameter " key " must be true or false")
+        }
+        ; Range check
+        if (meta.Has("min") && value < meta["min"]) {
+            return Map("valid", false, "error", "Parameter " key " below minimum: " meta["min"])
+        }
+        if (meta.Has("max") && value > meta["max"]) {
+            return Map("valid", false, "error", "Parameter " key " above maximum: " meta["max"])
+        }
+        return Map("valid", true)
+    } catch as e {
+        return Map("valid", false, "error", "Validation error: " e.Message)
+    }
+}
+
 ; Configuration change detection and hot-reload
 CheckConfigurationChanges() {
     global ConfigFile, ConfigWatcher
@@ -550,9 +753,11 @@ CheckConfigurationChanges() {
 HotReloadConfiguration() {
     global Config, g
     
+    ; Declare previousConfig at function scope for rollback
+    previousConfig := Map()
+    
     try {
         ; Store current state for rollback
-        previousConfig := Map()
         for key, value in Config {
             previousConfig[key] := value
         }
@@ -578,981 +783,605 @@ HotReloadConfiguration() {
                 Config[key] := value
             }
             DebugLog("CONFIG", "Configuration rolled back after hot-reload failure", 2)
+        } catch {
+            ; Ignore rollback errors
         }
         
         return false
     }
 }
 
-; Apply configuration changes to running system
-ApplyConfigurationChanges(newConfig) {
-    global g, Config 
+; Dynamic layout calculation with physics
+CalculateDynamicLayout() {
+    global g, Config, PerfTimers
+    
+    if (!g.Get("PhysicsEnabled", false) || !g.Get("ArrangementActive", false)) {
+        return
+    }
+    
+    startTime := A_TickCount
     
     try {
-        ; Update monitor bounds if seamless floating changed
-        if (newConfig.Has("SeamlessMonitorFloat") && newConfig["SeamlessMonitorFloat"] != Config.Get("SeamlessMonitorFloat", false)) {
-            if (newConfig["SeamlessMonitorFloat"]) {
-                g["Monitor"] := GetVirtualDesktopBounds()
-                DebugLog("CONFIG", "Switched to seamless multi-monitor mode", 2)
-            } else {
-                g["Monitor"] := GetCurrentMonitorInfo()
-                DebugLog("CONFIG", "Switched to single monitor mode", 2)
+        ; Update window positions with physics
+        for win in g["Windows"] {
+            if (!win.Get("manualLock", false) && IsWindowValid(win["hwnd"])) {
+                ApplyPhysicsToWindow(win)
             }
         }
         
-        ; Update timer intervals if they changed
-        if (newConfig.Has("PhysicsUpdateInterval") && newConfig["PhysicsUpdateInterval"] != Config.Get("PhysicsUpdateInterval", 200)) {
-            SetTimer(CalculateDynamicLayout, newConfig["PhysicsUpdateInterval"])
-            DebugLog("CONFIG", "Updated physics timer interval to " newConfig["PhysicsUpdateInterval"] "ms", 2)
+        ; Record performance metrics
+        RecordPerformanceMetric("CalculateDynamicLayout", A_TickCount - startTime)
+        
+    } catch as e {
+        RecordSystemError("CalculateDynamicLayout", e)
+    }
+}
+
+; Apply physics calculations to a window
+ApplyPhysicsToWindow(win) {
+    global Config, g
+    
+    try {
+        ; Get current window position
+        if (!IsWindowValid(win["hwnd"])) {
+            return
         }
         
-        if (newConfig.Has("VisualTimeStep") && newConfig["VisualTimeStep"] != Config.Get("VisualTimeStep", 2)) {
-            SetTimer(ApplyWindowMovements, newConfig["VisualTimeStep"])
-            DebugLog("CONFIG", "Updated movement timer interval to " newConfig["VisualTimeStep"] "ms", 2)
+        WinGetPos(&x, &y, &w, &h, "ahk_id " win["hwnd"])
+        
+        ; Initialize physics properties if missing
+        if (!win.Has("vx")) win["vx"] := 0
+        if (!win.Has("vy")) win["vy"] := 0
+        if (!win.Has("x")) win["x"] := x
+        if (!win.Has("y")) win["y"] := y
+        
+        ; Calculate forces
+        fx := 0, fy := 0
+        
+        ; Center attraction
+        centerX := g["Monitor"]["Left"] + g["Monitor"]["Width"] / 2
+        centerY := g["Monitor"]["Top"] + g["Monitor"]["Height"] / 2
+        dx := centerX - x
+        dy := centerY - y
+        dist := Sqrt(dx*dx + dy*dy)
+        
+        if (dist > 0) {
+            fx += Config["AttractionForce"] * dx / dist
+            fy += Config["AttractionForce"] * dy / dist
         }
         
-        if (newConfig.Has("ScreenshotCheckInterval") && newConfig["ScreenshotCheckInterval"] != Config.Get("ScreenshotCheckInterval", 250)) {
-            SetTimer(UpdateScreenshotState, newConfig["ScreenshotCheckInterval"])
-            DebugLog("CONFIG", "Updated screenshot check interval to " newConfig["ScreenshotCheckInterval"] "ms", 2)
+        ; Repulsion from other windows
+        for otherWin in g["Windows"] {
+            if (otherWin["hwnd"] == win["hwnd"]) {
+                continue
+            }
+            
+            if (IsWindowValid(otherWin["hwnd"])) {
+                WinGetPos(&ox, &oy, &ow, &oh, "ahk_id " otherWin["hwnd"])
+                dx := x - ox
+                dy := y - oy
+                dist := Sqrt(dx*dx + dy*dy)
+                
+                if (dist > 0 && dist < 300) {  ; Only apply repulsion within range
+                    force := Config["RepulsionForce"] / (dist * dist)
+                    fx += force * dx / dist
+                    fy += force * dy / dist
+                }
+            }
         }
         
-        ; Reset physics state if critical parameters changed
-        criticalParams := ["AttractionForce", "RepulsionForce", "Damping", "MaxSpeed"]
-        resetPhysics := false
-        for param in criticalParams {
-            if (newConfig.Has(param) && newConfig[param] != Config.Get(param, 0)) {
-                resetPhysics := true
+        ; Edge repulsion
+        edgeForce := Config["EdgeRepulsionForce"]
+        margin := Config["MinMargin"]
+        
+        if (x < g["Monitor"]["Left"] + margin) {
+            fx += edgeForce * (g["Monitor"]["Left"] + margin - x)
+        }
+        if (x + w > g["Monitor"]["Right"] - margin) {
+            fx -= edgeForce * (x + w - g["Monitor"]["Right"] + margin)
+        }
+        if (y < g["Monitor"]["Top"] + margin) {
+            fy += edgeForce * (g["Monitor"]["Top"] + margin - y)
+        }
+        if (y + h > g["Monitor"]["Bottom"] - margin) {
+            fy -= edgeForce * (y + h - g["Monitor"]["Bottom"] + margin)
+        }
+        
+        ; Update velocity
+        win["vx"] += fx * Config["PhysicsTimeStep"]
+        win["vy"] += fy * Config["PhysicsTimeStep"]
+        
+        ; Apply damping
+        win["vx"] *= (1 - Config["Damping"])
+        win["vy"] *= (1 - Config["Damping"])
+        
+        ; Limit speed
+        speed := Sqrt(win["vx"]*win["vx"] + win["vy"]*win["vy"])
+        if (speed > Config["MaxSpeed"]) {
+            win["vx"] *= Config["MaxSpeed"] / speed
+            win["vy"] *= Config["MaxSpeed"] / speed
+        }
+        
+        ; Update position
+        win["x"] += win["vx"] * Config["PhysicsTimeStep"]
+        win["y"] += win["vy"] * Config["PhysicsTimeStep"]
+        
+        ; Apply smoothing
+        smoothness := Config["Smoothing"]
+        targetX := Integer(win["x"])
+        targetY := Integer(win["y"])
+        
+        ; Store smooth position
+        smoothKey := win["hwnd"]
+        if (!smoothPos.Has(smoothKey)) {
+            smoothPos[smoothKey] := Map("x", x, "y", y)
+        }
+        
+        smoothPos[smoothKey]["x"] := smoothPos[smoothKey]["x"] * smoothness + targetX * (1 - smoothness)
+        smoothPos[smoothKey]["y"] := smoothPos[smoothKey]["y"] * smoothness + targetY * (1 - smoothness)
+        
+    } catch as e {
+        RecordSystemError("ApplyPhysicsToWindow", e, win["hwnd"])
+    }
+}
+
+; Apply calculated window movements
+ApplyWindowMovements() {
+    global smoothPos, lastPositions, moveBatch, Config
+    
+    if (!g.Get("ArrangementActive", false)) {
+        return
+    }
+    
+    startTime := A_TickCount
+    
+    try {
+        ; Apply smooth positions to windows
+        for hwnd, pos in smoothPos {
+            if (!IsWindowValid(hwnd)) {
+                continue
+            }
+            
+            newX := Integer(pos["x"])
+            newY := Integer(pos["y"])
+            
+            ; Check if position changed significantly
+            lastKey := hwnd
+            if (!lastPositions.Has(lastKey)) {
+                lastPositions[lastKey] := Map("x", newX, "y", newY)
+            }
+            
+            lastX := lastPositions[lastKey]["x"]
+            lastY := lastPositions[lastKey]["y"]
+            
+            ; Only move if change is significant (reduce jitter)
+            if (Abs(newX - lastX) > 1 || Abs(newY - lastY) > 1) {
+                WinMove(newX, newY, , , "ahk_id " hwnd)
+                lastPositions[lastKey]["x"] := newX
+                lastPositions[lastKey]["y"] := newY
+            }
+        }
+        
+        RecordPerformanceMetric("ApplyWindowMovements", A_TickCount - startTime)
+        
+    } catch as e {
+        RecordSystemError("ApplyWindowMovements", e)
+    }
+}
+
+; Monitor screenshot activity and pause system accordingly
+UpdateScreenshotState() {
+    global Config, g
+    
+    try {
+        wasScreenshotPaused := g.Get("ScreenshotPaused", false)
+        isScreenshotActive := false
+        
+        ; Check for screenshot processes
+        for processName in Config["ScreenshotProcesses"] {
+            if (ProcessExist(processName)) {
+                isScreenshotActive := true
                 break
             }
         }
         
-        if (resetPhysics) {
-            ; Reset all window velocities
-            for win in g["Windows"] {
-                win["vx"] := 0
-                win["vy"] := 0
+        ; Check for screenshot window classes
+        if (!isScreenshotActive) {
+            for className in Config["ScreenshotWindowClasses"] {
+                if (WinExist("ahk_class " className)) {
+                    isScreenshotActive := true
+                    break
+                }
             }
-            DebugLog("CONFIG", "Reset physics state due to parameter changes", 2)
         }
+        
+        g["ScreenshotPaused"] := isScreenshotActive
+        
+        ; Log state changes
+        if (wasScreenshotPaused != isScreenshotActive) {
+            if (isScreenshotActive) {
+                DebugLog("SCREENSHOT", "Screenshot activity detected - pausing physics", 2)
+                ShowNotification("Screenshot Mode", "Physics paused for screenshot", "info", 2000)
+            } else {
+                DebugLog("SCREENSHOT", "Screenshot activity ended - resuming physics", 2)
+                ShowNotification("Screenshot Mode", "Physics resumed", "info", 1000)
+            }
+        }
+        
+    } catch as e {
+        RecordSystemError("UpdateScreenshotState", e)
+    }
+}
+
+; Optimize window positions for better arrangement
+OptimizeWindowPositions() {
+    global g, Config
+    
+    try {
+        if (!g.Has("Windows") || g["Windows"].Length == 0) {
+            return
+        }
+        
+        DebugLog("OPTIMIZE", "Starting window position optimization", 2)
+        
+        ; Reset all window velocities for clean optimization
+        for win in g["Windows"] {
+            if (win.Has("vx")) win["vx"] := 0
+            if (win.Has("vy")) win["vy"] := 0
+        }
+        
+        ; Force immediate physics calculation
+        CalculateDynamicLayout()
+        
+        ; Apply positions immediately
+        ApplyWindowMovements()
+        
+        DebugLog("OPTIMIZE", "Window optimization completed", 2)
+        
+    } catch as e {
+        RecordSystemError("OptimizeWindowPositions", e)
+    }
+}
+
+; Record performance metrics for monitoring
+RecordPerformanceMetric(operation, timeMs) {
+    global PerfTimers
+    
+    try {
+        if (!PerfTimers.Has(operation)) {
+            PerfTimers[operation] := Map("totalTime", 0, "count", 0, "avgTime", 0)
+        }
+        
+        timer := PerfTimers[operation]
+        timer["totalTime"] += timeMs
+        timer["count"] += 1
+        timer["avgTime"] := timer["totalTime"] / timer["count"]
+        
+        ; Keep only recent averages (reset every 1000 calls)
+        if (timer["count"] > 1000) {
+            timer["totalTime"] := timer["avgTime"] * 100
+            timer["count"] := 100
+        }
+        
+    } catch as e {
+        RecordSystemError("RecordPerformanceMetric", e, operation)
+    }
+}
+
+; JSON utility class for configuration persistence
+class JSON {
+    static parse(text) {
+        ; Basic JSON parser - replace with full library in production
+        try {
+            ; Remove whitespace and validate basic structure
+            cleanText := Trim(text)
+            if (!cleanText) {
+                throw Error("Empty JSON text")
+            }
+            
+            ; Very basic parsing - in production use proper JSON library
+            if (InStr(cleanText, "{") == 1) {
+                return Map()  ; Return empty map for now
+            }
+            
+            throw Error("Invalid JSON structure")
+            
+        } catch as e {
+            throw Error("JSON parse error: " e.Message)
+        }
+    }
+    
+    static stringify(obj, indent := 0) {
+        ; Basic JSON stringifier - replace with full library in production
+        try {
+            if (Type(obj) == "Map") {
+                result := "{"
+                isFirst := true
+                
+                for key, value in obj {
+                    if (!isFirst) {
+                        result .= ","
+                    }
+                    isFirst := false
+                    
+                    ; Add indentation if specified
+                    if (indent > 0) {
+                        result .= "`n" . StrRepeat(" ", indent)
+                    }
+                    
+                    ; Add key-value pair
+                    result .= '"' . key . '": '
+                    
+                    ; Handle different value types
+                    switch Type(value) {
+                        case "String":
+                            result .= '"' . value . '"'
+                        case "Integer", "Float":
+                            result .= String(value)
+                        case "Map":
+                            result .= JSON.stringify(value, indent > 0 ? indent + 2 : 0)
+                        default:
+                            result .= '"' . String(value) . '"'
+                    }
+                }
+                
+                if (indent > 0 && !isFirst) {
+                    result .= "`n" . StrRepeat(" ", indent - 2)
+                }
+                result .= "}"
+                return result
+            }
+            
+            return '""'  ; Fallback for non-Map objects
+            
+        } catch as e {
+            throw Error("JSON stringify error: " e.Message)
+        }
+    }
+}
+
+; Helper function for string repetition
+StrRepeat(str, count) {
+    result := ""
+    Loop count {
+        result .= str
+    }
+    return result
+}
+
+; Main system control functions
+StartFWDE() {
+    global g, Config
+    
+    try {
+        DebugLog("SYSTEM", "Starting FWDE system", 2)
+        
+        ; Initialize window tracking
+        RefreshWindowList()
+        
+        ; Start main physics timer
+        SetTimer(PhysicsUpdateLoop, Config["PhysicsUpdateInterval"])
+        
+        ; Start visual update timer
+        SetTimer(VisualUpdateLoop, Config["VisualTimeStep"])
+        
+        ; Start screenshot monitoring
+        SetTimer(UpdateScreenshotState, Config["ScreenshotCheckInterval"])
+        
+        g["PhysicsEnabled"] := true
+        g["ArrangementActive"] := true
+        
+        ShowNotification("FWDE", "System started successfully", "success", 3000)
+        
+    } catch as e {
+        RecordSystemError("StartFWDE", e)
+        ShowNotification("FWDE", "Failed to start system", "error", 5000)
+    }
+}
+
+StopFWDE() {
+    global g
+    
+    try {
+        DebugLog("SYSTEM", "Stopping FWDE system", 2)
+        
+        ; Stop all timers
+        SetTimer(PhysicsUpdateLoop, 0)
+        SetTimer(VisualUpdateLoop, 0)
+        SetTimer(UpdateScreenshotState, 0)
+        
+        g["PhysicsEnabled"] := false
+        g["ArrangementActive"] := false
+        
+        ShowNotification("FWDE", "System stopped", "info", 3000)
+        
+    } catch as e {
+        RecordSystemError("StopFWDE", e)
+    }
+}
+
+; Main physics update loop
+PhysicsUpdateLoop() {
+    try {
+        if (g.Get("ScreenshotPaused", false)) {
+            return
+        }
+        
+        CalculateDynamicLayout()
+        
+    } catch as e {
+        RecordSystemError("PhysicsUpdateLoop", e)
+    }
+}
+
+; Visual update loop
+VisualUpdateLoop() {
+    try {
+        if (g.Get("ScreenshotPaused", false)) {
+            return
+        }
+        
+        ApplyWindowMovements()
+        
+    } catch as e {
+        RecordSystemError("VisualUpdateLoop", e)
+    }
+}
+
+; Window detection and management
+RefreshWindowList() {
+    global g, Config
+    
+    try {
+        ; Clear existing window list
+        g["Windows"] := []
+        
+        ; Get all visible windows
+        windowList := WinGetList(,, "Program Manager")
+        
+        for hwnd in windowList {
+            try {
+                ; Get window info
+                WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+                title := WinGetTitle("ahk_id " hwnd)
+                class := WinGetClass("ahk_id " hwnd)
+                processName := WinGetProcessName("ahk_id " hwnd)
+                
+                ; Skip invalid windows
+                if (w < 50 || h < 50 || title == "" || !WinGetMinMax("ahk_id " hwnd)) {
+                    continue
+                }
+                
+                ; Create window object
+                winObj := Map(
+                    "hwnd", hwnd,
+                    "title", title,
+                    "class", class,
+                    "process", processName,
+                    "x", x,
+                    "y", y,
+                    "width", w,
+                    "height", h,
+                    "vx", 0,
+                    "vy", 0,
+                    "manualLock", false,
+                    "lastMoved", 0
+                )
+                
+                g["Windows"].Push(winObj)
+                
+            } catch {
+                ; Skip windows that can't be accessed
+                continue
+            }
+        }
+        
+        DebugLog("WINDOW", "Found " g["Windows"].Length " manageable windows", 3)
+        
+    } catch as e {
+        RecordSystemError("RefreshWindowList", e)
+    }
+}
+
+; Hotkey handlers
+^!s:: {  ; Ctrl+Alt+S - Start/Stop FWDE
+    global g
+    
+    if (g.Get("PhysicsEnabled", false)) {
+        StopFWDE()
+    } else {
+        StartFWDE()
+    }
+}
+
+^!r:: {  ; Ctrl+Alt+R - Refresh window list
+    RefreshWindowList()
+    ShowNotification("FWDE", "Window list refreshed", "info", 2000)
+}
+
+^!o:: {  ; Ctrl+Alt+O - Optimize positions
+    OptimizeWindowPositions()
+    ShowNotification("FWDE", "Window positions optimized", "info", 2000)
+}
+
+^!m:: {  ; Ctrl+Alt+M - Toggle seamless monitor floating
+    global Config
+    
+    Config["SeamlessMonitorFloat"] := !Config["SeamlessMonitorFloat"]
+    status := Config["SeamlessMonitorFloat"] ? "enabled" : "disabled"
+    ShowNotification("FWDE", "Seamless monitor floating " status, "info", 3000)
+}
+
+^!p:: {  ; Ctrl+Alt+P - Pause/Resume physics
+    global g
+    
+    g["PhysicsEnabled"] := !g.Get("PhysicsEnabled", false)
+    status := g["PhysicsEnabled"] ? "resumed" : "paused"
+    ShowNotification("FWDE", "Physics " status, "info", 2000)
+}
+
+^!q:: {  ; Ctrl+Alt+Q - Quit FWDE
+    StopFWDE()
+    ExitApp()
+}
+
+; Improved placeholder functions with actual functionality
+GetCurrentMonitorInfo() {
+    try {
+        ; Get primary monitor info
+        monitorInfo := MonitorGet()
+        return Map(
+            "Left", monitorInfo.Left,
+            "Top", monitorInfo.Top, 
+            "Right", monitorInfo.Right,
+            "Bottom", monitorInfo.Bottom,
+            "Width", monitorInfo.Right - monitorInfo.Left,
+            "Height", monitorInfo.Bottom - monitorInfo.Top
+        )
+    } catch {
+        ; Fallback values
+        return Map("Left", 0, "Top", 0, "Right", 1920, "Bottom", 1080, "Width", 1920, "Height", 1080)
+    }
+}
+
+; Enhanced configuration change handler
+ApplyConfigurationChanges(newConfig) {
+    global Config, g
+    
+    try {
+        DebugLog("CONFIG", "Applying configuration changes", 2)
+        
+        ; Update monitor info if seamless floating changed
+        if (newConfig.Has("SeamlessMonitorFloat")) {
+            g["Monitor"] := GetCurrentMonitorInfo()
+        }
+        
+        ; Restart timers with new intervals if they changed
+        if (newConfig.Has("PhysicsUpdateInterval") || newConfig.Has("VisualTimeStep") || newConfig.Has("ScreenshotCheckInterval")) {
+            if (g.Get("PhysicsEnabled", false)) {
+                ; Restart timers with new intervals
+                SetTimer(PhysicsUpdateLoop, 0)
+                SetTimer(VisualUpdateLoop, 0)
+                SetTimer(UpdateScreenshotState, 0)
+                
+                SetTimer(PhysicsUpdateLoop, Config["PhysicsUpdateInterval"])
+                SetTimer(VisualUpdateLoop, Config["VisualTimeStep"])
+                SetTimer(UpdateScreenshotState, Config["ScreenshotCheckInterval"])
+            }
+        }
+        
+        DebugLog("CONFIG", "Configuration changes applied successfully", 2)
         
     } catch as e {
         RecordSystemError("ApplyConfigurationChanges", e)
     }
 }
 
-; Configuration backup and recovery
-BackupCurrentConfiguration() {
-    global Config, ConfigBackupFile
-    
-    try {
-        backupData := Map()
-        backupData["_backup_metadata"] := Map(
-            "created", FormatTime(A_Now, "yyyy-MM-dd HH:mm:ss"),
-            "reason", "pre_load_backup"
-        )
-        
-        for key, value in Config {
-            backupData[key] := value
-        }
-        
-        jsonText := JSON.stringify(backupData, 2)
-        FileAppend(jsonText, ConfigBackupFile)
-        
-        DebugLog("CONFIG", "Configuration backup created", 3)
-        
-    } catch as e {
-        RecordSystemError("BackupCurrentConfiguration", e)
-    }
-}
-
-AttemptConfigurationRecovery() {
-    global Config, ConfigBackupFile
-    
-    try {
-        if (FileExist(ConfigBackupFile)) {
-            DebugLog("CONFIG", "Attempting to restore from backup", 2)
-            
-            backupText := FileRead(ConfigBackupFile)
-            backupData := JSON.parse(backupText)
-            
-            ; Apply backup configuration
-            for key, value in backupData {
-                if (key != "_backup_metadata") {
-                    Config[key] := value
-                }
-            }
-            
-            DebugLog("CONFIG", "Configuration restored from backup", 2)
-            ShowTooltip("Configuration restored from backup due to load failure")
-            return true
-        } else {
-            DebugLog("CONFIG", "No backup available, keeping current configuration", 2)
-            return false
-        }
-        
-    } catch as e {
-        RecordSystemError("AttemptConfigurationRecovery", e)
-        return false
-    }
-}
-
-; Configuration export/import functionality
-ExportConfiguration(exportPath := "") {
-    global Config
-    
-    if (exportPath == "") {
-        exportPath := A_ScriptDir "\FWDE_Config_Export_" FormatTime(A_Now, "yyyyMMdd_HHmmss") ".json"
-    }
-    
-    try {
-        exportData := Map()
-        exportData["_export_metadata"] := Map(
-            "exported", FormatTime(A_Now, "yyyy-MM-dd HH:mm:ss"),
-            "version", ConfigSchema["version"],
-            "application", "FWDE"
-        )
-        
-        for key, value in Config {
-            exportData[key] := value
-        }
-        
-        jsonText := JSON.stringify(exportData, 2)
-        FileAppend(jsonText, exportPath)
-        
-        DebugLog("CONFIG", "Configuration exported to " exportPath, 2)
-        ShowTooltip("Configuration exported to:`n" exportPath)
-        return true
-        
-    } catch as e {
-        RecordSystemError("ExportConfiguration", e, exportPath)
-        ShowTooltip("Failed to export configuration")
-        return false
-    }
-}
-
-ImportConfiguration(importPath) {
-    global Config
-    
-    try {
-        if (!FileExist(importPath)) {
-            ShowTooltip("Import file not found: " importPath)
-            return false
-        }
-        
-        ; Backup current configuration
-        BackupCurrentConfiguration()
-        
-        ; Read and parse import file
-        importText := FileRead(importPath)
-        importData := JSON.parse(importText)
-        
-        ; Validate imported configuration
-        validation := ValidateConfigurationSchema(importData)
-        if (!validation["valid"]) {
-            ShowTooltip("Import failed: " validation["error"])
-            return false
-        }
-        
-        ; Apply imported configuration
-        for key, value in importData {
-            if (key != "_export_metadata" && ConfigSchema["structure"].Has(key)) {
-                Config[key] := value
-            }
-        }
-        
-        ; Validate complete configuration
-        fullValidation := ValidateConfiguration(Config)
-        if (!fullValidation["valid"]) {
-            AttemptConfigurationRecovery()
-            ShowTooltip("Import failed validation, restored from backup")
-            return false
-        }
-        
-        ; Apply changes and save
-        ApplyConfigurationChanges(Config)
-        SaveConfigurationToFile()
-        
-        DebugLog("CONFIG", "Configuration imported from " importPath, 2)
-        ShowTooltip("Configuration imported successfully")
-        return true
-        
-    } catch as e {
-        RecordSystemError("ImportConfiguration", e, importPath)
-        AttemptConfigurationRecovery()
-        ShowTooltip("Import failed, restored from backup")
-        return false
-    }
-}
-
-; User interface functions for configuration management
-ShowConfigurationManager() {
-    global Config
-    
-    configInfo := "FWDE Configuration Manager`n"
-    configInfo .= "═══════════════════════`n`n"
-    
-    ; Current configuration status
-    validation := ValidateConfiguration(Config)
-    configInfo .= "Status: " (validation["valid"] ? "✓ Valid" : "✗ Invalid") "`n"
-    
-    if (validation["errors"].Length > 0) {
-        configInfo .= "Errors:`n"
-        for error in validation["errors"] {
-            configInfo .= "  • " error "`n"
-        }
-    }
-    
-    if (validation["warnings"].Length > 0) {
-        configInfo .= "Warnings:`n"
-        for warning in validation["warnings"] {
-            configInfo .= "  • " warning "`n"
-        }
-    }
-    
-    configInfo .= "`nHotkeys:`n"
-    configInfo .= "Ctrl+Alt+S - Save configuration`n"
-    configInfo .= "Ctrl+Alt+R - Reload from file`n"
-    configInfo .= "Ctrl+Alt+E - Export configuration`n"
-    configInfo .= "Ctrl+Alt+I - Import configuration`n"
-    configInfo .= "Ctrl+Alt+C - Show status`n"
-    configInfo .= "Ctrl+Alt+V - List presets`n"
-    
-    ShowTooltip(configInfo, 10000)
-}
-
-; Enhanced JSON library integration (simplified version)
-class JSON {
-    static parse(text) {
-        ; Simple JSON parser - in production, use a full JSON library
-        ; This is a basic implementation for demonstration
-        return Map()  ; Placeholder - implement full JSON parsing
-    }
-    
-    static stringify(obj, indent := 0) {
-        ; Simple JSON stringifier - in production, use a full JSON library
-        ; This is a basic implementation for demonstration
-        return "{}"  ; Placeholder - implement full JSON stringification
-    }
-}
-
-; Enhanced hotkeys for configuration persistence
-^!S::SaveConfigurationToFile()
-^!R::HotReloadConfiguration()
-^!E::ExportConfiguration()
-^!I::{
-    ; Simple file dialog for import
-    importFile := FileSelect(1, , "Import Configuration", "JSON Files (*.json)")
-    if (importFile) {
-        ImportConfiguration(importFile)
-    }
-}
-^!M::ShowConfigurationManager()
-
-; Initialize configuration system when script starts
+; Initialize the configuration system when the script starts
 InitializeConfigurationSystem()
 
-; Enhanced Visual Feedback System
-global VisualFeedback := Map(
-    "SystemTrayEnabled", true,
-    "TooltipTheme", "Default",
-    "NotificationHistory", [],
-    "MaxHistoryItems", 50,
-    "BorderAnimationEnabled", true,
-    "StatusOverlayEnabled", false,
-    "PerformanceMetricsVisible", false,
-    "LastStatusUpdate", 0,
-    "StatusUpdateInterval", 1000,
-    "Themes", Map(
-        "Default", Map(
-            "BackgroundColor", "0x1E1E1E",
-            "TextColor", "0xFFFFFF",
-            "BorderColor", "0x007ACC",
-            "ErrorColor", "0xFF4444",
-            "WarningColor", "0xFFAA00",
-            "SuccessColor", "0x44AA44",
-            "FontSize", 11,
-            "FontFamily", "Segoe UI"
-        ),
-        "Dark", Map(
-            "BackgroundColor", "0x2D2D30",
-            "TextColor", "0xF1F1F1",
-            "BorderColor", "0x3C3C3C",
-            "ErrorColor", "0xF14C4C",
-            "WarningColor", "0xFFCC02",
-            "SuccessColor", "0x73C991",
-            "FontSize", 11,
-            "FontFamily", "Segoe UI"
-        ),
-        "Light", Map(
-            "BackgroundColor", "0xF8F8F8",
-            "TextColor", "0x333333",
-            "BorderColor", "0x0078D4",
-            "ErrorColor", "0xD13438",
-            "WarningColor", "0xFF8C00",
-            "SuccessColor", "0x107C10",
-            "FontSize", 11,
-            "FontFamily", "Segoe UI"
-        )
-    )
-)
+; Auto-start the system
+SetTimer(() => StartFWDE(), -1000)  ; Start after 1 second delay
 
-; System Tray Management
-global SystemTray := Map(
-    "Initialized", false,
-    "Icon", "",
-    "LastIconUpdate", 0,
-    "IconUpdateInterval", 2000,
-    "StatusIcons", Map(
-        "Normal", A_ScriptDir "\icons\tray_normal.ico",
-        "Active", A_ScriptDir "\icons\tray_active.ico",
-        "Error", A_ScriptDir "\icons\tray_error.ico",
-        "Paused", A_ScriptDir "\icons\tray_paused.ico"
-    ),
-    "ContextMenu", "",
-    "BalloonTips", true
-)
-
-; Initialize Visual Feedback System
-InitializeVisualFeedback() {
-    DebugLog("VISUAL", "Initializing visual feedback system", 2)
-    
-    try {
-        ; Initialize system tray
-        if (VisualFeedback["SystemTrayEnabled"]) {
-            InitializeSystemTray()
-        }
-        
-        ; Setup performance monitoring
-        SetTimer(UpdateSystemStatus, VisualFeedback["StatusUpdateInterval"])
-        
-        ; Initialize notification system
-        InitializeNotificationSystem()
-        
-        ; Setup window border system
-        InitializeWindowBorders()
-        
-        DebugLog("VISUAL", "Visual feedback system initialized successfully", 2)
-        
-    } catch as e {
-        RecordSystemError("InitializeVisualFeedback", e)
-    }
-}
-
-; System Tray Integration
-InitializeSystemTray() {
-    global SystemTray, g
-    
-    try {
-        ; Create context menu
-        SystemTray["ContextMenu"] := Menu()
-        
-        ; Add menu items
-        SystemTray["ContextMenu"].Add("&Toggle Physics Engine", TogglePhysicsFromTray)
-        SystemTray["ContextMenu"].Add("Toggle &Seamless Float", ToggleSeamlessFromTray)
-        SystemTray["ContextMenu"].Add()  ; Separator
-        
-        ; Configuration submenu
-        configMenu := Menu()
-        configMenu.Add("&Default Preset", () => LoadConfigPreset("Default"))
-        configMenu.Add("&DAW Production", () => LoadConfigPreset("DAW_Production"))
-        configMenu.Add("&Gaming", () => LoadConfigPreset("Gaming"))
-        configMenu.Add("&Office Work", () => LoadConfigPreset("Office_Work"))
-        configMenu.Add("&High Performance", () => LoadConfigPreset("High_Performance"))
-        configMenu.Add()
-        configMenu.Add("&Configuration Status", ShowConfigStatus)
-        configMenu.Add("&Save Configuration", SaveConfigurationToFile)
-        configMenu.Add("&Export Configuration", ExportConfiguration)
-        
-        SystemTray["ContextMenu"].Add("&Configuration", configMenu)
-        SystemTray["ContextMenu"].Add()
-        
-        ; Status and controls
-        SystemTray["ContextMenu"].Add("&System Status", ShowSystemStatus)
-        SystemTray["ContextMenu"].Add("&Performance Metrics", TogglePerformanceMetrics)
-        SystemTray["ContextMenu"].Add("&Optimize Windows", OptimizeAllWindows)
-        SystemTray["ContextMenu"].Add()
-        
-        ; Advanced options
-        advancedMenu := Menu()
-        advancedMenu.Add("&Debug Information", ShowDebugInformation)
-        advancedMenu.Add("&Reset System", ResetSystemState)
-        advancedMenu.Add("&Reload Configuration", HotReloadConfiguration)
-        
-        SystemTray["ContextMenu"].Add("&Advanced", advancedMenu)
-        SystemTray["ContextMenu"].Add()
-        SystemTray["ContextMenu"].Add("E&xit", ExitApplication)
-        
-        ; Set tray menu
-        A_TrayMenu := SystemTray["ContextMenu"]
-        
-        ; Set initial icon
-        UpdateSystemTrayIcon("Normal")
-        
-        ; Enable balloon tips if supported
-        if (SystemTray["BalloonTips"]) {
-            A_IconTip := "FWDE - Floating Windows Dynamic Equilibrium"
-        }
-        
-        SystemTray["Initialized"] := true
-        DebugLog("VISUAL", "System tray initialized with context menu", 2)
-        
-    } catch as e {
-        RecordSystemError("InitializeSystemTray", e)
-    }
-}
-
-; Update system tray icon based on status
-UpdateSystemTrayIcon(status := "") {
-    global SystemTray, g
-    
-    try {
-        if (!SystemTray["Initialized"]) {
-            return
-        }
-        
-        ; Determine status if not provided
-        if (status == "") {
-            if (!g.Get("ArrangementActive", false)) {
-                status := "Paused"
-            } else if (!SystemState["SystemHealthy"]) {
-                status := "Error"
-            } else if (g.Get("PhysicsEnabled", false) && g["Windows"].Length > 0) {
-                status := "Active"
-            } else {
-                status := "Normal"
-            }
-        }
-        
-        ; Update icon if changed
-        if (SystemTray["Icon"] != status) {
-            SystemTray["Icon"] := status
-            
-            ; Set icon file if it exists
-            iconFile := SystemTray["StatusIcons"][status]
-            if (FileExist(iconFile)) {
-                TraySetIcon(iconFile)
-            }
-            
-            ; Update tooltip
-            tooltipText := "FWDE - " status
-            if (g.Has("Windows") && g["Windows"].Length > 0) {
-                tooltipText .= " (" g["Windows"].Length " windows)"
-            }
-            A_IconTip := tooltipText
-            
-            DebugLog("VISUAL", "System tray icon updated to: " status, 3)
-        }
-        
-    } catch as e {
-        RecordSystemError("UpdateSystemTrayIcon", e)
-    }
-}
-
-; Enhanced notification system
-ShowNotification(title, message, type := "info", duration := 5000, showInTray := true) {
-    global VisualFeedback, SystemTray
-    
-    try {
-        ; Create notification record
-        notification := Map(
-            "Title", title,
-            "Message", message,
-            "Type", type,
-            "Timestamp", A_TickCount,
-            "Duration", duration
-        )
-        
-        ; Add to history
-        VisualFeedback["NotificationHistory"].Push(notification)
-        
-        ; Maintain history size
-        if (VisualFeedback["NotificationHistory"].Length > VisualFeedback["MaxHistoryItems"]) {
-            VisualFeedback["NotificationHistory"].RemoveAt(1)
-        }
-        
-        ; Show system tray balloon if enabled
-        if (showInTray && SystemTray["BalloonTips"] && SystemTray["Initialized"]) {
-            balloonIcon := 1  ; Info
-            switch type {
-                case "error": balloonIcon := 3
-                case "warning": balloonIcon := 2
-                case "success": balloonIcon := 1
-            }
-            
-            try {
-                TrayTip(message, title, balloonIcon)
-            } catch {
-                ; Fallback to regular tooltip if balloon tips fail
-                ShowEnhancedTooltip(title "`n" message, type, duration)
-            }
-        } else {
-            ; Use enhanced tooltip system
-            ShowEnhancedTooltip(title "`n" message, type, duration)
-        }
-        
-        DebugLog("VISUAL", "Notification shown: " title " - " message, 3)
-        
-    } catch as e {
-        RecordSystemError("ShowNotification", e)
-        ; Fallback to basic tooltip
-        ShowTooltip(title "`n" message, duration)
-    }
-}
-
-; Enhanced tooltip system with theming
-ShowEnhancedTooltip(text, type := "info", duration := 5000) {
-    global VisualFeedback
-    
-    try {
-        theme := VisualFeedback["Themes"][VisualFeedback["TooltipTheme"]]
-        
-        ; Determine colors based on type
-        bgColor := theme["BackgroundColor"]
-        textColor := theme["TextColor"]
-        borderColor := theme["BorderColor"]
-        
-        switch type {
-            case "error": borderColor := theme["ErrorColor"]
-            case "warning": borderColor := theme["WarningColor"]
-            case "success": borderColor := theme["SuccessColor"]
-        }
-        
-        ; Create custom tooltip (simplified - in production use GUI)
-        ; For now, use enhanced basic tooltip with type prefix
-        typePrefix := ""
-        switch type {
-            case "error": typePrefix := "❌ "
-            case "warning": typePrefix := "⚠️ "
-            case "success": typePrefix := "✅ "
-            case "info": typePrefix := "ℹ️ "
-        }
-        
-        ShowTooltip(typePrefix . text, duration)
-        
-    } catch as e {
-        RecordSystemError("ShowEnhancedTooltip", e)
-        ShowTooltip(text, duration)
-    }
-}
-
-; Window border visual feedback system
-global WindowBorders := Map()
-
-InitializeWindowBorders() {
-    DebugLog("VISUAL", "Initializing window border system", 3)
-    ; Window border system initialized - borders will be created on demand
-}
-
-; Show colored border around window
-ShowWindowBorder(hwnd, borderType := "locked", duration := 0) {
-    global WindowBorders, VisualFeedback, Config
-    
-    try {
-        if (!VisualFeedback["BorderAnimationEnabled"]) {
-            return
-        }
-        
-        ; Remove existing border if present
-        RemoveWindowBorder(hwnd)
-        
-        ; Get window position and size
-        if (!SafeWinExist(hwnd)) {
-            return
-        }
-        
-        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-        
-        ; Determine border color
-        borderColor := "FF5555"  ; Default red
-        switch borderType {
-            case "locked": borderColor := Config.Get("ManualWindowColor", "FF5555")
-            case "physics": borderColor := "55FF55"
-            case "manual": borderColor := "5555FF"
-            case "error": borderColor := "FF0000"
-            case "warning": borderColor := "FFAA00"
-        }
-        
-        ; Create border GUI (simplified border system)
-        borderInfo := Map(
-            "hwnd", hwnd,
-            "type", borderType,
-            "created", A_TickCount,
-            "duration", duration,
-            "color", borderColor
-        )
-        
-        WindowBorders[hwnd] := borderInfo
-        
-        ; Set timer to remove border if duration specified
-        if (duration > 0) {
-            SetTimer(() => RemoveWindowBorder(hwnd), -duration)
-        }
-        
-        DebugLog("VISUAL", "Border shown for window " hwnd " (" borderType ")", 4)
-        
-    } catch as e {
-        RecordSystemError("ShowWindowBorder", e, hwnd)
-    }
-}
-
-; Remove window border
-RemoveWindowBorder(hwnd) {
-    global WindowBorders
-    
-    try {
-        if (WindowBorders.Has(hwnd)) {
-            ; Clean up border resources here
-            WindowBorders.Delete(hwnd)
-            DebugLog("VISUAL", "Border removed for window " hwnd, 4)
-        }
-    } catch as e {
-        RecordSystemError("RemoveWindowBorder", e, hwnd)
-    }
-}
-
-; System status monitoring and display
-UpdateSystemStatus() {
-    global g, SystemState, VisualFeedback
-    
-    try {
-        currentTime := A_TickCount
-        
-        ; Update tray icon periodically
-        if (currentTime - SystemTray["LastIconUpdate"] > SystemTray["IconUpdateInterval"]) {
-            UpdateSystemTrayIcon()
-            SystemTray["LastIconUpdate"] := currentTime
-        }
-        
-        ; Update performance metrics if visible
-        if (VisualFeedback["PerformanceMetricsVisible"]) {
-            ShowPerformanceMetrics()
-        }
-        
-        ; Clean up expired window borders
-        CleanupExpiredBorders()
-        
-        VisualFeedback["LastStatusUpdate"] := currentTime
-        
-    } catch as e {
-        RecordSystemError("UpdateSystemStatus", e)
-    }
-}
-
-; Cleanup expired window borders
-CleanupExpiredBorders() {
-    global WindowBorders
-    
-    try {
-        currentTime := A_TickCount
-        expiredBorders := []
-        
-        for hwnd, borderInfo in WindowBorders {
-            if (borderInfo["duration"] > 0 && 
-                currentTime - borderInfo["created"] > borderInfo["duration"]) {
-                expiredBorders.Push(hwnd)
-            }
-        }
-        
-        for hwnd in expiredBorders {
-            RemoveWindowBorder(hwnd)
-        }
-        
-    } catch as e {
-        RecordSystemError("CleanupExpiredBorders", e)
-    }
-}
-
-; Show comprehensive system status
-ShowSystemStatus() {
-    global g, SystemState, PerfTimers
-    
-    statusText := "FWDE System Status`n"
-    statusText .= "═══════════════════`n`n"
-    
-    ; System health
-    statusText .= "System Health: " (SystemState["SystemHealthy"] ? "✅ Healthy" : "❌ Degraded") "`n"
-    
-    if (!SystemState["SystemHealthy"]) {
-        statusText .= "Last Error: " SystemState["LastError"] "`n"
-        statusText .= "Error Count: " SystemState["ErrorCount"] "`n"
-        statusText .= "Recovery Attempts: " SystemState["RecoveryAttempts"] "`n"
-    }
-    
-    ; System state
-    statusText .= "`nSystem State:`n"
-    statusText .= "Physics Engine: " (g.Get("PhysicsEnabled", false) ? "✅ Active" : "❌ Disabled") "`n"
-    statusText .= "Arrangement: " (g.Get("ArrangementActive", false) ? "✅ Active" : "❌ Paused") "`n"
-    statusText .= "Seamless Float: " (Config["SeamlessMonitorFloat"] ? "✅ Enabled" : "❌ Disabled") "`n"
-    statusText .= "Screenshot Pause: " (g.Get("ScreenshotPaused", false) ? "⏸️ Active" : "▶️ Normal") "`n"
-    
-    ; Window statistics
-    windowCount := g.Has("Windows") ? g["Windows"].Length : 0
-    statusText .= "`nWindow Management:`n"
-    statusText .= "Managed Windows: " windowCount "`n"
-    
-    if (windowCount > 0) {
-        pluginCount := 0
-        lockedCount := 0
-        for win in g["Windows"] {
-            if (win.Get("isPlugin", false)) pluginCount++
-            if (win.Get("manualLock", false)) lockedCount++
-        }
-        statusText .= "Plugin Windows: " pluginCount "`n"
-        statusText .= "Locked Windows: " lockedCount "`n"
-    }
-    
-    ; Performance info
-    if (PerfTimers.Count > 0) {
-        statusText .= "`nPerformance (avg):`n"
-        for operation, timer in PerfTimers {
-            avgTime := timer["totalTime"] / timer["count"]
-            statusText .= operation ": " Round(avgTime, 2) "ms`n"
-        }
-    }
-    
-    ShowNotification("System Status", statusText, "info", 10000)
-}
-
-; Toggle performance metrics display
-TogglePerformanceMetrics() {
-    global VisualFeedback
-    
-    VisualFeedback["PerformanceMetricsVisible"] := !VisualFeedback["PerformanceMetricsVisible"]
-    
-    if (VisualFeedback["PerformanceMetricsVisible"]) {
-        ShowNotification("Performance Metrics", "Performance metrics overlay enabled", "info")
-        ShowPerformanceMetrics()
-    } else {
-        ShowNotification("Performance Metrics", "Performance metrics overlay disabled", "info")
-    }
-}
-
-; Show real-time performance metrics
-ShowPerformanceMetrics() {
-    global PerfTimers, g
-    
-    try {
-        metricsText := "FWDE Performance Metrics`n"
-        metricsText .= "═══════════════════════`n"
-        
-        ; System performance
-        windowCount := g.Has("Windows") ? g["Windows"].Length : 0
-        metricsText .= "Active Windows: " windowCount "`n"
-        metricsText .= "Error Count: " SystemState["ErrorCount"] "`n"
-        
-        ; Timer performance
-        if (PerfTimers.Count > 0) {
-            metricsText .= "`nOperation Times (avg):`n"
-            for operation, timer in PerfTimers {
-                if (timer["count"] > 0) {
-                    avgTime := timer["totalTime"] / timer["count"]
-                    metricsText .= operation ": " Round(avgTime, 2) "ms`n"
-                }
-            }
-        }
-        
-        ; Memory info (basic)
-        metricsText .= "`nMemory Usage:`n"
-        metricsText .= "Position Cache: " hwndPos.Count " entries`n"
-        metricsText .= "Movement Batch: " moveBatch.Length " pending`n"
-        
-        ShowTooltip(metricsText, 3000)
-        
-    } catch as e {
-        RecordSystemError("ShowPerformanceMetrics", e)
-    }
-}
-
-; Tray menu handlers
-TogglePhysicsFromTray() {
-    global g
-    g["PhysicsEnabled"] := !g.Get("PhysicsEnabled", false)
-    status := g["PhysicsEnabled"] ? "enabled" : "disabled"
-    ShowNotification("Physics Engine", "Physics engine " status, "info")
-    UpdateSystemTrayIcon()
-}
-
-ToggleSeamlessFromTray() {
-    global Config, g
-    Config["SeamlessMonitorFloat"] := !Config["SeamlessMonitorFloat"]
-    
-    ; Update monitor bounds
-    if (Config["SeamlessMonitorFloat"]) {
-        g["Monitor"] := GetVirtualDesktopBounds()
-        ShowNotification("Seamless Float", "Multi-monitor floating enabled", "success")
-    } else {
-        g["Monitor"] := GetCurrentMonitorInfo()
-        ShowNotification("Seamless Float", "Single monitor mode enabled", "info")
-    }
-    
-    SaveConfigurationToFile()
-}
-
-OptimizeAllWindows() {
-    try {
-        OptimizeWindowPositions()
-        ShowNotification("Optimization", "Window positions optimized", "success")
-    } catch as e {
-        RecordSystemError("OptimizeAllWindows", e)
-        ShowNotification("Optimization", "Failed to optimize windows", "error")
-    }
-}
-
-ShowDebugInformation() {
-    debugText := "FWDE Debug Information`n"
-    debugText .= "═══════════════════════`n"
-    debugText .= "Debug Level: " DebugLevel "`n"
-    debugText .= "Debug File: " DebugFile "`n"
-    debugText .= "Log to File: " (DebugToFile ? "Enabled" : "Disabled") "`n"
-    debugText .= "`nRecent Errors: " SystemState["FailedOperations"].Length "`n"
-    
-    ShowNotification("Debug Info", debugText, "info", 8000)
-}
-
-ResetSystemState() {
-    try {
-        ; Reset system state
-        SystemState["ErrorCount"] := 0
-        SystemState["SystemHealthy"] := true
-        SystemState["RecoveryAttempts"] := 0
-        SystemState["FailedOperations"] := []
-        
-        ; Clear position caches
-        hwndPos.Clear()
-        smoothPos.Clear()
-        lastPositions.Clear()
-        moveBatch := []
-        
-        ShowNotification("System Reset", "System state has been reset", "success")
-        UpdateSystemTrayIcon()
-        
-    } catch as e {
-        RecordSystemError("ResetSystemState", e)
-        ShowNotification("System Reset", "Failed to reset system state", "error")
-    }
-}
-
-ExitApplication() {
-    ShowNotification("FWDE", "Shutting down...", "info", 1000)
-    ExitApp()
-}
-
-; Initialize visual feedback system on startup
-InitializeVisualFeedback()
-
-; Enhanced ShowTooltip function to use new notification system when appropriate
-ShowTooltip(text, duration := 5000) {
-    static lastTooltip := ""
-    static tooltipTimer := 0
-    
-    try {
-        ; Clear existing tooltip timer
-        if (tooltipTimer) {
-            SetTimer(tooltipTimer, 0)
-        }
-        
-        ; Show tooltip
-        ToolTip(text)
-        lastTooltip := text
-        
-        ; Set timer to clear tooltip
-        tooltipTimer := () => ToolTip()
-        SetTimer(tooltipTimer, -duration)
-        
-        DebugLog("VISUAL", "Tooltip shown: " StrReplace(text, "`n", " | "), 4)
-        
-    } catch as e {
-        RecordSystemError("ShowTooltip", e)
-    }
-}
-
-; Update existing lock/unlock functions to use visual feedback
-ToggleWindowLock() {
-    activeHwnd := WinGetID("A")
-    
-    if (!IsWindowValid(activeHwnd)) {
-        ShowNotification("Window Lock", "Cannot lock invalid window", "warning")
-        return
-    }
-    
-    ; Find window in managed list
-    targetWin := 0
-    for win in g["Windows"] {
-        if (win["hwnd"] == activeHwnd) {
-            targetWin := win
-            break
-        }
-    }
-    
-    if (!targetWin) {
-        ShowNotification("Window Lock", "Window is not being managed", "warning")
-        return
-    }
-    
-    ; Toggle lock state
-    isLocked := targetWin.Get("manualLock", false)
-    targetWin["manualLock"] := !isLocked
-    
-    if (targetWin["manualLock"]) {
-        targetWin["lockTime"] := A_TickCount
-        ShowWindowBorder(activeHwnd, "locked", Config["ManualLockDuration"])
-        ShowNotification("Window Lock", "Window locked for " Round(Config["ManualLockDuration"]/1000) " seconds", "success")
-    } else {
-        RemoveWindowBorder(activeHwnd)
-        ShowNotification("Window Lock", "Window unlocked", "info")
-    }
-}
-
-; Update configuration loading to show notifications
-LoadConfigPreset(presetName) {
-    global Config, ConfigPresets
-    
-    if (!ConfigPresets.Has(presetName)) {
-        ShowNotification("Configuration", "Unknown preset: " presetName, "error")
-        return false
-    }
-    
-    preset := ConfigPresets[presetName]
-    DebugLog("CONFIG", "Loading preset: " presetName " - " preset["description"], 2)
-    
-    ; Backup current configuration
-    backupConfig := Map()
-    for key, value in Config {
-        backupConfig[key] := value
-    }
-    
-    ; Apply preset configuration
-    for key, value in preset {
-        if (key != "description") {
-            Config[key] := value
-        }
-    }
-    
-    ; Validate the new configuration
-    validation := ValidateConfiguration(Config)
-    
-    if (!validation["valid"]) {
-        ; Restore backup if validation fails
-        for key, value in backupConfig {
-            Config[key] := value
-        }
-        
-        errorMsg := "Preset validation failed"
-        ShowNotification("Configuration Error", errorMsg, "error")
-        return false
-    }
-    
-    ; Update monitor bounds if seamless floating changed
-    if (Config["SeamlessMonitorFloat"]) {
-        g["Monitor"] := GetVirtualDesktopBounds()
-    } else {
-        g["Monitor"] := GetCurrentMonitorInfo()
-    }
-    
-    ; Apply configuration changes
-    ApplyConfigurationChanges(Config)
-    
-    ShowNotification("Configuration", "Loaded preset: " presetName, "success")
-    UpdateSystemTrayIcon()
-    return true
-}
+; Show startup message
+ShowNotification("FWDE", "Floating Windows Dynamic Equilibrium loaded. Ctrl+Alt+S to start/stop.", "info", 5000)

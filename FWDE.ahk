@@ -29,6 +29,14 @@ global SystemState := Map(      ; System state tracking for recovery
 )
 
 ; Add missing JSON library placeholder
+ParseJSON(jsonText) {
+    ; Minimal placeholder: returns an empty Map for now
+    return Map()
+}
+StringifyJSON(obj, indent := 0) {
+    ; Minimal placeholder: returns "{}" for now
+    return "{}"
+}
 global JSON := Map(
     "parse", ParseJSON,
     "stringify", StringifyJSON
@@ -325,6 +333,43 @@ global ConfigWatcher := Map(
 )
 
 ; Placeholder functions to satisfy references
+GetCurrentMonitorInfo() {
+    ; Returns bounds of the primary monitor as a Map
+    try {
+        MonitorCount := SysGet(80)
+        MonitorPrimary := SysGet(88)
+        left := MonitorPrimary.Left
+        top := MonitorPrimary.Top
+        right := MonitorPrimary.Right
+        bottom := MonitorPrimary.Bottom
+        width := right - left
+        height := bottom - top
+        return Map(
+            "Left", left,
+            "Top", top,
+            "Right", right,
+            "Bottom", bottom,
+            "Width", width,
+            "Height", height
+        )
+    } catch {
+        ; Fallback to desktop work area
+        left := SysGet(9)
+        top := SysGet(10)
+        right := SysGet(11)
+        bottom := SysGet(12)
+        width := right - left
+        height := bottom - top
+        return Map(
+            "Left", left,
+            "Top", top,
+            "Right", right,
+            "Bottom", bottom,
+            "Width", width,
+            "Height", height
+        )
+    }
+}
 ; (Removed duplicate GetCurrentMonitorInfo to resolve conflict)
 
 DebugLog(category, message, level := 3) {
@@ -338,7 +383,7 @@ ShowTooltip(message, duration := 3000) {
     SetTimer(() => ToolTip(), -duration)
 }
 
-ShowNotification(title, message, type := "info", duration := 3000) {
+ShowNotificationSimple(title, message, type := "info", duration := 3000) {
     ; Placeholder notification function
     ToolTip(title ": " message, duration)
 }
@@ -357,6 +402,12 @@ BackupCurrentConfiguration() {
 ApplyConfigurationChanges_Placeholder(newConfig) {
     ; Placeholder function to apply configuration changes
     DebugLog("CONFIG", "Applying configuration changes", 2)
+}
+
+ApplyConfigurationChanges(newConfig) {
+    ; Actual function to apply configuration changes (currently a placeholder)
+    DebugLog("CONFIG", "ApplyConfigurationChanges called", 2)
+    ; You can add logic here to update system state based on newConfig if needed
 }
 
 RecordSystemError(operation, error, context := "") {
@@ -823,6 +874,28 @@ CalculateDynamicLayout() {
     }
 }
 
+; Add missing ApplyPhysicsToWindow function to resolve compile error
+ApplyPhysicsToWindow(win) {
+    try {
+        ; Placeholder: simple physics simulation for window movement
+        ; You can expand this with your physics logic as needed
+        if (!IsWindowValid(win["hwnd"])) {
+            return
+        }
+        ; Example: move window slightly towards center if not locked
+        bounds := GetCurrentMonitorInfo()
+        centerX := bounds["Left"] + bounds["Width"] / 2
+        centerY := bounds["Top"] + bounds["Height"] / 2
+        dx := (centerX - win["x"]) * Config["AttractionForce"]
+        dy := (centerY - win["y"]) * Config["AttractionForce"]
+        win["x"] += dx
+        win["y"] += dy
+        WinMove(win["x"], win["y"], , , "ahk_id " win["hwnd"])
+    } catch as e {
+        RecordSystemError("ApplyPhysicsToWindow", e, win["hwnd"])
+    }
+}
+
 ; Sophisticated Layout Algorithms System
 global LayoutAlgorithms := Map(
     "BinPacking", Map(
@@ -878,6 +951,54 @@ global BinPackingStrategies := Map(
     "BottomLeftFill", BottomLeftFillPacking,
     "GuillotinePacking", GuillotinePacking
 )
+
+; Add missing GuillotinePacking function to fix error
+GuillotinePacking(windows, bounds) {
+    try {
+        DebugLog("PACKING", "Applying Guillotine packing algorithm", 3)
+        ; Placeholder implementation: just return empty placements
+        return Map("placements", [], "efficiency", 0)
+    } catch as e {
+        RecordSystemError("GuillotinePacking", e)
+        return Map("placements", [], "efficiency", 0)
+    }
+}
+
+; Add missing BottomLeftFillPacking function to fix error
+BottomLeftFillPacking(windows, bounds) {
+    try {
+        DebugLog("PACKING", "Applying Bottom Left Fill packing algorithm", 3)
+        ; Placeholder implementation: just return empty placements
+        return Map("placements", [], "efficiency", 0)
+    } catch as e {
+        RecordSystemError("BottomLeftFillPacking", e)
+        return Map("placements", [], "efficiency", 0)
+    }
+}
+
+; Add missing WorstFitPacking function to fix error
+WorstFitPacking(windows, bounds) {
+    try {
+        DebugLog("PACKING", "Applying Worst Fit packing algorithm", 3)
+        ; Placeholder implementation: just return empty placements
+        return Map("placements", [], "efficiency", 0)
+    } catch as e {
+        RecordSystemError("WorstFitPacking", e)
+        return Map("placements", [], "efficiency", 0)
+    }
+}
+
+; Add missing NextFitPacking function to fix error
+NextFitPacking(windows, bounds) {
+    try {
+        DebugLog("PACKING", "Applying Next Fit packing algorithm", 3)
+        ; Placeholder implementation: just return empty placements
+        return Map("placements", [], "efficiency", 0)
+    } catch as e {
+        RecordSystemError("NextFitPacking", e)
+        return Map("placements", [], "efficiency", 0)
+    }
+}
 
 ; Layout quality metrics for evaluation
 global LayoutMetrics := Map(
@@ -1530,12 +1651,10 @@ Range(start, end, step := 1) {
 }
 
 ; Initialize sophisticated layouts during startup
-SetTimer(() => {
-    InitializeSophisticatedLayouts()
-}, -3000)  ; Initialize after 3 second delay
+SetTimer(() => InitializeSophisticatedLayouts(), -3000)  ; Initialize after 3 second delay
 
 ; Show startup message
-ShowNotification("FWDE", "Floating Windows Dynamic Equilibrium loaded. Ctrl+Alt+S to start/stop.", "info", 5000)
+ShowNotificationSimple("FWDE", "Floating Windows Dynamic Equilibrium loaded. Ctrl+Alt+S to start/stop.", "info", 5000)
 
 ; Visual feedback and notification system
 global VisualFeedback := Map(
@@ -2365,3 +2484,811 @@ SetWindowManualLock(hwnd, locked := true) {
         RecordSystemError("SetWindowManualLock", e, hwnd)
     }
 }
+
+; Add missing function implementations to resolve variable assignment errors
+
+; Layout management functions
+LoadSavedLayouts() {
+    global LayoutAlgorithms
+    try {
+        layoutDir := LayoutAlgorithms["CustomLayouts"]["LayoutDirectory"]
+        if (!DirExist(layoutDir)) {
+            return
+        }
+        
+        savedLayouts := LayoutAlgorithms["CustomLayouts"]["SavedLayouts"]
+        savedLayouts.Clear()
+        
+        Loop Files, layoutDir "\*.json" {
+            try {
+                layoutText := FileRead(A_LoopFileFullPath)
+                layout := JSON.parse(layoutText)
+                savedLayouts[layout["name"]] := layout
+                DebugLog("LAYOUT", "Loaded saved layout: " . layout["name"], 3)
+            } catch {
+                continue
+            }
+        }
+        
+        DebugLog("LAYOUT", "Loaded " . savedLayouts.Count . " saved layouts", 2)
+    } catch as e {
+        RecordSystemError("LoadSavedLayouts", e)
+    }
+}
+
+PeriodicLayoutOptimization() {
+    global g, LayoutAlgorithms
+    try {
+        if (!g.Get("PhysicsEnabled", false) || !LayoutAlgorithms["BinPacking"]["Enabled"]) {
+            return
+        }
+        
+        ; Apply bin packing optimization periodically
+        if (g.Has("Windows") && g["Windows"].Length > 2) {
+            bounds := GetCurrentMonitorInfo()
+            strategy := LayoutAlgorithms["BinPacking"]["Strategy"]
+            
+            if (BinPackingStrategies.Has(strategy)) {
+                result := BinPackingStrategies[strategy](g["Windows"], bounds)
+                if (result["efficiency"] > 0.7) {  ; Only apply if efficiency is good
+                    ApplyLayoutPlacements(result["placements"])
+                }
+            }
+        }
+    } catch as e {
+        RecordSystemError("PeriodicLayoutOptimization", e)
+    }
+}
+
+; Bin packing helper functions
+FindFirstFitPosition(win, bounds, usedRectangles) {
+    try {
+        margin := Config["MinMargin"]
+        
+        for y in Range(bounds["Top"] + margin, bounds["Bottom"] - win["height"] - margin, 10) {
+            for x in Range(bounds["Left"] + margin, bounds["Right"] - win["width"] - margin, 10) {
+                candidate := Map("x", x, "y", y)
+                if (IsPositionValid(candidate, win, usedRectangles)) {
+                    return candidate
+                }
+            }
+        }
+        return ""
+    } catch as e {
+        RecordSystemError("FindFirstFitPosition", e)
+        return ""
+    }
+}
+
+CalculatePlacementScore(position, win, bounds) {
+    try {
+        score := 0
+        
+        ; Distance from center (prefer center positions)
+        centerX := bounds["Left"] + bounds["Width"] / 2
+        centerY := bounds["Top"] + bounds["Height"] / 2
+        distanceFromCenter := Sqrt((position["x"] - centerX)**2 + (position["y"] - centerY)**2)
+        centerScore := 1 / (1 + distanceFromCenter / 1000)
+        score += centerScore * 0.3
+        
+        ; Screen edge distance (avoid edges)
+        edgeDistance := Min(
+            position["x"] - bounds["Left"],
+            position["y"] - bounds["Top"],
+            bounds["Right"] - (position["x"] + win["width"]),
+            bounds["Bottom"] - (position["y"] + win["height"])
+        )
+        edgeScore := Min(1, edgeDistance / 50)
+        score += edgeScore * 0.2
+        
+        return score
+    } catch as e {
+        RecordSystemError("CalculatePlacementScore", e)
+        return 0
+    }
+}
+
+CalculatePackingEfficiency(placements, bounds) {
+    try {
+        if (placements.Length == 0) {
+            return 0
+        }
+        
+        totalWindowArea := 0
+        for placement in placements {
+            totalWindowArea += placement["width"] * placement["height"]
+        }
+        
+        totalScreenArea := bounds["Width"] * bounds["Height"]
+        efficiency := totalWindowArea / totalScreenArea
+        
+        return Min(1, efficiency)
+    } catch as e {
+        RecordSystemError("CalculatePackingEfficiency", e)
+        return 0
+    }
+}
+
+IsPositionValid(position, win, usedRectangles) {
+    try {
+        winRect := Map(
+            "x", position["x"],
+            "y", position["y"],
+            "width", win["width"],
+            "height", win["height"]
+        )
+        
+        ; Check for overlaps with used rectangles
+        for rect in usedRectangles {
+            if (RectanglesOverlap(winRect, rect)) {
+                return false
+            }
+        }
+        
+        return true
+    } catch as e {
+        RecordSystemError("IsPositionValid", e)
+        return false
+    }
+}
+
+RectanglesOverlap(rect1, rect2) {
+    try {
+        return !(rect1["x"] + rect1["width"] <= rect2["x"] ||
+                rect2["x"] + rect2["width"] <= rect1["x"] ||
+                rect1["y"] + rect1["height"] <= rect2["y"] ||
+                rect2["y"] + rect2["height"] <= rect1["y"])
+    } catch {
+        return false
+    }
+}
+
+; Position scoring functions
+CalculateUtilizationScore(position, win, bounds) {
+    try {
+        ; Score based on how well the position uses available screen space
+        x := position["x"]
+        y := position["y"]
+        w := win["width"]
+        h := win["height"]
+        
+        ; Calculate margins
+        leftMargin := x - bounds["Left"]
+        topMargin := y - bounds["Top"]
+        rightMargin := bounds["Right"] - (x + w)
+        bottomMargin := bounds["Bottom"] - (y + h)
+        
+        ; Prefer balanced margins
+        marginBalance := 1 - (Max(leftMargin, rightMargin, topMargin, bottomMargin) / 
+                             Min(bounds["Width"], bounds["Height"]))
+        
+        return Max(0, marginBalance)
+    } catch as e {
+        RecordSystemError("CalculateUtilizationScore", e)
+        return 0
+    }
+}
+
+CalculateAccessibilityScore(position, win, bounds) {
+    try {
+        ; Score based on how accessible the window is
+        x := position["x"]
+        y := position["y"]
+        
+        ; Prefer positions closer to the primary monitor area
+        centerX := bounds["Left"] + bounds["Width"] / 2
+        centerY := bounds["Top"] + bounds["Height"] / 2
+        
+        distance := Sqrt((x - centerX)**2 + (y - centerY)**2)
+        maxDistance := Sqrt(bounds["Width"]**2 + bounds["Height"]**2) / 2
+        
+        return 1 - (distance / maxDistance)
+    } catch as e {
+        RecordSystemError("CalculateAccessibilityScore", e)
+        return 0
+    }
+}
+
+CalculateAestheticsScore(position, win, usedRectangles, bounds) {
+    try {
+        score := 0
+        
+        ; Alignment score (prefer aligned edges)
+        alignmentScore := 0
+        for rect in usedRectangles {
+            if (Abs(position["x"] - rect["x"]) < 5 || 
+                Abs(position["y"] - rect["y"]) < 5 ||
+                Abs(position["x"] - (rect["x"] + rect["width"])) < 5 ||
+                Abs(position["y"] - (rect["y"] + rect["height"])) < 5) {
+                alignmentScore += 0.1
+            }
+        }
+        score += Min(1, alignmentScore)
+        
+        return score
+    } catch as e {
+        RecordSystemError("CalculateAestheticsScore", e)
+        return 0
+    }
+}
+
+CalculateProximityScore(position, win, usedRectangles) {
+    try {
+        if (usedRectangles.Length == 0) {
+            return 1
+        }
+        
+        ; Find closest rectangle
+        minDistance := 999999
+        for rect in usedRectangles {
+            distance := CalculateRectangleDistance(position, win, rect)
+            minDistance := Min(minDistance, distance)
+        }
+        
+        ; Score inversely proportional to distance
+        return 1 / (1 + minDistance / 100)
+    } catch as e {
+        RecordSystemError("CalculateProximityScore", e)
+        return 0
+    }
+}
+
+CalculateRectangleDistance(pos, win, rect) {
+    try {
+        ; Calculate distance between rectangle centers
+        center1X := pos["x"] + win["width"] / 2
+        center1Y := pos["y"] + win["height"] / 2
+        center2X := rect["x"] + rect["width"] / 2
+        center2Y := rect["y"] + rect["height"] / 2
+        
+        return Sqrt((center1X - center2X)**2 + (center1Y - center2Y)**2)
+    } catch {
+        return 999999
+    }
+}
+
+; Genetic algorithm functions
+CalculateOverlapPenalty(genes) {
+    try {
+        penalty := 0
+        for i in Range(1, genes.Length) {
+            for j in Range(i + 1, genes.Length) {
+                if (RectanglesOverlap(genes[i], genes[j])) {
+                    overlapArea := CalculateOverlapArea(genes[i], genes[j])
+                    penalty += overlapArea
+                }
+            }
+        }
+        return penalty
+    } catch as e {
+        RecordSystemError("CalculateOverlapPenalty", e)
+        return 0
+    }
+}
+
+CalculateOverlapArea(rect1, rect2) {
+    try {
+        left := Max(rect1["x"], rect2["x"])
+        top := Max(rect1["y"], rect2["y"])
+        right := Min(rect1["x"] + rect1["width"], rect2["x"] + rect2["width"])
+        bottom := Min(rect1["y"] + rect1["height"], rect2["y"] + rect2["height"])
+        
+        if (right > left && bottom > top) {
+            return (right - left) * (bottom - top)
+        }
+        return 0
+    } catch {
+        return 0
+    }
+}
+
+CalculateScreenUsageEfficiency(genes, bounds) {
+    try {
+        totalArea := 0
+        for gene in genes {
+            totalArea += gene["width"] * gene["height"]
+        }
+        
+        screenArea := bounds["Width"] * bounds["Height"]
+        return totalArea / screenArea
+    } catch as e {
+        RecordSystemError("CalculateScreenUsageEfficiency", e)
+        return 0
+    }
+}
+
+CalculateLayoutAccessibility(genes, bounds) {
+    try {
+        totalScore := 0
+        for gene in genes {
+            totalScore += CalculateAccessibilityScore(gene, gene, bounds)
+        }
+        return genes.Length > 0 ? totalScore / genes.Length : 0
+    } catch as e {
+        RecordSystemError("CalculateLayoutAccessibility", e)
+        return 0
+    }
+}
+
+CalculateUserPreferenceAlignment(genes) {
+    try {
+        ; Placeholder: would use machine learning in full implementation
+        return 0.5  ; Neutral score
+    } catch as e {
+        RecordSystemError("CalculateUserPreferenceAlignment", e)
+        return 0
+    }
+}
+
+CalculateLayoutAesthetics(genes, bounds) {
+    try {
+        totalScore := 0
+        for gene in genes {
+            totalScore += CalculateAestheticsScore(gene, gene, genes, bounds)
+        }
+        return genes.Length > 0 ? totalScore / genes.Length : 0
+    } catch as e {
+        RecordSystemError("CalculateLayoutAesthetics", e)
+        return 0
+    }
+}
+
+EvaluatePopulation(population) {
+    try {
+        for individual in population {
+            individual["fitness"] := CalculateLayoutFitness(individual)
+        }
+    } catch as e {
+        RecordSystemError("EvaluatePopulation", e)
+    }
+}
+
+CreateNextGeneration(population) {
+    try {
+        nextGen := []
+        popSize := population.Length
+        eliteCount := Integer(popSize * LayoutAlgorithms["GeneticAlgorithm"]["ElitismRate"])
+        
+        ; Sort by fitness
+        SortPopulationByFitness(population)
+        
+        ; Keep elite individuals
+        Loop eliteCount {
+            nextGen.Push(population[A_Index])
+        }
+        
+        ; Generate new individuals through crossover and mutation
+        Loop popSize - eliteCount {
+            parent1 := TournamentSelection(population)
+            parent2 := TournamentSelection(population)
+            child := Crossover(parent1, parent2)
+            child := Mutate(child)
+            nextGen.Push(child)
+        }
+        
+        return nextGen
+    } catch as e {
+        RecordSystemError("CreateNextGeneration", e)
+        return population
+    }
+}
+
+SortPopulationByFitness(population) {
+    try {
+        ; Simple bubble sort for now
+        n := population.Length
+        Loop n - 1 {
+            i := A_Index
+            Loop n - i {
+                j := A_Index
+                if (population[j]["fitness"] < population[j + 1]["fitness"]) {
+                    temp := population[j]
+                    population[j] := population[j + 1]
+                    population[j + 1] := temp
+                }
+            }
+        }
+    } catch as e {
+        RecordSystemError("SortPopulationByFitness", e)
+    }
+}
+
+TournamentSelection(population) {
+    try {
+        tournamentSize := 3
+        tournament := []
+        
+        Loop tournamentSize {
+            randomIndex := Random(1, population.Length)
+            tournament.Push(population[randomIndex])
+        }
+        
+        bestIndividual := tournament[1]
+        for individual in tournament {
+            if (individual["fitness"] > bestIndividual["fitness"]) {
+                bestIndividual := individual
+            }
+        }
+        
+        return bestIndividual
+    } catch as e {
+        RecordSystemError("TournamentSelection", e)
+        return population[1]
+    }
+}
+
+Crossover(parent1, parent2) {
+    try {
+        ; Single-point crossover
+        genes1 := parent1["genes"]
+        genes2 := parent2["genes"]
+        
+        if (genes1.Length != genes2.Length || genes1.Length == 0) {
+            return parent1
+        }
+        
+        crossoverPoint := Random(1, genes1.Length)
+        childGenes := []
+        
+        Loop genes1.Length {
+            if (A_Index <= crossoverPoint) {
+                childGenes.Push(genes1[A_Index])
+            } else {
+                childGenes.Push(genes2[A_Index])
+            }
+        }
+        
+        child := Map("genes", childGenes, "fitness", 0)
+        child["fitness"] := CalculateLayoutFitness(child)
+        
+        return child
+    } catch as e {
+        RecordSystemError("Crossover", e)
+        return parent1
+    }
+}
+
+Mutate(individual) {
+    try {
+        mutationRate := LayoutAlgorithms["GeneticAlgorithm"]["MutationRate"]
+        bounds := GetCurrentMonitorInfo()
+        
+        for gene in individual["genes"] {
+            if (Random() < mutationRate) {
+                ; Slightly adjust position
+                gene["x"] += Random(-20, 20)
+                gene["y"] += Random(-20, 20)
+                
+                ; Keep within bounds
+                gene["x"] := Max(bounds["Left"], Min(gene["x"], bounds["Right"] - gene["width"]))
+                gene["y"] := Max(bounds["Top"], Min(gene["y"], bounds["Bottom"] - gene["height"]))
+            }
+        }
+        
+        individual["fitness"] := CalculateLayoutFitness(individual)
+        return individual
+    } catch as e {
+        RecordSystemError("Mutate", e)
+        return individual
+    }
+}
+
+GetBestIndividual(population) {
+    try {
+        if (population.Length == 0) {
+            return Map("genes", [], "fitness", 0)
+        }
+        
+        best := population[1]
+        for individual in population {
+            if (individual["fitness"] > best["fitness"]) {
+                best := individual
+            }
+        }
+        return best
+    } catch as e {
+        RecordSystemError("GetBestIndividual", e)
+        return Map("genes", [], "fitness", 0)
+    }
+}
+
+ShouldApplyGeneticLayout(individual) {
+    try {
+        ; Apply if fitness is significantly better than current
+        return individual["fitness"] > 0.8  ; Threshold for applying genetic layout
+    } catch as e {
+        RecordSystemError("ShouldApplyGeneticLayout", e)
+        return false
+    }
+}
+
+ApplyGeneticLayout(individual) {
+    try {
+        for gene in individual["genes"] {
+            AnimateWindowToPosition(gene["hwnd"], gene["x"], gene["y"])
+        }
+        DebugLog("GENETIC", "Applied genetic layout with fitness: " . individual["fitness"], 2)
+    } catch as e {
+        RecordSystemError("ApplyGeneticLayout", e)
+    }
+}
+
+RecordEvolutionHistory(ga) {
+    try {
+        historyEntry := Map(
+            "generation", ga["CurrentGeneration"],
+            "bestFitness", ga["BestFitness"],
+            "avgFitness", CalculateAverageFitness(ga["Population"]),
+            "timestamp", A_TickCount
+        )
+        
+        ga["EvolutionHistory"].Push(historyEntry)
+        
+        ; Keep history manageable
+        if (ga["EvolutionHistory"].Length > 100) {
+            ga["EvolutionHistory"].RemoveAt(1)
+        }
+    } catch as e {
+        RecordSystemError("RecordEvolutionHistory", e)
+    }
+}
+
+CalculateAverageFitness(population) {
+    try {
+        if (population.Length == 0) {
+            return 0
+        }
+        
+        total := 0
+        for individual in population {
+            total += individual["fitness"]
+        }
+        return total / population.Length
+    } catch {
+        return 0
+    }
+}
+
+; Layout file operations
+GenerateLayoutThumbnail(layout) {
+    try {
+        ; Generate a simple text-based thumbnail
+        thumbnail := "Layout: " . layout["name"] . " (" . layout["windows"].Length . " windows)"
+        return thumbnail
+    } catch as e {
+        RecordSystemError("GenerateLayoutThumbnail", e)
+        return "No thumbnail"
+    }
+}
+
+SaveLayoutToFile(layout, filePath) {
+    try {
+        jsonText := JSON.stringify(layout, 2)
+        FileAppend(jsonText, filePath)
+        return true
+    } catch as e {
+        RecordSystemError("SaveLayoutToFile", e, filePath)
+        return false
+    }
+}
+
+LoadLayoutFromFile(layoutName) {
+    try {
+        layoutFile := LayoutAlgorithms["CustomLayouts"]["LayoutDirectory"] . "\" . layoutName . ".json"
+        
+        if (!FileExist(layoutFile)) {
+            return false
+        }
+        
+        layoutText := FileRead(layoutFile)
+        layout := JSON.parse(layoutText)
+        
+        LayoutAlgorithms["CustomLayouts"]["SavedLayouts"][layoutName] := layout
+        return true
+    } catch as e {
+        RecordSystemError("LoadLayoutFromFile", e, layoutName)
+        return false
+    }
+}
+
+FindMatchingWindow(savedWindow) {
+    global g
+    try {
+        for win in g["Windows"] {
+            ; Match by title or class
+            if (win["title"] == savedWindow["title"] || 
+                win["class"] == savedWindow["class"]) {
+                return win
+            }
+        }
+        return ""
+    } catch as e {
+        RecordSystemError("FindMatchingWindow", e)
+        return ""
+    }
+}
+
+AnimateWindowToPosition(hwnd, targetX, targetY) {
+    try {
+        if (!IsWindowValid(hwnd)) {
+            return
+        }
+        
+        ; Simple immediate positioning for now
+        ; In full implementation, this would use smooth animation
+        WinMove(targetX, targetY, , , "ahk_id " hwnd)
+        
+        DebugLog("ANIMATE", "Moved window " . hwnd . " to " . targetX . "," . targetY, 3)
+    } catch as e {
+        RecordSystemError("AnimateWindowToPosition", e, hwnd)
+    }
+}
+
+ApplyLayoutPlacements(placements) {
+    try {
+        for placement in placements {
+            AnimateWindowToPosition(placement["hwnd"], placement["x"], placement["y"])
+        }
+        DebugLog("LAYOUT", "Applied " . placements.Length . " layout placements", 2)
+    } catch as e {
+        RecordSystemError("ApplyLayoutPlacements", e)
+    }
+}
+
+; Virtual desktop functions
+IsVirtualDesktopAPIAvailable() {
+    try {
+        ; Check if Windows 10/11 virtual desktop APIs are available
+        return (A_OSVersion >= "10.0")
+    } catch {
+        return false
+    }
+}
+
+LoadWorkspaceProfiles() {
+    try {
+        DebugLog("VDESKTOP", "Loading workspace profiles", 3)
+        ; Placeholder: would load virtual desktop workspace profiles
+    } catch as e {
+        RecordSystemError("LoadWorkspaceProfiles", e)
+    }
+}
+
+GetCurrentVirtualDesktop() {
+    try {
+        ; Placeholder: would get current virtual desktop ID
+        return "Desktop1"
+    } catch as e {
+        RecordSystemError("GetCurrentVirtualDesktop", e)
+        return "Desktop1"
+    }
+}
+
+SaveWorkspaceLayout(workspaceName) {
+    try {
+        if (workspaceName && workspaceName != "") {
+            SaveCurrentLayout("Workspace_" . workspaceName)
+        }
+    } catch as e {
+        RecordSystemError("SaveWorkspaceLayout", e, workspaceName)
+    }
+}
+
+LoadWorkspaceLayout(workspaceName) {
+    try {
+        if (workspaceName && workspaceName != "") {
+            LoadLayout("Workspace_" . workspaceName)
+        }
+    } catch as e {
+        RecordSystemError("LoadWorkspaceLayout", e, workspaceName)
+    }
+}
+
+; Dialog functions
+ShowLayoutSelectionDialog() {
+    try {
+        savedLayouts := LayoutAlgorithms["CustomLayouts"]["SavedLayouts"]
+        
+        if (savedLayouts.Count == 0) {
+            MsgBox("No saved layouts found.", "Layout Selection", "OK Icon48")
+            return
+        }
+        
+        layoutList := ""
+        for layoutName in savedLayouts {
+            layoutList .= layoutName . "|"
+        }
+        layoutList := RTrim(layoutList, "|")
+        
+        selectedLayout := InputBox("Select layout to load:", "Layout Selection", "W300 H100", layoutList).Text
+        
+        if (selectedLayout && savedLayouts.Has(selectedLayout)) {
+            LoadLayout(selectedLayout)
+        }
+    } catch as e {
+        RecordSystemError("ShowLayoutSelectionDialog", e)
+    }
+}
+
+ShowBinPackingStrategyDialog() {
+    try {
+        strategies := ""
+        for strategyName in BinPackingStrategies {
+            strategies .= strategyName . "|"
+        }
+        strategies := RTrim(strategies, "|")
+        
+        currentStrategy := LayoutAlgorithms["BinPacking"]["Strategy"]
+        
+        selectedStrategy := InputBox("Current: " . currentStrategy . "`nSelect new strategy:", "Bin Packing Strategy", "W300 H120", strategies).Text
+        
+        if (selectedStrategy && BinPackingStrategies.Has(selectedStrategy)) {
+            LayoutAlgorithms["BinPacking"]["Strategy"] := selectedStrategy
+            ShowNotification("Layout", "Bin packing strategy changed to: " . selectedStrategy, "success")
+        }
+    } catch as e {
+        RecordSystemError("ShowBinPackingStrategyDialog", e)
+    }
+}
+
+; System functions
+ProcessGetWorkingSet() {
+    try {
+        ; Get current process working set size in bytes
+        return ProcessGetMemoryInfo(DllCall("GetCurrentProcessId"))
+    } catch {
+        return 0
+    }
+}
+
+ProcessGetMemoryInfo(pid) {
+    try {
+        ; Simplified memory info - would use Process32 APIs in full implementation
+        return 50 * 1024 * 1024  ; Return 50MB as placeholder
+    } catch {
+        return 0
+    }
+}
+
+; Core system functions
+StartFWDE() {
+    global g
+    try {
+        g["PhysicsEnabled"] := true
+        g["ArrangementActive"] := true
+        
+        RefreshWindowList()
+        ShowNotification("FWDE", "Physics engine started", "success", 2000)
+        DebugLog("SYSTEM", "FWDE started", 2)
+    } catch as e {
+        RecordSystemError("StartFWDE", e)
+    }
+}
+
+StopFWDE() {
+    global g
+    try {
+        g["PhysicsEnabled"] := false
+        g["ArrangementActive"] := false
+        
+        ShowNotification("FWDE", "Physics engine stopped", "info", 2000)
+        DebugLog("SYSTEM", "FWDE stopped", 2)
+    } catch as e {
+        RecordSystemError("StopFWDE", e)
+    }
+}
+
+OptimizeWindowPositions() {
+    try {
+        PeriodicLayoutOptimization()
+        ShowNotification("FWDE", "Window positions optimized", "success", 2000)
+    } catch as e {
+        RecordSystemError("OptimizeWindowPositions", e)
+    }
+}
+
+; Initialize visual feedback on startup
+SetTimer(() => InitializeVisualFeedback(), -2000)
+
+; Initialize configuration system on startup
+SetTimer(() => InitializeConfigurationSystem(), -1000)

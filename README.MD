@@ -9,8 +9,11 @@
 
 FWDE is a physics-driven window manager for Windows, designed for DAW plugins, terminals, dialogs, and floating windows. It uses real-time simulation for natural, intelligent arrangements, with multi-monitor support, manual controls, and visual effects.
 
-**New Feature:**  
+**New Features:**  
 - **Automatic window resizing:** Any window that would extend below the monitor's bottom margin is automatically resized to fit within the visible area.
+- **Configuration validation system:** Prevents invalid parameter combinations that could destabilize the physics engine.
+- **Configuration presets:** Pre-configured settings optimized for different use cases (DAW Production, Gaming, Office Work, etc.).
+- **Advanced visual feedback:** Comprehensive system tray integration, real-time notifications, and visual status indicators.
 
 ---
 
@@ -24,28 +27,81 @@ FWDE is a physics-driven window manager for Windows, designed for DAW plugins, t
 | `Ctrl + Alt + M`      | Toggle seamless multi-monitor floating         |
 | `Ctrl + Alt + O`      | Optimize all window positions                  |
 | `Ctrl + Alt + L`      | Lock/unlock the currently active window        |
+| `Ctrl + Alt + 1`      | Load Default configuration preset               |
+| `Ctrl + Alt + 2`      | Load DAW Production preset                      |
+| `Ctrl + Alt + 3`      | Load Gaming preset                              |
+| `Ctrl + Alt + 4`      | Load Office Work preset                         |
+| `Ctrl + Alt + 5`      | Load High Performance preset                    |
+| `Ctrl + Alt + C`      | Show configuration status and validation        |
+| `Ctrl + Alt + V`      | View available configuration presets            |
+| `Ctrl + Alt + S`      | Save current configuration to file              |
+| `Ctrl + Alt + R`      | Reload configuration from file                  |
+| `Ctrl + Alt + E`      | Export configuration                            |
+| `Ctrl + Alt + I`      | Import configuration                            |
+
+## 🎨 Visual Feedback System
+
+FWDE includes a comprehensive visual feedback system providing real-time status monitoring and user interaction:
+
+### System Tray Integration
+- **Status Icons:** Real-time indicators showing system health (Normal, Active, Error, Paused)
+- **Context Menu:** Quick access to all major functions including configuration presets
+- **Balloon Notifications:** Important system events and status changes
+- **Performance Tooltips:** Active window count and current operational mode
+
+### Window Visual Indicators  
+- **Colored Borders:** Visual feedback for window states
+  - 🔴 Red: Manually locked windows
+  - 🟢 Green: Physics-controlled windows  
+  - 🔵 Blue: User-dragged windows
+  - 🟡 Yellow: Warning states
+- **Automatic Cleanup:** Borders automatically expire based on lock duration
+
+### Enhanced Notifications
+- **Smart Notifications:** Context-aware messages for all system operations
+- **Notification Themes:** Dark, Light, and Default visual themes
+- **History Management:** Automatic cleanup with configurable retention
+- **Error Tracking:** Comprehensive error reporting with recovery suggestions
+
+### Real-Time Status Display
+- **Performance Metrics:** Operation timing and memory usage monitoring  
+- **System Health:** Error rates, recovery status, and stability indicators
+- **Window Statistics:** Count of managed, plugin, and locked windows
+- **Configuration Status:** Real-time validation and parameter monitoring
 
 ---
 
-## 🖥️ Window Management Features
+## 📐 Configuration Presets
 
-- **Multi-Monitor Floating:**  
-  Seamless workspace across all monitors (toggleable).  
-  Windows can float freely or be confined per monitor.
+FWDE includes professionally tuned presets for different use cases:
 
-- **Intelligent Detection:**  
-  - DAW plugins (VST, JS, etc.) from Reaper, Ableton, FL Studio, Cubase, Studio One, Bitwig, Pro Tools  
-  - Development tools (Command Prompt, Windows Terminal, console apps)  
-  - Dialog boxes, floating tool windows  
-  - Custom class/title pattern matching
+### 🎵 DAW Production
+Optimized for Digital Audio Workstation environments with plugin windows:
+- Higher repulsion forces for better plugin separation
+- Longer user interaction timeouts for precise positioning
+- Multi-monitor floating enabled by default
+- Reduced overlap tolerance for cleaner layouts
 
-- **Manual Control:**  
-  - Lock windows in place (red border, timeout, hotkey)  
-  - Optimize layouts for space usage  
-  - Fine-tune behavior via config
+### 🎮 Gaming  
+High-performance settings for gaming environments:
+- Faster physics updates for responsive behavior
+- Strong edge repulsion to keep windows away from game areas
+- Shorter lock durations for quick adjustments
+- Optimized for single-monitor setups
 
-- **Automatic Window Resizing:**  
-  - When optimizing or placing windows, any window that would extend below the monitor's bottom margin is automatically resized to fit within the visible area.
+### 🏢 Office Work
+Conservative settings for productivity environments:
+- Larger margins and gaps for professional appearance
+- Slower, smoother movements to avoid distraction
+- Longer lock durations for stable layouts
+- Higher overlap tolerance for document windows
+
+### ⚡ High Performance
+Optimized for powerful systems with many windows:
+- Maximum update frequencies for smooth operation
+- Multi-monitor floating for complex workflows
+- Minimal stabilization delays for immediate response
+- Fine-tuned for systems with 16+ concurrent windows
 
 ---
 
@@ -72,23 +128,36 @@ FWDE is a physics-driven window manager for Windows, designed for DAW plugins, t
 - Multi-monitor setups  
 - High-DPI compatible
 
+**Configuration Validation:**
+FWDE includes a comprehensive validation system that prevents invalid parameter combinations:
+- Range validation for all numeric parameters
+- Dependency checking between related settings  
+- Automatic fallback to safe defaults on validation failure
+- Real-time configuration status monitoring
+
 **Config Map (editable in script):**
 ```ahk
 global Config := Map(
-    "MinMargin", 42,                ; Distance from screen edges (pixels)
-    "AttractionForce", 0.01,        ; Center gravitational pull strength
-    "RepulsionForce", 0.369,        ; Window separation force
-    "EdgeRepulsionForce", 0.80,     ; Screen edge push strength
+    "MinMargin", 0,                 ; Distance from screen edges (pixels) [0-200]
+    "AttractionForce", 0.0001,      ; Center gravitational pull [0.0001-1.0]
+    "RepulsionForce", 0.369,        ; Window separation force [0.01-50.0]
+    "EdgeRepulsionForce", 0.80,     ; Screen edge push strength [0.1-10.0]
     "SeamlessMonitorFloat", false,  ; Multi-monitor floating toggle
-    "UserMoveTimeout", 11111,       ; User interaction timeout (ms)
-    "ManualLockDuration", 33333,    ; Manual lock duration (ms)
-    "PhysicsTimeStep", 1,           ; Physics update frequency (1ms)
-    "VisualTimeStep", 2,            ; Visual update frequency (2ms)
-    "MaxSpeed", 12.0,               ; Maximum window velocity
-    "Damping", 0.001,               ; Friction coefficient
-    "Smoothing", 0.5                ; Motion smoothing factor
+    "UserMoveTimeout", 11111,       ; User interaction timeout (ms) [1000-60000]
+    "ManualLockDuration", 33333,    ; Manual lock duration (ms) [5000-300000]
+    "PhysicsTimeStep", 1,           ; Physics update frequency [1-100ms]
+    "VisualTimeStep", 2,            ; Visual update frequency [1-100ms]
+    "MaxSpeed", 12.0,               ; Maximum window velocity [1.0-100.0]
+    "Damping", 0.001,               ; Friction coefficient [0.0001-0.1]
+    "Smoothing", 0.5                ; Motion smoothing factor [0.1-0.99]
 )
 ```
+
+**Validation Rules:**
+- Attraction force must not exceed repulsion force for system stability
+- Physics updates should be more frequent than visual updates for smoothness
+- Speed and damping combinations are validated to prevent instability
+- All parameters are range-checked against safe operational limits
 
 ---
 
@@ -136,6 +205,13 @@ Edit the Config map for:
 - **Physics:** Force strengths, speed limits, damping, update rates
 - **Window Management:** Timeout durations, margins, pattern rules
 - **Visuals:** Animation/smoothing, border colors, echo parameters
+- **Presets:** Use hotkeys Ctrl+Alt+1-5 to quickly switch between optimized configurations
+
+**Configuration Management:**
+- Real-time validation prevents destabilizing parameter combinations
+- Automatic fallback to safe defaults if validation fails
+- Configuration status checking with Ctrl+Alt+C
+- Easy preset switching for different workflow requirements
 
 ---
 
@@ -150,12 +226,26 @@ Edit the Config map for:
 
 ## 🐛 Troubleshooting
 
-- Windows not moving: Check physics engine (`Ctrl + Alt + P`)
-- Too aggressive: Increase damping, reduce forces
-- Performance: Increase PhysicsTimeStep/VisualTimeStep
-- Multi-monitor: Toggle seamless floating (`Ctrl + Alt + M`)
-- Window clipped at bottom:  
-  **New:** Window will be automatically resized to fit the monitor margin during optimization or placement.
+- Windows not moving: Check physics engine (`Ctrl + Alt + P`) or system tray icon status
+- Too aggressive: Try Office Work preset (`Ctrl + Alt + 4`) or increase damping
+- Performance issues: Try Gaming preset (`Ctrl + Alt + 3`) or check performance metrics
+- Multi-monitor: Toggle seamless floating (`Ctrl + Alt + M`) or try High Performance preset (`Ctrl + Alt + 5`)
+- Configuration errors: Check status with `Ctrl + Alt + C` and load Default preset (`Ctrl + Alt + 1`)
+- Visual feedback issues: Check system tray for error indicators or reset system state
+- Window clipped at bottom: Window will be automatically resized to fit the monitor margin during optimization or placement.
+
+**System Tray Troubleshooting:**
+- Right-click system tray icon for quick access to all functions
+- Use "System Status" for comprehensive health monitoring  
+- "Reset System" clears all errors and restarts physics engine
+- "Performance Metrics" shows real-time operation statistics
+
+**Configuration Issues:**
+- If system becomes unstable, load the Default preset with `Ctrl + Alt + 1`
+- Use `Ctrl + Alt + C` to check for configuration validation errors
+- Invalid parameter combinations are automatically detected and prevented
+- System includes automatic fallback to safe defaults on critical errors
+- Visual notifications confirm all configuration changes and status
 
 ---
 

@@ -1924,7 +1924,13 @@ GeneratePositionCandidates(window, placedWindows, monitor, strategy) {
         if !unique.Has(key)
             unique[key] := pos
     }
-    return unique.Values()
+    
+    ; Convert Map to Array manually since v2 Maps don't have Values() method
+    result := []
+    for key, pos in unique {
+        result.Push(pos)
+    }
+    return result
 }
 
 ; Score a position based on various criteria

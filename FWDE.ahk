@@ -1885,7 +1885,7 @@ CalculateDensityAtPoint(testX, testY, allWindows, excludeHwnd := 0) {
     return density
 }
 
-; Move window using Windows API
+; ====== REQUIRED HELPER FUNCTIONS ======
 MoveWindowAPI(hwnd, x, y, w := "", h := "") {
     if (w == "" || h == "")
         WinGetPos(,, &w, &h, "ahk_id " hwnd)
@@ -1904,6 +1904,7 @@ IsDAWPlugin(win) {
 }
 
 ; Z-index ordering: smaller windows on top so they don't get lost behind larger ones
+; Only applies to DAW plugin windows to prevent flashing of regular windows
 OrderWindowsBySize() {
     global g
 
@@ -1940,6 +1941,8 @@ OrderWindowsBySize() {
     }
 
     ; Set Z-order for DAW plugin windows only: largest plugins at bottom, smallest at top
+    ; This ensures tiny plugin windows are never hidden behind larger ones
+    ; Use gentle reordering to prevent flashing
     for i, winData in windowAreas {
         try {
             ; Only reorder if the window's z-order actually needs to change
@@ -1947,6 +1950,7 @@ OrderWindowsBySize() {
 
             if (winData.lastZOrder != newZOrder) {
                 ; Use SWP_NOACTIVATE and SWP_NOMOVE to prevent flashing and focus changes
+                ; 0x0010 = SWP_NOACTIVATE, 0x0002 = SWP_NOMOVE, 0x0001 = SWP_NOSIZE
                 flags := 0x0010 | 0x0002 | 0x0001  ; Don't activate, move, or resize
 
                 if (newZOrder == 1) {
@@ -1972,7 +1976,6 @@ OrderWindowsBySize() {
     }
 }
 
-; Update window states and refresh physics
 UpdateWindowStates() {
     global g, Config
     try {
@@ -2013,7 +2016,7 @@ PackWindowsOptimally(windows, monitor) {
 
     positions := Map()
     placedWindows := []
-    gridSize := 50  ; pixels per grid cell
+    gridSize := 50  ; pixels per grid cell (tune for your window sizes)
 
     for i, win in windows {
         ; Calculate usable area for this window
@@ -2021,12 +2024,16 @@ PackWindowsOptimally(windows, monitor) {
         useableTop := monitor["Top"] + Config["MinMargin"]
         useableRight := monitor["Right"] - Config["MinMargin"] - win["width"]
         useableBottom := monitor["Bottom"] - Config["MinMargin"] - win["height"]
+        useableWidth := useableRight - useableLeft
+        useableHeight := useableBottom - useableTop
+        gridCols := Floor(useableWidth / gridSize)
+        gridRows := Floor(useableHeight / gridSize)
 
         ; Store original height if not already stored
         if (!win.Has("origHeight"))
             win["origHeight"] := win["height"]
 
-        bestPos := FindBestPosition(win, placedWindows, monitor, gridSize, 0, 0)
+        bestPos := FindBestPosition(win, placedWindows, monitor, gridSize, gridCols, gridRows)
         if (bestPos.Count > 0) {
             ; If window would float below the screen, shrink its height
             if (bestPos["y"] + win["height"] > monitor["Bottom"] - Config["MinMargin"]) {
@@ -2077,10 +2084,16 @@ FindBestPosition(window, placedWindows, monitor, gridSize, gridCols, gridRows) {
                 pos["y"] < useableTop || pos["y"] > useableBottom)
                 continue
 
+            ; --- Resize window height if it would exceed monitor bottom margin ---
+            tempHeight := window["height"]
+            if (pos["y"] + tempHeight > monitor["Bottom"] - Config["MinMargin"]) {
+                tempHeight := Max(99, monitor["Bottom"] - Config["MinMargin"] - pos["y"])
+            }
+
             ; Check if position overlaps with existing windows
             testWindow := Map(
                 "x", pos["x"], "y", pos["y"],
-                "width", window["width"], "height", window["height"],
+                "width", window["width"], "height", tempHeight,
                 "hwnd", window["hwnd"]
             )
 
@@ -2089,6 +2102,7 @@ FindBestPosition(window, placedWindows, monitor, gridSize, gridCols, gridRows) {
                 if (score > bestScore) {
                     bestScore := score
                     bestPos := pos.Clone()
+                    bestPos["height"] := tempHeight ; Store adjusted height
                 }
             }
         }

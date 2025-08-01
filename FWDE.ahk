@@ -591,12 +591,13 @@ GetVisibleWindows(monitor) {
                 if (Config["SeamlessMonitorFloat"]) {
                     ; Use virtual desktop bounds for seamless floating
                     virtualBounds := GetVirtualDesktopBounds()
-                    window["x"] := Clamp(window["x"], virtualBounds["Left"] + Config["MinMargin"], virtualBounds["Right"] - window["width"] - Config["MinMargin"])
-                    window["y"] := Clamp(window["y"], virtualBounds["Top"] + Config["MinMargin"], virtualBounds["Bottom"] - window["height"] - Config["MinMargin"])
+                    safeArea := GetSafeArea(virtualBounds)
+                    window["x"] := Clamp(window["x"], safeArea["Left"] + Config["MinMargin"], safeArea["Right"] - window["width"] - Config["MinMargin"])
+                    window["y"] := Clamp(window["y"], safeArea["Top"] + Config["MinMargin"], safeArea["Bottom"] - window["height"] - Config["MinMargin"])
                 } else {
-                    ; Apply margin constraints for current monitor
-                    window["x"] := Clamp(window["x"], mL + Config["MinMargin"], mR - window["width"] - Config["MinMargin"])
-                    window["y"] := Clamp(window["y"], mT + Config["MinMargin"], mB - window["height"] - Config["MinMargin"])
+                    safeArea := GetSafeArea(Map("Left", mL, "Top", mT, "Right", mR, "Bottom", mB))
+                    window["x"] := Clamp(window["x"], safeArea["Left"] + Config["MinMargin"], safeArea["Right"] - window["width"] - Config["MinMargin"])
+                    window["y"] := Clamp(window["y"], safeArea["Top"] + Config["MinMargin"], safeArea["Bottom"] - window["height"] - Config["MinMargin"])
                 }
 
                 ; Find existing window data if available
@@ -1041,17 +1042,17 @@ ApplyWindowMovements() {
         try {
             if (Config["SeamlessMonitorFloat"]) {
                 virtualBounds := GetVirtualDesktopBounds()
-                monLeft := virtualBounds["Left"]
-                monTop := virtualBounds["Top"] + Config["MinMargin"]
-                monRight := virtualBounds["Right"] - win["width"]
-                monBottom := virtualBounds["Bottom"] - Config["MinMargin"] - win["height"]
+                safeArea := GetSafeArea(virtualBounds)
             } else {
                 MonitorGet win["monitor"], &mL, &mT, &mR, &mB
-                monLeft := mL
-                monRight := mR - win["width"]
-                monTop := mT + Config["MinMargin"]
-                monBottom := mB - Config["MinMargin"] - win["height"]
+                safeArea := GetSafeArea(Map(
+                    "Left", mL, "Top", mT, "Right", mR, "Bottom", mB
+                ))
             }
+            monLeft := safeArea["Left"]
+            monRight := safeArea["Right"] - win["width"]
+            monTop := safeArea["Top"] + Config["MinMargin"]
+            monBottom := safeArea["Bottom"] - Config["MinMargin"] - win["height"]
         } catch {
             monLeft := 0
             monRight := A_ScreenWidth - win["width"]
@@ -1671,6 +1672,7 @@ OptimizeWindowPositions() {
         ShowTooltip("Could not get monitor information")
         return
     }
+    safeArea := GetSafeArea(monitor)
 
     ; Create a copy of windows for repositioning
     windowsToPlace := []
@@ -1701,7 +1703,7 @@ OptimizeWindowPositions() {
     }
 
     ; Find optimal positions using space-efficient packing
-    optimizedPositions := PackWindowsOptimally(windowsToPlace, monitor)
+    optimizedPositions := PackWindowsOptimally(windowsToPlace, safeArea)
 
     ; Apply optimized positions
     repositionedCount := 0
@@ -2101,6 +2103,7 @@ WindowMoveHandler(wParam, lParam, msg, hwnd) {
         winCenterX := x + w/2
         winCenterY := y + h/2
         monNum := MonitorGetFromPoint(winCenterX, winCenterY)
+        MonitorGet monNum, &mL, &mT, &mR, &mB
 
         for win in g["Windows"] {
             if (win["hwnd"] == hwnd) {
@@ -2169,22 +2172,109 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
     SetTimer(UpdateWindowStates, -Config["ResizeDelay"])
 }
 
-GetTaskbarRect() {
-    hwnd := WinExist("ahk_class Shell_TrayWnd")
-    if (hwnd) {
-        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-        return { left: x, top: y, right: x + w, bottom: y + h }
+GetTaskbarRects() {
+    ; Returns an array of all taskbar rectangles (supports multi-monitor/taskbar mods)
+    rects := []
+    ; Helper for v2: get work area as a Map
+    SysGetWorkArea() {
+        l := SysGet(48)  ; MONITORINFOF_PRIMARY left
+        t := SysGet(49)  ; MONITORINFOF_PRIMARY top
+        r := SysGet(50)  ; MONITORINFOF_PRIMARY right
+        b := SysGet(51)  ; MONITORINFOF_PRIMARY bottom
+        return Map("Left", l, "Top", t, "Right", r, "Bottom", b)
     }
-    hwnd := WinExist("ahk_class RetroBarWnd")
-    if (!hwnd)
-        hwnd := WinExist("ahk_exe RetroBar.exe")
-    if (hwnd) {
+    ; Standard Windows taskbar(s)
+    for hwnd in WinGetList("ahk_class Shell_TrayWnd") {
+        if !SafeWinExist(hwnd)
+            continue
         WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-        return { left: x, top: y, right: x + w, bottom: y + h }
+        if (w > 0 && h > 0)
+            rects.Push({ left: x, top: y, right: x + w, bottom: y + h })
     }
-    return { left: 0, top: A_ScreenHeight - 44, right: A_ScreenWidth, bottom: A_ScreenHeight }
+    ; RetroBar (alternative taskbar)
+    for hwnd in WinGetList("ahk_class RetroBarWnd") {
+        if !SafeWinExist(hwnd)
+            continue
+        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+        if (w > 0 && h > 0)
+            rects.Push({ left: x, top: y, right: x + w, bottom: y + h })
+    }
+    for hwnd in WinGetList("ahk_exe RetroBar.exe") {
+        if !SafeWinExist(hwnd)
+            continue
+        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+        if (w > 0 && h > 0)
+            rects.Push({ left: x, top: y, right: x + w, bottom: y + h })
+    }
+    ; ExplorerPatcher/TaskbarX/other mods (common classes)
+    for hwnd in WinGetList("ahk_class MSTaskSwWClass") {
+        wa := SysGetWorkArea()
+        sw := SysGet(78)  ; SM_CXSCREEN
+        sh := SysGet(79)  ; SM_CYSCREEN
+        if (wa && wa.Has("Right") && wa.Has("Bottom") && wa.Has("Left") && wa.Has("Top")) {
+            ; If SysGet succeeded
+            if (wa["Right"] < sw || wa["Bottom"] < sh) {
+                ; Bottom or right taskbar
+                if (wa["Bottom"] < sh)
+                    rects.Push({ left: 0, top: wa["Bottom"], right: sw, bottom: sh })
+                if (wa["Right"] < sw)
+                    rects.Push({ left: wa["Right"], top: 0, right: sw, bottom: sh })
+            }
+            if (wa["Left"] > 0)
+                rects.Push({ left: 0, top: 0, right: wa["Left"], bottom: sh })
+            if (wa["Top"] > 0)
+                rects.Push({ left: 0, top: 0, right: sw, bottom: wa["Top"] })
+        } else {
+            ; Default fallback: bottom 44px
+            rects.Push({ left: 0, top: A_ScreenHeight - 44, right: A_ScreenWidth, bottom: A_ScreenHeight })
+        }
+    }
+    return rects
 }
 
+IsOverlappingTaskbar(x, y, w, h) {
+    ; Returns true if the given rect overlaps any taskbar
+    for rect in GetTaskbarRects() {
+        if (x < rect.right && x + w > rect.left && y < rect.bottom && y + h > rect.top)
+            return true
+    }
+    return false
+}
+
+GetSafeArea(monitor) {
+    left := monitor["Left"]
+    top := monitor["Top"]
+    right := monitor["Right"]
+    bottom := monitor["Bottom"]
+    ; Shrink area for each overlapping taskbar
+    for rect in GetTaskbarRects() {
+        ; Only consider taskbars that overlap this monitor
+        if (rect.right <= left || rect.left >= right || rect.bottom <= top || rect.top >= bottom)
+            continue
+        ; Top taskbar
+        if (rect.top == top && rect.left <= right && rect.right >= left)
+            top := Max(top, rect.bottom)
+        ; Bottom taskbar
+        if (rect.bottom == bottom && rect.left <= right && rect.right >= left)
+            bottom := Min(bottom, rect.top)
+        ; Left taskbar
+        if (rect.left == left && rect.top <= bottom && rect.bottom >= top)
+            left := Max(left, rect.right)
+        ; Right taskbar
+        if (rect.right == right && rect.top <= bottom && rect.bottom >= top)
+            right := Min(right, rect.left)
+    }
+    return Map(
+        "Left", left,
+        "Top", top,
+        "Right", right,
+        "Bottom", bottom,
+        "Width", right - left,
+        "Height", bottom - top,
+        "CenterX", (right + left) // 2,
+        "CenterY", (bottom + top) // 2
+    )
+}
 
 UpdateWindowStates() {
     global g, Config

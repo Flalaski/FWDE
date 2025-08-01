@@ -42,6 +42,28 @@ global Config := Map(
     "ResizeDelay", 22,
     "TooltipDuration", 15000,
     "SeamlessMonitorFloat", false,   ; Toggle for seamless multi-monitor floating
+    "ScreenshotPauseDuration", 5000, ; How long to pause system during screenshot operations (ms)
+    "ScreenshotProcesses", [          ; Screenshot tools that trigger system pause
+        "ShareX.exe",
+        "ScreenToGif.exe", 
+        "Greenshot.exe",
+        "LightShot.exe",
+        "Snagit32.exe",
+        "SnippingTool.exe",
+        "ms-screenclip.exe",
+        "PowerToys.ScreenRuler.exe",
+        "flameshot.exe",
+        "obs64.exe",
+        "obs32.exe"
+    ],
+    "ScreenshotWindowClasses", [      ; Window classes that indicate screenshot activity
+        "GDI+ Hook Window Class",
+        "CrosshairOverlay",
+        "ScreenshotOverlay", 
+        "CaptureOverlay",
+        "SelectionOverlay",
+        "SnipOverlay"
+    ],
     "FloatStyles",  0x00C00000 | 0x00040000 | 0x00080000 | 0x00020000 | 0x00010000,
     "FloatClassPatterns", [
         "Vst.*",         ; VST plugins
@@ -101,7 +123,10 @@ global g := Map(
     "PhysicsEnabled", true,
     "FairyDustEnabled", true,
     "ManualWindows", Map(),
-    "SystemEnergy", 1
+    "SystemEnergy", 1,
+    "ScreenshotPaused", false,        ; System pause state for screenshots
+    "ScreenshotPauseUntil", 0,        ; When to resume after screenshot pause
+    "LastScreenshotCheck", 0          ; Throttle screenshot detection
 )
 
 class NoiseAnimator {
@@ -1755,31 +1780,6 @@ OptimizeWindowPositions() {
     if (repositionedCount == 0) {
         resultMsg .= " (all windows already optimally placed)"
     }
-    ShowTooltip(resultMsg)
-    OutputDebug(resultMsg)
-}
-
-; Add this Clamp helper function near the top-level (outside any class)
-Clamp(val, min, max) {
-    return val < min ? min : val > max ? max : val
-}
-
-; Calculate force to move windows toward less crowded areas of the screen
-CalculateSpaceSeekingForce(win, allWindows) {
-    if (allWindows.Length <= 2)
-        return Map()  ; Not enough windows to need space seeking
-
-    ; Get current monitor bounds
-    try {
-        MonitorGet win["monitor"], &mL, &mT, &mR, &mB
-    } catch {
-        return Map()
-    }
-
-    winCenterX := win["x"] + win["width"]/2
-    winCenterY := win["y"] + win["height"]/2
-
-    ; Calculate local density around this window
     densityRadius := 250  ; pixels
     localDensity := 0
 

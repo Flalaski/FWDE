@@ -41,7 +41,7 @@ global SystemState := Map(
 ; ===== OPTIMIZED CONFIGURATION SYSTEM =====
 global Config := Map(
     ; Core Physics
-    "AttractionForce", 0.0001,
+    "AttractionForce", 0.01,        ; Increased from 0.0001 for more noticeable movement
     "RepulsionForce", 0.369,
     "Damping", 0.001,
     "MaxSpeed", 12.0,
@@ -70,13 +70,13 @@ global Config := Map(
     "ManualWindowAlpha", 222,
     
     ; Stabilization
-    "MinSpeedThreshold", 0.369,
+    "MinSpeedThreshold", 0.1,       ; Reduced from 0.369 to allow more movement
     "EnergyThreshold", 0.06,
     "DampingBoost", 0.12,
     "OverlapTolerance", 0,
     
     ; Screenshot Detection
-    "ScreenshotProcesses", ["ShareX.exe", "ScreenToGif.exe", "Greenshot.exe", "LightShot.exe", "Snagit32.exe", "SnippingTool.exe", "ms-screenclip.exe", "PowerToys.ScreenRuler.exe", "flameshot.exe", "obs64.exe", "obs32.exe"],
+    "ScreenshotProcesses", ["ScreenToGif.exe", "Greenshot.exe", "LightShot.exe", "Snagit32.exe", "SnippingTool.exe", "ms-screenclip.exe", "PowerToys.ScreenRuler.exe", "flameshot.exe", "obs64.exe", "obs32.exe"],
     "ScreenshotWindowClasses", ["GDI+ Hook Window Class", "CrosshairOverlay", "ScreenshotOverlay", "CaptureOverlay", "SelectionOverlay", "SnipOverlay"],
     "ScreenshotCheckInterval", 500,  ; Reduced frequency to avoid spam
     
@@ -240,6 +240,11 @@ ApplyPhysicsToWindow(win) {
             return
         }
         
+        ; Skip windows that have previously failed access checks
+        if (win.Get("accessDenied", false)) {
+            return
+        }
+        
         bounds := GetCurrentMonitorInfo()
         
         ; Calculate forces
@@ -273,7 +278,32 @@ ApplyPhysicsToWindow(win) {
             win["x"] := newX
             win["y"] := newY
             
-            WinMove(newX, newY, , , "ahk_id " . win["hwnd"])
+            ; Try to move window - catch access denied errors
+            try {
+                WinMove(newX, newY, , , "ahk_id " . win["hwnd"])
+                
+                ; Debug: Log physics activity occasionally
+                static lastDebugTime := 0
+                if (A_TickCount - lastDebugTime > 2000) {
+                    DebugLog("PHYSICS", "Moving window '" . win["title"] . "' with speed " . Round(speed, 3) . " (dx:" . Round(dx, 2) . " dy:" . Round(dy, 2) . ")", 2)
+                    lastDebugTime := A_TickCount
+                }
+            } catch as moveError {
+                ; Mark window as access denied to avoid future attempts
+                if (moveError.Number == 5) {  ; Access denied
+                    win["accessDenied"] := true
+                    DebugLog("PHYSICS", "Window '" . win["title"] . "' marked as access denied - skipping future physics", 2)
+                } else {
+                    throw moveError
+                }
+            }
+        } else {
+            ; Debug: Log why window isn't moving
+            static lastThresholdLogTime := 0
+            if (A_TickCount - lastThresholdLogTime > 5000) {
+                DebugLog("PHYSICS", "Window '" . win["title"] . "' speed " . Round(speed, 3) . " below threshold " . Config["MinSpeedThreshold"], 3)
+                lastThresholdLogTime := A_TickCount
+            }
         }
     } catch as e {
         RecordSystemError("ApplyPhysicsToWindow", e, win["hwnd"])
@@ -298,10 +328,17 @@ CalculateDynamicLayout() {
     
     startTime := A_TickCount
     
+    ; Debug: Log physics loop activity occasionally
+    static lastPhysicsLogTime := 0
+    if (A_TickCount - lastPhysicsLogTime > 3000) {
+        DebugLog("PHYSICS", "Physics loop running - processing " . g["Windows"].Length . " windows", 3)
+        lastPhysicsLogTime := A_TickCount
+    }
+    
     try {
         ; Update window positions with physics
         for win in g["Windows"] {
-            if (!win.Get("manualLock", false) && IsWindowValid(win["hwnd"])) {
+            if (!win.Get("manualLock", false) && !win.Get("accessDenied", false) && IsWindowValid(win["hwnd"])) {
                 ApplyPhysicsToWindow(win)
             }
         }
@@ -411,11 +448,21 @@ CheckScreenshotProcessActivity() {
 
 HasActiveScreenshotWindows(processName) {
     try {
-        ; Get all windows for this process
-        windowList := WinGetList(,, "ahk_exe " . processName)
+        ; More reliable window enumeration - check all windows and verify process ownership
+        windowList := WinGetList()
         
         for hwnd in windowList {
             if (!WinExist("ahk_id " . hwnd)) {
+                continue
+            }
+            
+            ; Verify this window actually belongs to the target process
+            try {
+                windowProcess := WinGetProcessName("ahk_id " . hwnd)
+                if (windowProcess != processName) {
+                    continue
+                }
+            } catch {
                 continue
             }
             
@@ -633,6 +680,20 @@ SaveConfiguration() {
     }
 }
 
+; Temporary hotkey to remove ShareX from detection list
+^!x:: {
+    global Config
+    newList := []
+    for process in Config["ScreenshotProcesses"] {
+        if (!InStr(process, "ShareX.exe")) {
+            newList.Push(process)
+        }
+    }
+    Config["ScreenshotProcesses"] := newList
+    ShowTooltip("ShareX removed from screenshot detection")
+    DebugLog("HOTKEY", "ShareX.exe removed from screenshot process list", 2)
+}
+
 ; Refresh window list manually
 ^!r:: {
     RefreshWindowList()
@@ -669,6 +730,33 @@ SaveConfiguration() {
     
     MsgBox(statusMsg, "FWDE System Status", "T10")
     DebugLog("HOTKEY", "Status displayed: " . windowCount . " windows, " . errorCount . " errors", 2)
+}
+
+; Test physics by moving active window away from center
+^!t:: {
+    global g, Config
+    try {
+        activeHwnd := WinGetID("A")
+        bounds := GetCurrentMonitorInfo()
+        
+        ; Move active window to top-left corner to test physics
+        WinMove(bounds["Left"] + 50, bounds["Top"] + 50, , , "ahk_id " . activeHwnd)
+        
+        ; Update internal tracking if this window is managed
+        for win in g["Windows"] {
+            if (win["hwnd"] == activeHwnd) {
+                win["x"] := bounds["Left"] + 50
+                win["y"] := bounds["Top"] + 50
+                break
+            }
+        }
+        
+        ShowTooltip("Test: Moved active window to corner - should move toward center")
+        DebugLog("HOTKEY", "Physics test: moved active window to corner", 2)
+    } catch as e {
+        ShowTooltip("Failed to move window for physics test")
+        DebugLog("HOTKEY", "Physics test failed: " . e.Message, 1)
+    }
 }
 
 ; ===== STARTUP =====

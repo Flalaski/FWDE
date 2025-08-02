@@ -97,6 +97,13 @@ Use `Ctrl + Alt + I` to show a comprehensive status dialog with:
 - System error count and health status
 
 The status dialog auto-closes after 10 seconds for non-intrusive monitoring.
+
+### 🧪 Physics Test Hotkey
+Use `Ctrl + Alt + T` to test the physics system:
+- Moves the currently active window to the top-left corner
+- Window should automatically move back toward the center due to attraction forces
+- Provides immediate visual feedback on physics system operation
+- Useful for verifying physics parameters and responsiveness
 ⚡ Physics & Visual Effects
 
 - **Physics Engine:**  
@@ -218,6 +225,7 @@ Edit the Config map in the script for:
 
 **Common Issues:**
 - **Windows not moving**: Check physics engine status (`Ctrl + Alt + P`) and arrangement system (`Ctrl + Alt + A`)
+- **Physics not visible**: Use the physics test hotkey (`Ctrl + Alt + T`) to move a window and verify attraction forces
 - **Too aggressive movement**: Increase Damping value or decrease RepulsionForce in Config
 - **Performance issues**: Increase PhysicsTimeStep and VisualTimeStep values for slower updates
 - **Multi-monitor problems**: Toggle seamless floating (`Ctrl + Alt + M`) and check monitor detection

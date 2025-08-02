@@ -5,1055 +5,648 @@
 #MaxThreadsPerHotkey 255
 #MaxThreads 255
 
-A_IconTip := "Floating Windows - Dynamic Equilibrium"
+A_IconTip := "FWDE - Floating Windows Dynamic Equilibrium v2.0"
 ProcessSetPriority("High")
 
-; ===== CORE SYSTEM INITIALIZATION =====
-; Initialize all global state containers
-global g := Map(
-    "Windows", [],
-    "PhysicsEnabled", true,
-    "ArrangementActive", true,
-    "ScreenshotPaused", false,
-    "Monitor", Map()
-)
-
-; Performance and physics buffers
-global g_NoiseBuffer := Buffer(1024)
-global g_PhysicsBuffer := Buffer(4096)
-global hwndPos := Map()
-global smoothPos := Map()
-global lastPositions := Map()
-global moveBatch := []
-global PerfTimers := Map()
-
-; System health monitoring
-global SystemState := Map(
-    "LastValidState", Map(),
-    "ErrorCount", 0,
-    "LastError", "",
-    "RecoveryAttempts", 0,
-    "MaxRecoveryAttempts", 3,
-    "SystemHealthy", true,
-    "FailedOperations", []
-)
-
-; ===== OPTIMIZED CONFIGURATION SYSTEM =====
-global Config := Map(
-    ; Core Physics - REFINED FOR SUBTLE MOVEMENT
-    "AttractionForce", 0.0,             ; Removed center attraction completely
-    "RepulsionForce", 0.12,             ; Increased repulsion between overlapping windows
-    "SpreadingForce", 0.04,             ; NEW: Gentle force to spread out clustered windows
-    "SpreadingRadius", 150,             ; NEW: Distance within which spreading force applies
-    "Damping", 0.15,                    ; Increased damping for smoother movement
-    "MaxSpeed", 3.0,                    ; Much slower maximum movement speed
-    
-    ; Layout Parameters
-    "MinMargin", 20,                    ; Minimum margin from screen edges
-    "MinGap", 25,                       ; Increased minimum gap between windows
-    "PreferredGap", 60,                 ; NEW: Preferred spacing between windows
-    "ManualGapBonus", 369,
-    "EdgeRepulsionForce", 0.12,         ; Gentle edge repulsion
-    
-    ; Timing & Performance - OPTIMIZED FOR GENTLE PHYSICS
-    "PhysicsTimeStep", 100,             ; Slower physics updates for gentler movement
-    "VisualTimeStep", 16,               ; Keep visual updates smooth
-    "UserMoveTimeout", 11111,
-    "ManualLockDuration", 33333,
-    "ResizeDelay", 22,
-    
-    ; Features
-    "SeamlessMonitorFloat", false,
-    "ScreenshotPauseDuration", 5000,
-    
-    ; Visual Effects
-    "Smoothing", 0.7,                   ; Increased smoothing for gentle movement
-    "AnimationDuration", 32,
-    "ManualWindowColor", "FF5555",
-    "ManualWindowAlpha", 222,
-    
-    ; Stabilization - TUNED FOR SUBTLE MOVEMENT
-    "MinSpeedThreshold", 0.05,          ; Lower threshold to allow gentle movements
-    "EnergyThreshold", 0.06,
-    "DampingBoost", 0.12,
-    "OverlapTolerance", 5,              ; Small tolerance to prevent micro-adjustments
-    
-    ; Screenshot Detection - OPTIMIZED
-    "ScreenshotProcesses", ["ScreenToGif.exe", "Greenshot.exe", "LightShot.exe", "Snagit32.exe", "SnippingTool.exe", "ms-screenclip.exe", "PowerToys.ScreenRuler.exe", "flameshot.exe", "obs64.exe", "obs32.exe"],
-    "ScreenshotWindowClasses", ["GDI+ Hook Window Class", "CrosshairOverlay", "ScreenshotOverlay", "CaptureOverlay", "SelectionOverlay", "SnipOverlay"],
-    "ScreenshotCheckInterval", 1000,
-    
-    ; Float Detection
-    "FloatStyles", 0x00C00000 | 0x00040000 | 0x00080000 | 0x00020000 | 0x00010000,
-    "FloatClassPatterns", ["Vst.*", "JS.*", ".*Plugin.*", ".*Float.*", ".*Dock.*", "#32770", "ConsoleWindowClass"],
-    "FloatTitlePatterns", ["VST.*", "JS:.*", "Plugin", ".*FX.*", "Command Prompt", "cmd.exe", "Windows Terminal"],
-    "ForceFloatProcesses", ["reaper.exe", "ableton.exe", "flstudio.exe", "cubase.exe", "studioone.exe", "bitwig.exe", "protools.exe", "cmd.exe", "conhost.exe", "WindowsTerminal.exe"],
-    
-    ; Advanced Settings
-    "NoiseScale", 888,
-    "NoiseInfluence", 100,
-    "PhysicsUpdateInterval", 200,
-    "ManualRepulsionMultiplier", 1.3,
-    "TooltipDuration", 15000
-)
-
-; Configuration file paths
-global ConfigFile := A_ScriptDir "\FWDE_Config.json"
-global ConfigBackupFile := A_ScriptDir "\FWDE_Config_Backup.json"
-
-; ===== CORE UTILITY FUNCTIONS =====
-DebugLog(category, message, level := 3) {
-    try {
-        OutputDebug("[" . category . "] " . message)
-    } catch {
-        ; Silent fail for debug output
-    }
-}
-
-ShowTooltip(message, duration := 3000) {
-    ToolTip(message)
-    SetTimer(() => ToolTip(), -duration)
-}
-
-ShowNotificationSimple(title, message, type := "info", duration := 3000) {
-    ToolTip(title . ": " . message)
-    SetTimer(() => ToolTip(), -duration)
-}
-
-RecordSystemError(operation, error, context := "") {
-    global SystemState
-    try {
-        SystemState["ErrorCount"]++
-        SystemState["LastError"] := operation . ": " . error.Message . " (" . context . ")"
-        DebugLog("ERROR", SystemState["LastError"], 1)
+; ===== CORE CONFIGURATION MODULE =====
+class FWDEConfig {
+    static Settings := Map(
+        ; Physics Engine
+        "AttractionForce", 0.0002,
+        "RepulsionForce", 0.5,
+        "EdgeRepulsionForce", 1.2,
+        "Damping", 0.008,
+        "MaxSpeed", 15.0,
+        "MinSpeedThreshold", 0.2,
+        "EnergyThreshold", 0.08,
         
-        ; Add to failed operations log
-        if (SystemState["FailedOperations"].Length > 50) {
-            SystemState["FailedOperations"].RemoveAt(1)
+        ; Spatial Parameters
+        "MinMargin", 45,
+        "MinGap", 25,
+        "ManualGapBonus", 400,
+        "OverlapTolerance", 5,
+        
+        ; Timing & Performance
+        "PhysicsInterval", 8,
+        "VisualInterval", 16,
+        "StateUpdateInterval", 100,
+        "UserMoveTimeout", 8000,
+        "ManualLockDuration", 30000,
+        
+        ; Visual Feedback
+        "ManualWindowColor", "0xFF4444",
+        "ManualWindowAlpha", 200,
+        "TooltipDuration", 12000,
+        "Smoothing", 0.65
+    )
+    
+    static WindowPatterns := Map(
+        "FloatStyles", 0x00C00000 | 0x00040000 | 0x00080000 | 0x00020000 | 0x00010000,
+        "FloatClasses", ["Vst.*", "JS.*", ".*Plugin.*", ".*Float.*", ".*Dock.*", "#32770", "ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS"],
+        "FloatTitles", ["VST.*", "JS:.*", "Plugin", ".*FX.*", "Command Prompt", "cmd.exe", "Windows Terminal"],
+        "ForceFloatProcesses", ["reaper.exe", "ableton.exe", "flstudio.exe", "cubase.exe", "studioone.exe", "bitwig.exe", "protools.exe", "cmd.exe", "conhost.exe", "WindowsTerminal.exe"]
+    )
+}
+
+; ===== MONITOR MANAGEMENT MODULE =====
+class MonitorManager {
+    static Current := Map()
+    
+    static GetPrimary() {
+        try {
+            MonitorGet(MonitorGetPrimary(), &L, &T, &R, &B)
+            return this.CreateMonitorMap(L, T, R, B, MonitorGetPrimary())
+        } catch {
+            return this.CreateMonitorMap(0, 0, A_ScreenWidth, A_ScreenHeight, 1)
         }
-        SystemState["FailedOperations"].Push(Map(
-            "timestamp", A_Now,
-            "operation", operation,
-            "error", error.Message,
-            "context", context
-        ))
-    } catch {
-        ; Silent fail for error recording
     }
-}
-
-IsWindowValid(hwnd) {
-    try {
-        return WinExist("ahk_id " . hwnd) != 0
-    } catch {
-        return false
-    }
-}
-
-GetCurrentMonitorInfo() {
-    try {
-        ; Get primary monitor bounds
-        MonitorPrimary := SysGet(1)
+    
+    static CreateMonitorMap(L, T, R, B, Number) {
         return Map(
-            "Left", MonitorPrimary.left,
-            "Top", MonitorPrimary.top,
-            "Right", MonitorPrimary.right,
-            "Bottom", MonitorPrimary.bottom,
-            "Width", MonitorPrimary.right - MonitorPrimary.left,
-            "Height", MonitorPrimary.bottom - MonitorPrimary.top
-        )
-    } catch {
-        ; Fallback to work area
-        return Map(
-            "Left", 0,
-            "Top", 0,
-            "Right", 1920,
-            "Bottom", 1080,
-            "Width", 1920,
-            "Height", 1080
+            "Left", L, "Top", T, "Right", R, "Bottom", B,
+            "Width", R - L, "Height", B - T, "Number", Number,
+            "CenterX", (R + L) // 2, "CenterY", (B + T) // 2,
+            "WorkLeft", L, "WorkTop", T + FWDEConfig.Settings["MinMargin"],
+            "WorkRight", R, "WorkBottom", B - FWDEConfig.Settings["MinMargin"]
         )
     }
-}
-
-GetMonitorInfoForWindow(x, y) {
-    try {
-        ; Get monitor count
-        monitorCount := SysGet(80)  ; SM_CMONITORS
-        
-        ; Check each monitor to find which one contains the window
-        loop monitorCount {
-            monitor := SysGet(A_Index)
-            if (x >= monitor.left && x < monitor.right && y >= monitor.top && y < monitor.bottom) {
-                return Map(
-                    "Left", monitor.left,
-                    "Top", monitor.top,
-                    "Right", monitor.right,
-                    "Bottom", monitor.bottom,
-                    "Width", monitor.right - monitor.left,
-                    "Height", monitor.bottom - monitor.top
-                )
+    
+    static GetFromPoint(x, y) {
+        try {
+            Loop MonitorGetCount() {
+                MonitorGet(A_Index, &L, &T, &R, &B)
+                if (x >= L && x < R && y >= T && y < B)
+                    return A_Index
             }
         }
-        
-        ; If not found on any monitor, use primary monitor
-        return GetCurrentMonitorInfo()
-    } catch {
-        ; Fallback to primary monitor
-        return GetCurrentMonitorInfo()
+        return 0
+    }
+    
+    static Update() {
+        this.Current := this.GetPrimary()
     }
 }
 
-RecordPerformanceMetric(operation, timeMs) {
-    global PerfTimers
-    try {
-        if (!PerfTimers.Has(operation)) {
-            PerfTimers[operation] := Map("total", 0, "count", 0, "avg", 0, "max", 0)
-        }
-        
-        metric := PerfTimers[operation]
-        metric["total"] += timeMs
-        metric["count"]++
-        metric["avg"] := metric["total"] / metric["count"]
-        metric["max"] := Max(metric["max"], timeMs)
-        
-        ; Log if performance is degrading
-        if (timeMs > 50) {
-            DebugLog("PERF", operation . " took " . timeMs . "ms (avg: " . Round(metric["avg"], 1) . "ms)", 2)
-        }
-    } catch as e {
-        DebugLog("PERF", "Failed to record metric for " . operation . ": " . e.Message, 1)
-    }
-}
-
-; ===== LAYOUT ALGORITHMS =====
-RectsOverlap(rect1, rect2) {
-    try {
-        return !(rect1["x"] + rect1["width"] <= rect2["x"] ||
-                rect2["x"] + rect2["width"] <= rect1["x"] ||
-                rect1["y"] + rect1["height"] <= rect2["y"] ||
-                rect2["y"] + rect2["height"] <= rect1["y"])
-    } catch {
-        return false
-    }
-}
-
-ApplyLayoutPlacements(placements) {
-    global g
-    try {
-        DebugLog("LAYOUT", "Applying " . placements.Length . " window placements", 2)
-        
-        for placement in placements {
-            if (IsWindowValid(placement["hwnd"])) {
-                WinMove(placement["x"], placement["y"], placement["width"], placement["height"], "ahk_id " . placement["hwnd"])
+; ===== WINDOW DETECTION & CLASSIFICATION MODULE =====
+class WindowClassifier {
+    static IsFloating(hwnd) {
+        if (!this.SafeExists(hwnd))
+            return false
+            
+        try {
+            if (WinGetMinMax("ahk_id " hwnd) != 0)
+                return false
                 
-                ; Update internal tracking
-                for win in g["Windows"] {
-                    if (win["hwnd"] == placement["hwnd"]) {
-                        win["x"] := placement["x"]
-                        win["y"] := placement["y"]
-                        win["width"] := placement["width"]
-                        win["height"] := placement["height"]
-                        break
-                    }
-                }
-            }
+            title := WinGetTitle("ahk_id " hwnd)
+            if (!title || title == "Program Manager")
+                return false
+                
+            winClass := WinGetClass("ahk_id " hwnd)
+            processName := WinGetProcessName("ahk_id " hwnd)
+            style := WinGetStyle("ahk_id " hwnd)
+            exStyle := WinGetExStyle("ahk_id " hwnd)
+
+            ; Priority checks
+            if (this.IsForceFloatProcess(processName))
+                return true
+            if (this.IsConsoleWindow(winClass))
+                return true
+            if (this.IsPluginWindow(winClass, title))
+                return true
+            if (this.HasFloatingStyle(style, exStyle))
+                return true
+            if (this.MatchesPatterns(winClass, title))
+                return true
+                
+            return false
+        } catch {
+            return false
         }
-    } catch as e {
-        RecordSystemError("ApplyLayoutPlacements", e)
+    }
+    
+    static SafeExists(hwnd) {
+        try {
+            return WinExist("ahk_id " hwnd)
+        } catch {
+            return false
+        }
+    }
+    
+    static IsForceFloatProcess(processName) {
+        for pattern in FWDEConfig.WindowPatterns["ForceFloatProcesses"] {
+            if (processName ~= "i)^" pattern "$")
+                return true
+        }
+        return false
+    }
+    
+    static IsConsoleWindow(winClass) {
+        return winClass == "ConsoleWindowClass" || winClass == "CASCADIA_HOSTING_WINDOW_CLASS"
+    }
+    
+    static IsPluginWindow(winClass, title) {
+        return (winClass ~= "i)(Vst|JS|Plugin|Float)") || (title ~= "i)(VST|JS:|Plugin|FX)")
+    }
+    
+    static HasFloatingStyle(style, exStyle) {
+        return (exStyle & 0x80) || (!(style & 0x10000000)) || (style & FWDEConfig.WindowPatterns["FloatStyles"])
+    }
+    
+    static MatchesPatterns(winClass, title) {
+        for pattern in FWDEConfig.WindowPatterns["FloatClasses"] {
+            if (winClass ~= "i)" pattern)
+                return true
+        }
+        for pattern in FWDEConfig.WindowPatterns["FloatTitles"] {
+            if (title ~= "i)" pattern)
+                return true
+        }
+        return false
     }
 }
 
-; ===== PHYSICS SYSTEM =====
-ApplyPhysicsToWindow(win, allWindows) {
-    global Config
-    try {
-        ; Skip windows that have previously failed access checks
-        if (win.Get("accessDenied", false)) {
-            return
-        }
+; ===== WINDOW DATA STRUCTURE =====
+class WindowData {
+    static Create(hwnd, x, y, w, h, existing := 0) {
+        winMonitor := MonitorManager.GetFromPoint(x + w/2, y + h/2)
+        if (!winMonitor)
+            winMonitor := MonitorManager.Current["Number"]
+            
+        return Map(
+            "hwnd", hwnd,
+            "x", x, "y", y, "width", w, "height", h,
+            "centerX", x + w/2, "centerY", y + h/2,
+            "area", w * h, "mass", (w * h) / 100000,
+            "vx", existing ? existing["vx"] : 0,
+            "vy", existing ? existing["vy"] : 0,
+            "targetX", x, "targetY", y,
+            "lastMove", existing ? existing["lastMove"] : 0,
+            "lastSeen", A_TickCount,
+            "monitor", winMonitor,
+            "energy", 0
+        )
+    }
+}
+
+; ===== PHYSICS ENGINE MODULE =====
+class PhysicsEngine {
+    static CalculateForces(win, allWindows, activeHwnd, lastUserMove) {
+        ; Skip locked or active windows
+        if (this.IsLocked(win) || win["hwnd"] == activeHwnd)
+            return this.StopMovement(win)
+            
+        ; Skip recently moved windows
+        if (A_TickCount - lastUserMove < FWDEConfig.Settings["UserMoveTimeout"] && win["hwnd"] == WinExist("A"))
+            return this.StopMovement(win)
+
+        monitor := MonitorManager.Current
+        forces := this.CalculateAllForces(win, allWindows, monitor)
         
-        ; Initialize force accumulators
-        totalForceX := 0
-        totalForceY := 0
-        hasForces := false
+        ; Apply forces with damping
+        damping := 1 - FWDEConfig.Settings["Damping"]
+        win["vx"] := (win["vx"] * damping + forces["x"])
+        win["vy"] := (win["vy"] * damping + forces["y"])
         
-        ; Cache monitor bounds calculation - only recalculate if window moved significantly
-        if (!win.Has("cachedBounds") || !win.Has("lastBoundsCheck") || A_TickCount - win["lastBoundsCheck"] > 1000) {
-            if (Config["SeamlessMonitorFloat"]) {
-                win["cachedBounds"] := GetCurrentMonitorInfo()
-            } else {
-                win["cachedBounds"] := GetMonitorInfoForWindow(win["x"] + win["width"]/2, win["y"] + win["height"]/2)
-            }
-            win["lastBoundsCheck"] := A_TickCount
-        }
+        ; Speed limiting and stabilization
+        this.ApplySpeedLimits(win)
+        this.UpdateTargetPosition(win, monitor)
+    }
+    
+    static CalculateAllForces(win, allWindows, monitor) {
+        forces := Map("x", 0, "y", 0)
         
-        bounds := win["cachedBounds"]
+        ; Center attraction (weak)
+        centerForce := this.CalculateCenterAttraction(win, monitor)
+        forces["x"] += centerForce["x"]
+        forces["y"] += centerForce["y"]
         
-        ; Calculate repulsion and spreading forces from other windows
-        for otherWin in allWindows {
-            if (otherWin["hwnd"] == win["hwnd"]) {
+        ; Edge repulsion
+        edgeForce := this.CalculateEdgeRepulsion(win, monitor)
+        forces["x"] += edgeForce["x"]
+        forces["y"] += edgeForce["y"]
+        
+        ; Inter-window forces
+        for other in allWindows {
+            if (other == win || other["hwnd"] == WinExist("A"))
                 continue
-            }
-            
-            ; Check for overlap or close proximity
-            overlapInfo := CalculateOverlap(win, otherWin)
-            
-            ; Apply strong repulsion for overlaps
-            if (overlapInfo["hasOverlap"]) {
-                repulsionStrength := Config["RepulsionForce"] * (1 + overlapInfo["overlapArea"] / (win["width"] * win["height"]))
                 
-                dx := overlapInfo["separationX"] * repulsionStrength
-                dy := overlapInfo["separationY"] * repulsionStrength
-                
-                totalForceX += dx
-                totalForceY += dy
-                hasForces := true
-            }
-            ; Apply gentle spreading force for windows that are too close
-            else if (overlapInfo["distance"] < Config["SpreadingRadius"]) {
-                ; Calculate spreading force that gets stronger as windows get closer
-                spreadingStrength := Config["SpreadingForce"] * (1 - overlapInfo["distance"] / Config["SpreadingRadius"])
-                
-                ; Prefer moving to achieve the preferred gap
-                if (overlapInfo["distance"] < Config["PreferredGap"]) {
-                    spreadingStrength *= 2.0  ; Stronger force to reach preferred spacing
-                }
-                
-                dx := overlapInfo["separationX"] * spreadingStrength
-                dy := overlapInfo["separationY"] * spreadingStrength
-                
-                totalForceX += dx
-                totalForceY += dy
-                hasForces := true
-            }
+            interForce := this.CalculateInterWindowForce(win, other)
+            forces["x"] += interForce["x"]
+            forces["y"] += interForce["y"]
         }
         
-        ; Add gentle edge repulsion to keep windows on screen
-        edgeForceX := 0
-        edgeForceY := 0
+        return forces
+    }
+    
+    static CalculateCenterAttraction(win, monitor) {
+        dx := monitor["CenterX"] - win["centerX"]
+        dy := monitor["CenterY"] - win["centerY"]
+        dist := Max(Sqrt(dx*dx + dy*dy), 1)
+        
+        if (dist > 150) {
+            strength := Min(0.3, dist / 2000) * FWDEConfig.Settings["AttractionForce"]
+            return Map("x", dx * strength, "y", dy * strength)
+        }
+        return Map("x", 0, "y", 0)
+    }
+    
+    static CalculateEdgeRepulsion(win, monitor) {
+        force := Map("x", 0, "y", 0)
+        edgeBuffer := 60
+        strength := FWDEConfig.Settings["EdgeRepulsionForce"]
         
         ; Left edge
-        if (win["x"] < bounds["Left"] + Config["MinMargin"]) {
-            edgeForceX += (bounds["Left"] + Config["MinMargin"] - win["x"]) * Config["EdgeRepulsionForce"]
-        }
+        if (win["x"] < monitor["Left"] + edgeBuffer)
+            force["x"] += (monitor["Left"] + edgeBuffer - win["x"]) * strength * 0.02
         ; Right edge
-        if (win["x"] + win["width"] > bounds["Right"] - Config["MinMargin"]) {
-            edgeForceX -= (win["x"] + win["width"] - bounds["Right"] + Config["MinMargin"]) * Config["EdgeRepulsionForce"]
-        }
+        if (win["x"] + win["width"] > monitor["Right"] - edgeBuffer)
+            force["x"] -= (win["x"] + win["width"] - (monitor["Right"] - edgeBuffer)) * strength * 0.02
         ; Top edge
-        if (win["y"] < bounds["Top"] + Config["MinMargin"]) {
-            edgeForceY += (bounds["Top"] + Config["MinMargin"] - win["y"]) * Config["EdgeRepulsionForce"]
-        }
+        if (win["y"] < monitor["WorkTop"] + edgeBuffer)
+            force["y"] += (monitor["WorkTop"] + edgeBuffer - win["y"]) * strength * 0.02
         ; Bottom edge
-        if (win["y"] + win["height"] > bounds["Bottom"] - Config["MinMargin"]) {
-            edgeForceY -= (win["y"] + win["height"] - bounds["Bottom"] + Config["MinMargin"]) * Config["EdgeRepulsionForce"]
+        if (win["y"] + win["height"] > monitor["WorkBottom"] - edgeBuffer)
+            force["y"] -= (win["y"] + win["height"] - (monitor["WorkBottom"] - edgeBuffer)) * strength * 0.02
+            
+        return force
+    }
+    
+    static CalculateInterWindowForce(win1, win2) {
+        dx := win1["centerX"] - win2["centerX"]
+        dy := win1["centerY"] - win2["centerY"]
+        dist := Max(Sqrt(dx*dx + dy*dy), 1)
+        
+        ; Dynamic interaction range
+        avgSize := Sqrt((win1["area"] + win2["area"]) / 2)
+        interactionRange := avgSize / 3
+        
+        if (dist < interactionRange * 1.5) {
+            ; Close: repulsion
+            strength := FWDEConfig.Settings["RepulsionForce"] * (interactionRange * 1.5 - dist) / (interactionRange * 1.5)
+            multiplier := 1 + (1 - dist / (interactionRange * 1.5)) * 3
+            
+            return Map(
+                "x", dx * strength * multiplier / dist * 0.8,
+                "y", dy * strength * multiplier / dist * 0.8
+            )
+        } else if (dist < interactionRange * 4) {
+            ; Medium: weak attraction
+            strength := FWDEConfig.Settings["AttractionForce"] * 0.02
+            return Map(
+                "x", -dx * strength / dist * 0.06,
+                "y", -dy * strength / dist * 0.06
+            )
         }
         
-        totalForceX += edgeForceX
-        totalForceY += edgeForceY
+        return Map("x", 0, "y", 0)
+    }
+    
+    static ApplySpeedLimits(win) {
+        maxSpeed := FWDEConfig.Settings["MaxSpeed"]
+        win["vx"] := Min(Max(win["vx"], -maxSpeed), maxSpeed)
+        win["vy"] := Min(Max(win["vy"], -maxSpeed), maxSpeed)
         
-        ; Apply damping for smooth movement
-        totalForceX *= (1 - Config["Damping"])
-        totalForceY *= (1 - Config["Damping"])
-        
-        ; Limit maximum speed for stability
-        speed := Sqrt(totalForceX*totalForceX + totalForceY*totalForceY)
-        if (speed > Config["MaxSpeed"]) {
-            totalForceX := (totalForceX / speed) * Config["MaxSpeed"]
-            totalForceY := (totalForceY / speed) * Config["MaxSpeed"]
-            speed := Config["MaxSpeed"]
+        ; Progressive stabilization
+        minSpeed := FWDEConfig.Settings["MinSpeedThreshold"]
+        if (Abs(win["vx"]) < minSpeed && Abs(win["vy"]) < minSpeed) {
+            win["vx"] *= 0.85
+            win["vy"] *= 0.85
         }
+    }
+    
+    static UpdateTargetPosition(win, monitor) {
+        win["targetX"] := win["x"] + win["vx"]
+        win["targetY"] := win["y"] + win["vy"]
         
-        ; Only move if there's meaningful force and it's above threshold
-        if (speed > Config["MinSpeedThreshold"]) {
-            newX := win["x"] + totalForceX
-            newY := win["y"] + totalForceY
+        ; Boundary constraints
+        win["targetX"] := Max(monitor["Left"], Min(win["targetX"], monitor["Right"] - win["width"]))
+        win["targetY"] := Max(monitor["WorkTop"], Min(win["targetY"], monitor["WorkBottom"] - win["height"]))
+    }
+    
+    static IsLocked(win) {
+        return win.Has("ManualLock") && A_TickCount < win["ManualLock"]
+    }
+    
+    static StopMovement(win) {
+        win["vx"] := 0
+        win["vy"] := 0
+        win["targetX"] := win["x"]
+        win["targetY"] := win["y"]
+    }
+}
+
+; ===== MOVEMENT & RENDERING MODULE =====
+class MovementEngine {
+    static SmoothPositions := Map()
+    static LastPositions := Map()
+    
+    static ApplyMovements(windows) {
+        for win in windows {
+            if (PhysicsEngine.IsLocked(win) || win["hwnd"] == WindowManager.State["ActiveWindow"])
+                continue
+                
+            this.SmoothMove(win)
+        }
+    }
+    
+    static SmoothMove(win) {
+        hwnd := win["hwnd"]
+        
+        if (!this.SmoothPositions.Has(hwnd))
+            this.SmoothPositions[hwnd] := Map("x", win["x"], "y", win["y"])
+        if (!this.LastPositions.Has(hwnd))
+            this.LastPositions[hwnd] := Map("x", win["x"], "y", win["y"])
             
-            ; Ensure window stays within bounds
-            newX := Max(bounds["Left"], Min(newX, bounds["Right"] - win["width"]))
-            newY := Max(bounds["Top"], Min(newY, bounds["Bottom"] - win["height"]))
+        ; Smooth interpolation
+        alpha := FWDEConfig.Settings["Smoothing"]
+        smooth := this.SmoothPositions[hwnd]
+        smooth["x"] += (win["targetX"] - smooth["x"]) * alpha
+        smooth["y"] += (win["targetY"] - smooth["y"]) * alpha
+        
+        ; Apply movement if significant change
+        if (Abs(smooth["x"] - this.LastPositions[hwnd]["x"]) >= 0.5 || 
+            Abs(smooth["y"] - this.LastPositions[hwnd]["y"]) >= 0.5) {
             
-            ; Apply smoothing to reduce jitter
-            if (win.Has("targetX") && win.Has("targetY")) {
-                newX := win["targetX"] + (newX - win["targetX"]) * Config["Smoothing"]
-                newY := win["targetY"] + (newY - win["targetY"]) * Config["Smoothing"]
-            }
-            
-            win["targetX"] := newX
-            win["targetY"] := newY
-            win["x"] := newX
-            win["y"] := newY
-            
-            ; Try to move window
             try {
-                WinMove(Round(newX), Round(newY), , , "ahk_id " . win["hwnd"])
+                WinMove(Round(smooth["x"]), Round(smooth["y"]), , , "ahk_id " hwnd)
+                this.LastPositions[hwnd]["x"] := smooth["x"]
+                this.LastPositions[hwnd]["y"] := smooth["y"]
+                win["x"] := smooth["x"]
+                win["y"] := smooth["y"]
+                win["centerX"] := smooth["x"] + win["width"]/2
+                win["centerY"] := smooth["y"] + win["height"]/2
+            }
+        }
+    }
+    
+    static Cleanup(hwnd) {
+        this.SmoothPositions.Delete(hwnd)
+        this.LastPositions.Delete(hwnd)
+    }
+}
+
+; ===== VISUAL FEEDBACK MODULE =====
+class VisualFeedback {
+    static ManualBorders := Map()
+    
+    static ShowTooltip(text) {
+        monitor := MonitorManager.Current
+        ToolTip(text, monitor["CenterX"] - 120, monitor["Top"] + 30)
+        SetTimer(() => ToolTip(), -FWDEConfig.Settings["TooltipDuration"])
+    }
+    
+    static AddManualBorder(hwnd) {
+        try {
+            if (this.ManualBorders.Has(hwnd))
+                return
                 
-                ; Mark that physics moved this window
-                win["lastPhysicsMove"] := A_TickCount
-                
-                ; Debug: Log only significant movements
-                static lastDebugTime := 0
-                if (A_TickCount - lastDebugTime > 10000 && speed > 1.0) {
-                    DebugLog("PHYSICS", "Adjusting window '" . win["title"] . "' (speed:" . Round(speed, 2) . ")", 3)
-                    lastDebugTime := A_TickCount
+            WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+            borderGui := Gui("+ToolWindow -Caption +E0x20 +LastFound +AlwaysOnTop")
+            borderGui.Opt("+Owner" hwnd)
+            borderGui.BackColor := FWDEConfig.Settings["ManualWindowColor"]
+            borderGui.Show("x" x-3 " y" y-3 " w" w+6 " h" h+6 " NA")
+            
+            this.ManualBorders[hwnd] := Map(
+                "gui", borderGui,
+                "expire", A_TickCount + FWDEConfig.Settings["ManualLockDuration"]
+            )
+        }
+    }
+    
+    static RemoveManualBorder(hwnd) {
+        try {
+            if (this.ManualBorders.Has(hwnd)) {
+                this.ManualBorders[hwnd]["gui"].Destroy()
+                this.ManualBorders.Delete(hwnd)
+            }
+        }
+    }
+    
+    static UpdateBorders() {
+        for hwnd, data in this.ManualBorders.Clone() {
+            try {
+                if (A_TickCount > data["expire"]) {
+                    this.RemoveManualBorder(hwnd)
+                    continue
                 }
-            } catch as moveError {
-                if (moveError.Number == 5) {
-                    win["accessDenied"] := true
-                    DebugLog("PHYSICS", "Window '" . win["title"] . "' marked as access denied", 2)
+                
+                if (WinExist("ahk_id " hwnd)) {
+                    WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+                    data["gui"].Show("x" x-3 " y" y-3 " w" w+6 " h" h+6 " NA")
                 } else {
-                    throw moveError
+                    this.RemoveManualBorder(hwnd)
                 }
             }
         }
-        
-    } catch as e {
-        RecordSystemError("ApplyPhysicsToWindow", e, win["hwnd"])
+    }
+    
+    static Cleanup() {
+        for hwnd in this.ManualBorders.Clone()
+            this.RemoveManualBorder(hwnd)
     }
 }
 
-; Calculate overlap and separation vector between two windows
-CalculateOverlap(win1, win2) {
-    ; Calculate centers
-    center1X := win1["x"] + win1["width"] / 2
-    center1Y := win1["y"] + win1["height"] / 2
-    center2X := win2["x"] + win2["width"] / 2
-    center2Y := win2["y"] + win2["height"] / 2
-    
-    ; Calculate distance between centers
-    dx := center1X - center2X
-    dy := center1Y - center2Y
-    distance := Sqrt(dx*dx + dy*dy)
-    
-    ; Check for actual overlap
-    hasOverlap := RectsOverlap(
-        Map("x", win1["x"], "y", win1["y"], "width", win1["width"], "height", win1["height"]),
-        Map("x", win2["x"], "y", win2["y"], "width", win2["width"], "height", win2["height"])
+; ===== MAIN WINDOW MANAGER =====
+class WindowManager {
+    static State := Map(
+        "ArrangementActive", true,
+        "PhysicsEnabled", true,
+        "ActiveWindow", 0,
+        "LastUserMove", 0,
+        "Windows", [],
+        "LastFocusCheck", 0
     )
     
-    ; Calculate overlap area if overlapping
-    overlapArea := 0
-    if (hasOverlap) {
-        overlapLeft := Max(win1["x"], win2["x"])
-        overlapTop := Max(win1["y"], win2["y"])
-        overlapRight := Min(win1["x"] + win1["width"], win2["x"] + win2["width"])
-        overlapBottom := Min(win1["y"] + win1["height"], win2["y"] + win2["height"])
-        
-        if (overlapRight > overlapLeft && overlapBottom > overlapTop) {
-            overlapArea := (overlapRight - overlapLeft) * (overlapBottom - overlapTop)
-        }
+    static Initialize() {
+        MonitorManager.Update()
+        this.UpdateWindowList()
+        this.StartTimers()
+        VisualFeedback.ShowTooltip("FWDE Initialized - Floating Windows Active")
     }
     
-    ; Calculate separation unit vector (direction to move win1 away from win2)
-    separationX := 0
-    separationY := 0
-    if (distance > 0) {
-        separationX := dx / distance
-        separationY := dy / distance
-    } else {
-        ; Windows are at same position, use random direction
-        angle := Random(0, 360) * 3.14159 / 180
-        separationX := Cos(angle)
-        separationY := Sin(angle)
+    static StartTimers() {
+        SetTimer(() => this.PhysicsUpdate(), FWDEConfig.Settings["PhysicsInterval"])
+        SetTimer(() => this.VisualUpdate(), FWDEConfig.Settings["VisualInterval"])
+        SetTimer(() => this.StateUpdate(), FWDEConfig.Settings["StateUpdateInterval"])
     }
     
-    return Map(
-        "hasOverlap", hasOverlap,
-        "distance", distance,
-        "overlapArea", overlapArea,
-        "separationX", separationX,
-        "separationY", separationY
-    )
-}
-
-; ===== MAIN PHYSICS LOOP =====
-CalculateDynamicLayout() {
-    global g, Config
-    
-    if (!g.Get("PhysicsEnabled", false) || !g.Get("ArrangementActive", false) || g.Get("ScreenshotPaused", false)) {
-        if (g.Get("ScreenshotPaused", false)) {
-            ; Only log occasionally to avoid spam
-            static lastLogTime := 0
-            if (A_TickCount - lastLogTime > 5000) {
-                DebugLog("PHYSICS", "Physics paused for screenshot activity", 3)
-                lastLogTime := A_TickCount
-            }
-        }
-        return
+    static StopTimers() {
+        SetTimer(() => this.PhysicsUpdate(), 0)
+        SetTimer(() => this.VisualUpdate(), 0)
+        SetTimer(() => this.StateUpdate(), 0)
     }
     
-    startTime := A_TickCount
-    
-    ; Debug: Log physics loop activity occasionally
-    static lastPhysicsLogTime := 0
-    if (A_TickCount - lastPhysicsLogTime > 10000) {
-        DebugLog("PHYSICS", "Physics processing " . g["Windows"].Length . " windows", 3)
-        lastPhysicsLogTime := A_TickCount
-    }
-    
-    try {
-        ; Collect valid windows efficiently
-        validWindows := []
-        
-        ; First pass: collect valid windows and cache window validity
-        for win in g["Windows"] {
-            if (!win.Get("manualLock", false) && !win.Get("accessDenied", false)) {
-                ; Cache validity check to avoid repeated calls
-                if (!win.Has("lastValidityCheck") || A_TickCount - win["lastValidityCheck"] > 1000) {
-                    win["isValid"] := IsWindowValid(win["hwnd"])
-                    win["lastValidityCheck"] := A_TickCount
-                }
-                
-                if (win.Get("isValid", false)) {
-                    validWindows.Push(win)
-                }
-            }
-        }
-        
-        ; Second pass: apply physics to each valid window, considering all other windows
-        for win in validWindows {
-            ApplyPhysicsToWindow(win, validWindows)
-        }
-        
-        ; Record performance with better threshold
-        elapsedTime := A_TickCount - startTime
-        if (elapsedTime > 20) {  ; Reduced threshold to catch performance issues earlier
-            RecordPerformanceMetric("CalculateDynamicLayout", elapsedTime)
-        }
-        
-    } catch as e {
-        RecordSystemError("CalculateDynamicLayout", e)
-    }
-}
-
-; ===== SCREENSHOT DETECTION =====
-; Track screenshot activity to avoid false positives from idle processes
-global ScreenshotState := Map(
-    "LastActivityCheck", 0,
-    "ProcessMonitoringThreshold", 1000,  ; Only check processes every 1 second
-    "ActiveWindowClasses", [],
-    "RecentlyActiveProcesses", Map()
-)
-
-CheckScreenshotActivity() {
-    global Config, g, ScreenshotState
-    try {
-        ; Check if screenshot detection is enabled (default to true if not set)
-        if (!g.Get("ScreenshotDetectionEnabled", true)) {
+    static PhysicsUpdate() {
+        if (!this.State["PhysicsEnabled"])
             return
+            
+        for win in this.State["Windows"] {
+            PhysicsEngine.CalculateForces(win, this.State["Windows"], 
+                this.State["ActiveWindow"], this.State["LastUserMove"])
         }
-        
-        currentTime := A_TickCount
-        
-        ; Only check processes periodically to reduce false positives
-        if (currentTime - ScreenshotState["LastActivityCheck"] < ScreenshotState["ProcessMonitoringThreshold"]) {
-            ; Still check for active screenshot windows frequently
-            CheckActiveScreenshotWindows()
+    }
+    
+    static VisualUpdate() {
+        if (!this.State["ArrangementActive"])
             return
-        }
-        
-        ScreenshotState["LastActivityCheck"] := currentTime
-        
-        ; Check for screenshot window classes (these indicate active screenshot UI)
-        CheckActiveScreenshotWindows()
-        
-        ; More intelligent process checking - look for signs of actual activity
-        CheckScreenshotProcessActivity()
-        
-    } catch as e {
-        RecordSystemError("CheckScreenshotActivity", e)
-    }
-}
-
-CheckActiveScreenshotWindows() {
-    global Config, g
-    try {
-        ; Check for screenshot window classes that indicate active screenshot UI
-        for className in Config["ScreenshotWindowClasses"] {
-            if (WinExist("ahk_class " . className)) {
-                if (!g["ScreenshotPaused"]) {
-                    g["ScreenshotPaused"] := true
-                    DebugLog("SCREENSHOT", "Active screenshot UI detected: " . className . ", pausing physics", 2)
-                    ; Capture className in closure
-                    capturedClass := className
-                    SetTimer(() => (
-                        g["ScreenshotPaused"] := false,
-                        DebugLog("SCREENSHOT", "Physics resumed after screenshot UI: " . capturedClass, 2)
-                    ), -Config["ScreenshotPauseDuration"])
-                }
-                return true
-            }
-        }
-        return false
-    } catch as e {
-        RecordSystemError("CheckActiveScreenshotWindows", e)
-        return false
-    }
-}
-
-CheckScreenshotProcessActivity() {
-    global Config, g, ScreenshotState
-    try {
-        ; For processes like ShareX, check if they have visible screenshot-related windows
-        ; rather than just checking if the process exists
-        for processName in Config["ScreenshotProcesses"] {
-            if (ProcessExist(processName)) {
-                ; Check if this process has any active screenshot-related windows
-                if (HasActiveScreenshotWindows(processName)) {
-                    if (!g["ScreenshotPaused"]) {
-                        g["ScreenshotPaused"] := true
-                        DebugLog("SCREENSHOT", "Active screenshot operation detected from " . processName . ", pausing physics", 2)
-                        ; Capture processName in closure
-                        capturedProcess := processName
-                        SetTimer(() => (
-                            g["ScreenshotPaused"] := false,
-                            DebugLog("SCREENSHOT", "Physics resumed after " . capturedProcess . " activity", 2)
-                        ), -Config["ScreenshotPauseDuration"])
-                    }
-                    return true
-                }
-            }
-        }
-        return false
-    } catch as e {
-        RecordSystemError("CheckScreenshotProcessActivity", e)
-        return false
-    }
-}
-
-HasActiveScreenshotWindows(processName) {
-    try {
-        ; More reliable window enumeration - check all windows and verify process ownership
-        windowList := WinGetList()
-        
-        for hwnd in windowList {
-            if (!WinExist("ahk_id " . hwnd)) {
-                continue
-            }
             
-            ; Verify this window actually belongs to the target process
+        MovementEngine.ApplyMovements(this.State["Windows"])
+        VisualFeedback.UpdateBorders()
+    }
+    
+    static StateUpdate() {
+        this.UpdateActiveWindow()
+        this.UpdateWindowList()
+    }
+    
+    static UpdateActiveWindow() {
+        if (A_TickCount - this.State["LastFocusCheck"] > 300) {
             try {
-                windowProcess := WinGetProcessName("ahk_id " . hwnd)
-                if (windowProcess != processName) {
-                    continue
-                }
-            } catch {
-                continue
-            }
-            
-            title := WinGetTitle("ahk_id " . hwnd)
-            windowClass := WinGetClass("ahk_id " . hwnd)
-            
-            ; Check for screenshot-specific window titles or classes
-            if (RegExMatch(title, "i)(capture|screenshot|snip|select|region|area|crop)") ||
-                RegExMatch(windowClass, "i)(capture|screenshot|snip|select|overlay)")) {
-                
-                ; Additional check: window must be visible and have reasonable size
-                if (DllCall("IsWindowVisible", "ptr", hwnd)) {
-                    WinGetPos(&x, &y, &width, &height, "ahk_id " . hwnd)
-                    if (width > 50 && height > 50) {
-                        return true
-                    }
-                }
-            }
-        }
-        
-        return false
-    } catch {
-        return false
-    }
-}
-
-; ===== WINDOW DETECTION =====
-RefreshWindowList() {
-    global g, Config
-    try {
-        startTime := A_TickCount
-        oldWindowCount := g["Windows"].Length
-        
-        ; Preserve existing window data when refreshing
-        existingWindows := Map()
-        for win in g["Windows"] {
-            existingWindows[win["hwnd"]] := win
-        }
-        
-        g["Windows"] := []
-        
-        ; Enumerate all visible windows
-        windowList := WinGetList()
-        processedCount := 0
-        
-        for hwnd in windowList {
-            try {
-                ; Skip if window is not visible or valid - quick check first
-                if (!DllCall("IsWindowVisible", "ptr", hwnd)) {
-                    continue
-                }
-                
-                ; Only check WinExist if window passed visibility test
-                if (!WinExist("ahk_id " . hwnd)) {
-                    continue
-                }
-                
-                ; Get window info in batch for efficiency
-                WinGetPos(&x, &y, &width, &height, "ahk_id " . hwnd)
-                
-                ; Quick size filter before getting expensive window properties
-                if (width < 50 || height < 50) {
-                    continue
-                }
-                
-                ; Get window properties only for potentially valid windows
-                title := WinGetTitle("ahk_id " . hwnd)
-                if (!title) {
-                    continue
-                }
-                
-                windowClass := WinGetClass("ahk_id " . hwnd)
-                processName := WinGetProcessName("ahk_id " . hwnd)
-                
-                ; Check if should be floating
-                shouldFloat := ShouldWindowFloat(hwnd, title, windowClass, processName)
-                
-                if (shouldFloat) {
-                    ; Create window object, preserving existing data if available
-                    if (existingWindows.Has(hwnd)) {
-                        win := existingWindows[hwnd]
-                        ; Update position and basic properties
-                        
-                        ; Check if window was manually moved by user
-                        if (Abs(win["x"] - x) > 5 || Abs(win["y"] - y) > 5) {
-                            ; Window moved significantly - check if it was user-initiated
-                            if (!win.Get("accessDenied", false) && A_TickCount - win.Get("lastPhysicsMove", 0) > 1000) {
-                                ; Likely user move - set manual lock temporarily
-                                win["manualLock"] := true
-                                win["lastUserInteraction"] := A_TickCount
-                                
-                                static lastManualMoveLog := 0
-                                if (A_TickCount - lastManualMoveLog > 5000) {
-                                    DebugLog("USER", "Manual move detected for '" . title . "' - temporarily locking", 2)
-                                    lastManualMoveLog := A_TickCount
-                                }
-                            }
+                focusedWindow := WinExist("A")
+                if (focusedWindow && focusedWindow != this.State["ActiveWindow"]) {
+                    for win in this.State["Windows"] {
+                        if (win["hwnd"] == focusedWindow) {
+                            this.State["ActiveWindow"] := focusedWindow
+                            this.State["LastUserMove"] := A_TickCount
+                            break
                         }
-                        
-                        win["x"] := x
-                        win["y"] := y
-                        win["width"] := width
-                        win["height"] := height
-                        win["title"] := title
-                        win["class"] := windowClass
-                        win["process"] := processName
-                    } else {
-                        ; New window
-                        win := Map(
-                            "hwnd", hwnd,
-                            "x", x,
-                            "y", y,
-                            "width", width,
-                            "height", height,
-                            "title", title,
-                            "class", windowClass,
-                            "process", processName,
-                            "manualLock", false,
-                            "lastUserInteraction", 0
-                        )
                     }
-                    
-                    ; Release manual lock after timeout
-                    if (win.Get("manualLock", false) && A_TickCount - win.Get("lastUserInteraction", 0) > Config["ManualLockDuration"]) {
-                        win["manualLock"] := false
-                    }
-                    
-                    g["Windows"].Push(win)
-                    processedCount++
                 }
-            } catch {
-                ; Skip problematic windows
+                
+                ; Clear active if timeout
+                if (this.State["ActiveWindow"] && 
+                    A_TickCount - this.State["LastUserMove"] > FWDEConfig.Settings["UserMoveTimeout"] && 
+                    focusedWindow != this.State["ActiveWindow"]) {
+                    this.State["ActiveWindow"] := 0
+                }
+            }
+            this.State["LastFocusCheck"] := A_TickCount
+        }
+    }
+    
+    static UpdateWindowList() {
+        newWindows := []
+        existingMap := Map()
+        
+        ; Create lookup for existing windows
+        for win in this.State["Windows"] {
+            existingMap[win["hwnd"]] := win
+        }
+        
+        ; Scan all windows
+        for hwnd in WinGetList() {
+            if (!WindowClassifier.IsFloating(hwnd))
                 continue
+                
+            try {
+                WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+                if (w <= 0 || h <= 0)
+                    continue
+                    
+                ; Check if on current monitor
+                winCenterX := x + w/2
+                winCenterY := y + h/2
+                winMonitor := MonitorManager.GetFromPoint(winCenterX, winCenterY)
+                if (!winMonitor)
+                    winMonitor := MonitorManager.Current["Number"]
+                    
+                if (winMonitor == MonitorManager.Current["Number"]) {
+                    existing := existingMap.Has(hwnd) ? existingMap[hwnd] : 0
+                    newWindows.Push(WindowData.Create(hwnd, x, y, w, h, existing))
+                }
             }
         }
         
-        elapsedTime := A_TickCount - startTime
-        
-        ; Only log if there's a significant change or performance issue
-        if (g["Windows"].Length != oldWindowCount || elapsedTime > 100) {
-            DebugLog("WINDOWS", "Refreshed: " . g["Windows"].Length . " floating windows (" . elapsedTime . "ms)", 3)
-        }
-        
-        ; Record performance if slow
-        if (elapsedTime > 50) {
-            RecordPerformanceMetric("RefreshWindowList", elapsedTime)
-        }
-        
-    } catch as e {
-        RecordSystemError("RefreshWindowList", e)
-    }
-}
-
-ShouldWindowFloat(hwnd, title, windowClass, processName) {
-    global Config
-    try {
-        ; Check process whitelist
-        for process in Config["ForceFloatProcesses"] {
-            if (InStr(processName, process)) {
-                return true
+        ; Clean up removed windows
+        for win in this.State["Windows"] {
+            found := false
+            for newWin in newWindows {
+                if (newWin["hwnd"] == win["hwnd"]) {
+                    found := true
+                    break
+                }
+            }
+            if (!found) {
+                MovementEngine.Cleanup(win["hwnd"])
+                VisualFeedback.RemoveManualBorder(win["hwnd"])
             }
         }
         
-        ; Check class patterns
-        for pattern in Config["FloatClassPatterns"] {
-            if (RegExMatch(windowClass, pattern)) {
-                return true
+        this.State["Windows"] := newWindows
+    }
+    
+    ; ===== CONTROL METHODS =====
+    static ToggleArrangement() {
+        this.State["ArrangementActive"] := !this.State["ArrangementActive"]
+        if (this.State["ArrangementActive"]) {
+            this.StartTimers()
+            VisualFeedback.ShowTooltip("Window Arrangement: ON")
+        } else {
+            this.StopTimers()
+            VisualFeedback.ShowTooltip("Window Arrangement: OFF")
+        }
+    }
+    
+    static TogglePhysics() {
+        this.State["PhysicsEnabled"] := !this.State["PhysicsEnabled"]
+        status := this.State["PhysicsEnabled"] ? "ON" : "OFF"
+        VisualFeedback.ShowTooltip("Physics Engine: " status)
+    }
+    
+    static ToggleWindowLock() {
+        try {
+            focusedWindow := WinExist("A")
+            if (!focusedWindow) {
+                VisualFeedback.ShowTooltip("No active window to lock/unlock")
+                return
             }
-        }
-        
-        ; Check title patterns
-        for pattern in Config["FloatTitlePatterns"] {
-            if (RegExMatch(title, pattern)) {
-                return true
-            }
-        }
-        
-        ; Check window styles
-        styles := WinGetStyle("ahk_id " . hwnd)
-        if (styles & Config["FloatStyles"]) {
-            return true
-        }
-        
-        return false
-    } catch {
-        return false
-    }
-}
-
-; ===== SYSTEM INITIALIZATION =====
-InitializeSystem() {
-    global g, Config
-    try {
-        DebugLog("SYSTEM", "Initializing FWDE system...", 2)
-        
-        ; Initialize monitor info
-        g["Monitor"] := GetCurrentMonitorInfo()
-        
-        ; Load configuration
-        LoadConfiguration()
-        
-        ; Initial window scan
-        RefreshWindowList()
-        
-        ; Start main timers with gentle intervals
-        SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
-        SetTimer(RefreshWindowList, 3000)  ; Check for new windows every 3 seconds
-        SetTimer(CheckScreenshotActivity, Config["ScreenshotCheckInterval"])
-        
-        DebugLog("SYSTEM", "FWDE system initialized successfully", 2)
-        ShowTooltip("FWDE - Floating Windows Dynamic Equilibrium Started", 3000)
-        
-    } catch as e {
-        RecordSystemError("InitializeSystem", e)
-        ShowTooltip("FWDE initialization failed - check debug log", 5000)
-    }
-}
-
-; ===== SIMPLIFIED CONFIGURATION =====
-LoadConfiguration() {
-    global ConfigFile, Config
-    try {
-        if (FileExist(ConfigFile)) {
-            DebugLog("CONFIG", "Configuration file found, using defaults for now", 2)
-            ; For now, just use defaults - can be extended later
-        }
-        DebugLog("CONFIG", "Configuration loaded successfully", 2)
-    } catch as e {
-        RecordSystemError("LoadConfiguration", e)
-    }
-}
-
-SaveConfiguration() {
-    global ConfigFile, Config
-    try {
-        ; Simple configuration save - can be extended later
-        DebugLog("CONFIG", "Configuration saved", 2)
-    } catch as e {
-        RecordSystemError("SaveConfiguration", e)
-    }
-}
-
-; ===== HOTKEYS =====
-; Toggle physics system
-^!p:: {
-    global g
-    g["PhysicsEnabled"] := !g["PhysicsEnabled"]
-    status := g["PhysicsEnabled"] ? "Enabled" : "Disabled"
-    ShowTooltip("Physics: " . status)
-    DebugLog("HOTKEY", "Physics toggled: " . status, 2)
-}
-
-; Toggle arrangement system
-^!a:: {
-    global g
-    g["ArrangementActive"] := !g["ArrangementActive"]
-    status := g["ArrangementActive"] ? "Active" : "Inactive"
-    ShowTooltip("Arrangement: " . status)
-    DebugLog("HOTKEY", "Arrangement toggled: " . status, 2)
-}
-
-; Toggle seamless monitor floating
-^!m:: {
-    global Config
-    Config["SeamlessMonitorFloat"] := !Config["SeamlessMonitorFloat"]
-    status := Config["SeamlessMonitorFloat"] ? "Enabled" : "Disabled"
-    ShowTooltip("Multi-Monitor Float: " . status)
-    DebugLog("HOTKEY", "Multi-monitor floating toggled: " . status, 2)
-}
-
-; Toggle screenshot detection
-^!s:: {
-    global g
-    if (!g.Has("ScreenshotDetectionEnabled")) {
-        g["ScreenshotDetectionEnabled"] := true
-    }
-    g["ScreenshotDetectionEnabled"] := !g["ScreenshotDetectionEnabled"]
-    status := g["ScreenshotDetectionEnabled"] ? "Enabled" : "Disabled"
-    ShowTooltip("Screenshot Detection: " . status)
-    DebugLog("HOTKEY", "Screenshot detection toggled: " . status, 2)
-    
-    ; If disabling, also unpause physics if currently paused by screenshot detection
-    if (!g["ScreenshotDetectionEnabled"] && g.Get("ScreenshotPaused", false)) {
-        g["ScreenshotPaused"] := false
-        DebugLog("SCREENSHOT", "Physics unpaused due to screenshot detection being disabled", 2)
-    }
-}
-
-; Temporary hotkey to remove ShareX from detection list
-^!x:: {
-    global Config
-    newList := []
-    for process in Config["ScreenshotProcesses"] {
-        if (!InStr(process, "ShareX.exe")) {
-            newList.Push(process)
-        }
-    }
-    Config["ScreenshotProcesses"] := newList
-    ShowTooltip("ShareX removed from screenshot detection")
-    DebugLog("HOTKEY", "ShareX.exe removed from screenshot process list", 2)
-}
-
-; Refresh window list manually
-^!r:: {
-    RefreshWindowList()
-    ShowTooltip("Window list refreshed")
-    DebugLog("HOTKEY", "Manual window list refresh", 2)
-}
-
-; Emergency pause/resume
-^!Pause:: {
-    global g
-    g["PhysicsEnabled"] := false
-    g["ArrangementActive"] := false
-    ShowTooltip("FWDE Emergency Stop - All systems paused")
-    DebugLog("HOTKEY", "Emergency stop activated", 1)
-}
-
-; Show system status
-^!i:: {
-    global g, SystemState, PerfTimers
-    windowCount := g["Windows"].Length
-    physicsStatus := g["PhysicsEnabled"] ? "ON" : "OFF"
-    arrangementStatus := g["ArrangementActive"] ? "ON" : "OFF"
-    screenshotDetectionStatus := g.Get("ScreenshotDetectionEnabled", true) ? "ON" : "OFF"
-    screenshotPausedStatus := g.Get("ScreenshotPaused", false) ? "PAUSED" : "ACTIVE"
-    errorCount := SystemState["ErrorCount"]
-    
-    ; Get performance metrics
-    physicsPerf := PerfTimers.Has("CalculateDynamicLayout") ? Round(PerfTimers["CalculateDynamicLayout"]["avg"], 1) . "ms avg" : "No data"
-    windowListPerf := PerfTimers.Has("RefreshWindowList") ? Round(PerfTimers["RefreshWindowList"]["avg"], 1) . "ms avg" : "No data"
-    
-    statusMsg := "FWDE Status:`n"
-    statusMsg .= "Windows: " . windowCount . "`n"
-    statusMsg .= "Physics: " . physicsStatus . "`n"
-    statusMsg .= "Arrangement: " . arrangementStatus . "`n"
-    statusMsg .= "Screenshot Detection: " . screenshotDetectionStatus . "`n"
-    statusMsg .= "Physics State: " . screenshotPausedStatus . "`n"
-    statusMsg .= "Errors: " . errorCount . "`n"
-    statusMsg .= "Physics Performance: " . physicsPerf . "`n"
-    statusMsg .= "Window List Performance: " . windowListPerf
-    
-    MsgBox(statusMsg, "FWDE System Status", "T10")
-    DebugLog("HOTKEY", "Status displayed: " . windowCount . " windows, " . errorCount . " errors, physics: " . physicsPerf, 2)
-}
-
-; Show detailed performance metrics  
-^!+i:: {
-    global PerfTimers
-    
-    perfMsg := "FWDE Performance Metrics:`n`n"
-    
-    for operation, metrics in PerfTimers {
-        perfMsg .= operation . ":`n"
-        perfMsg .= "  Count: " . metrics["count"] . "`n"
-        perfMsg .= "  Average: " . Round(metrics["avg"], 1) . "ms`n"
-        perfMsg .= "  Maximum: " . metrics["max"] . "ms`n"
-        perfMsg .= "  Total: " . Round(metrics["total"]/1000, 1) . "s`n`n"
-    }
-    
-    if (PerfTimers.Count == 0) {
-        perfMsg .= "No performance data available yet."
-    }
-    
-    MsgBox(perfMsg, "FWDE Performance Details", "T15")
-    DebugLog("HOTKEY", "Performance metrics displayed", 2)
-}
-
-; Test physics by creating overlap with active window
-^!t:: {
-    global g, Config
-    try {
-        activeHwnd := WinGetID("A")
-        
-        ; Get current window position
-        WinGetPos(&currentX, &currentY, &currentWidth, &currentHeight, "ahk_id " . activeHwnd)
-        
-        ; Find another floating window to test overlap with
-        testWindow := ""
-        for win in g["Windows"] {
-            if (win["hwnd"] != activeHwnd && !win.Get("accessDenied", false)) {
-                testWindow := win
-                break
-            }
-        }
-        
-        if (testWindow) {
-            ; Move active window to overlap with the test window
-            targetX := testWindow["x"] + 20  ; Slight offset to create overlap
-            targetY := testWindow["y"] + 20
             
-            WinMove(targetX, targetY, , , "ahk_id " . activeHwnd)
-            
-            ; Update internal tracking if this window is managed
-            for win in g["Windows"] {
-                if (win["hwnd"] == activeHwnd) {
-                    win["x"] := targetX
-                    win["y"] := targetY
-                    win["lastPhysicsMove"] := A_TickCount - 2000  ; Mark as old move so it won't be seen as user move
+            ; Find target window
+            targetWin := 0
+            for win in this.State["Windows"] {
+                if (win["hwnd"] == focusedWindow) {
+                    targetWin := win
                     break
                 }
             }
             
-            ShowTooltip("Test: Created overlap between windows - they should gently separate")
-            DebugLog("HOTKEY", "Physics test: created overlap between windows", 2)
-        } else {
-            ShowTooltip("Test: No other floating windows found for overlap test")
+            if (!targetWin) {
+                VisualFeedback.ShowTooltip("Window not managed by FWDE")
+                return
+            }
+            
+            ; Toggle lock
+            isLocked := PhysicsEngine.IsLocked(targetWin)
+            if (isLocked) {
+                if (targetWin.Has("ManualLock"))
+                    targetWin.Delete("ManualLock")
+                this.State["ActiveWindow"] := 0
+                VisualFeedback.RemoveManualBorder(focusedWindow)
+                VisualFeedback.ShowTooltip("Window UNLOCKED - Physics Active")
+            } else {
+                targetWin["ManualLock"] := A_TickCount + FWDEConfig.Settings["ManualLockDuration"]
+                this.State["ActiveWindow"] := focusedWindow
+                this.State["LastUserMove"] := A_TickCount
+                PhysicsEngine.StopMovement(targetWin)
+                VisualFeedback.AddManualBorder(focusedWindow)
+                VisualFeedback.ShowTooltip("Window LOCKED - Position Fixed")
+            }
         }
-    } catch as e {
-        ShowTooltip("Failed to create overlap for physics test")
-        DebugLog("HOTKEY", "Physics test failed: " . e.Message, 1)
+    }
+    
+    static Shutdown() {
+        this.StopTimers()
+        VisualFeedback.Cleanup()
     }
 }
 
-; ===== STARTUP =====
-; Initialize the system when script starts
-InitializeSystem()
+; ===== HOTKEYS & INITIALIZATION =====
+^!Space::WindowManager.ToggleArrangement()    ; Ctrl+Alt+Space
+^!P::WindowManager.TogglePhysics()            ; Ctrl+Alt+P  
+^!L::WindowManager.ToggleWindowLock()         ; Ctrl+Alt+L
 
-DebugLog("SYSTEM", "FWDE script loaded and ready", 2)
+; Initialize system
+WindowManager.Initialize()
+
+; Cleanup on exit
+OnExit((*) => WindowManager.Shutdown())

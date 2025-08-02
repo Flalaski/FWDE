@@ -1036,14 +1036,14 @@ SavePluginSessionState() {
             DirCreate(A_ScriptDir . "\Data")
         }
         
-        ; Use the global JSON stringify function
-        jsonText := JSON.stringify(sessionData, 2)
+        ; Use the corrected JSON stringify function
+        jsonText := StringifyJSON(sessionData, 2)
         FileAppend(jsonText, sessionFile)
         
         DebugLog("SESSION", "Plugin session state saved", 2)
         
     } catch as e {
-        RecordSystemError("Session Save", "Failed to save session state: " . e.message)
+        RecordSystemError("SavePluginSessionState", e)
     }
 }
 

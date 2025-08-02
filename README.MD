@@ -10,9 +10,11 @@
 FWDE is a physics-driven window manager for Windows, designed for DAW plugins, terminals, dialogs, and floating windows. It uses real-time simulation for natural, intelligent arrangements, with multi-monitor support, manual controls, visual effects, sophisticated layout algorithms including bin packing, genetic evolution, custom presets, and **adaptive performance scaling** that automatically optimizes system resource usage.
 
 **New Features:**  
-- **Adaptive performance scaling:** Intelligent system resource monitoring with automatic quality level adjustment based on CPU, memory, and frame timing metrics
-- **Performance budget management:** Operation-specific performance budgets with automatic enforcement to maintain optimal responsiveness
-- **Emergency performance protection:** Critical resource detection with automatic system protection and recovery mechanisms
+- **Intelligent Screenshot Detection:** Smart detection system that only pauses physics during active screenshot operations, not when screenshot tools are idle in background
+- **Reduced False Positives:** Advanced process monitoring that distinguishes between idle background processes and active screenshot UI
+- **Manual Override Controls:** Toggle screenshot detection completely with hotkey or disable temporarily as needed
+- **Enhanced Window Targeting:** Improved detection of floating windows for DAWs, terminals, plugins, and development tools
+- **Performance Optimizations:** Reduced resource usage with smarter update frequencies and intelligent monitoring thresholds
 
 ---
 
@@ -20,35 +22,30 @@ FWDE is a physics-driven window manager for Windows, designed for DAW plugins, t
 
 | Shortcut              | Action                                         |
 |-----------------------|------------------------------------------------|
-| `Ctrl + Alt + Space`  | Toggle automatic window arrangement ON/OFF     |
 | `Ctrl + Alt + P`      | Toggle physics engine ON/OFF                   |
-| `Ctrl + Alt + F`      | Toggle time-phasing visual effects             |
+| `Ctrl + Alt + A`      | Toggle automatic window arrangement ON/OFF     |
 | `Ctrl + Alt + M`      | Toggle seamless multi-monitor floating         |
-| `Ctrl + Alt + O`      | Optimize all window positions                  |
-| `Ctrl + Alt + L`      | Lock/unlock the currently active window        |
-| `Ctrl + Alt + 1`      | Load Default configuration preset               |
-| `Ctrl + Alt + 2`      | Load DAW Production preset                      |
-| `Ctrl + Alt + 3`      | Load Gaming preset                              |
-| `Ctrl + Alt + 4`      | Load Office Work preset                         |
-| `Ctrl + Alt + 5`      | Load High Performance preset                    |
-| `Ctrl + Alt + C`      | Show configuration status and validation        |
-| `Ctrl + Alt + V`      | View available configuration presets            |
-| `Ctrl + Alt + S`      | Save current configuration to file              |
-| `Ctrl + Alt + R`      | Reload configuration from file                  |
-| `Ctrl + Alt + E`      | Export configuration                            |
-| `Ctrl + Alt + I`      | Import configuration                            |
-| `Ctrl + Alt + Shift + L` | Save current layout with custom name       |
-| `Ctrl + Alt + Shift + K` | Load saved layout from selection dialog    |
-| `Ctrl + Alt + Shift + G` | Toggle genetic algorithm evolution          |
-| `Ctrl + Alt + Shift + B` | Change bin packing strategy                 |
-| `Ctrl + Alt + Shift + V` | Toggle virtual desktop integration          |
-| `Ctrl + Alt + Shift + Q` | Toggle automatic performance adjustment          |
-| `Ctrl + Alt + Shift + W` | Show comprehensive performance metrics           |
-| `Ctrl + Alt + Shift + E` | Manual quality level cycling                     |
+| `Ctrl + Alt + S`      | Toggle screenshot detection ON/OFF             |
+| `Ctrl + Alt + R`      | Refresh window list manually                   |
+| `Ctrl + Alt + I`      | Show comprehensive system status               |
+| `Ctrl + Alt + Pause`  | Emergency stop - pause all systems            |
 
-## 🧠 Sophisticated Layout Algorithms
+## 🧠 Core Features
 
-FWDE includes advanced layout optimization algorithms for intelligent window arrangement:
+FWDE includes intelligent systems for automatic window management:
+
+### 📷 Smart Screenshot Detection
+- **Intelligent Process Monitoring**: Distinguishes between idle background screenshot tools and active capture operations
+- **Window Activity Analysis**: Detects active screenshot UI elements and capture windows rather than just process existence
+- **Reduced False Positives**: Physics only pauses during actual screenshot operations, not when tools like ShareX are idle
+- **Manual Control**: Toggle screenshot detection entirely with `Ctrl + Alt + S` or disable temporarily as needed
+- **Supported Applications**: ShareX, ScreenToGif, Greenshot, Snagit, Windows Snipping Tool, PowerToys Screen Ruler, and more
+
+### 🎯 Advanced Window Detection
+- **DAW Plugin Support**: Automatic detection of VST plugins, audio effect windows, and music production tools
+- **Development Environment**: Handles command prompts, terminals, IDEs, and development floating windows  
+- **Pattern Matching**: Configurable patterns for window classes, titles, and process names
+- **Multi-Criteria Detection**: Combines window styles, process whitelists, and pattern matching for accurate targeting
 
 ### 📦 Bin Packing Algorithms
 - **First Fit**: Places windows in the first available space for quick arrangement
@@ -78,58 +75,48 @@ FWDE includes advanced layout optimization algorithms for intelligent window arr
 
 ---
 
-## 📐 Configuration Presets
+## 📐 System Status & Monitoring
 
-FWDE includes professionally tuned presets for different use cases:
+FWDE includes comprehensive system monitoring and status reporting:
 
-### 🎵 DAW Production
-Optimized for Digital Audio Workstation environments with plugin windows:
-- Higher repulsion forces for better plugin separation
-- Longer user interaction timeouts for precise positioning
-- Multi-monitor floating enabled by default
-- Reduced overlap tolerance for cleaner layouts
+### 📊 Real-Time System Status
+- **Window Count**: Number of currently managed floating windows
+- **Physics Status**: Current state of physics engine (ON/OFF)
+- **Arrangement Status**: Automatic arrangement system status (Active/Inactive)
+- **Screenshot Detection**: Current screenshot detection state (Enabled/Disabled)
+- **Physics State**: Whether physics is currently paused or active
+- **Error Tracking**: System error count and recent error information
 
-### 🎮 Gaming  
-High-performance settings for gaming environments:
-- Faster physics updates for responsive behavior
-- Strong edge repulsion to keep windows away from game areas
-- Shorter lock durations for quick adjustments
-- Optimized for single-monitor setups
+### 🔧 Status Display Hotkey
+Use `Ctrl + Alt + I` to show a comprehensive status dialog with:
+- Current window count being managed
+- Physics engine status
+- Arrangement system status  
+- Screenshot detection status
+- Current physics state (active/paused)
+- System error count and health status
 
-### 🏢 Office Work
-Conservative settings for productivity environments:
-- Larger margins and gaps for professional appearance
-- Slower, smoother movements to avoid distraction
-- Longer lock durations for stable layouts
-- Higher overlap tolerance for document windows
-
-### ⚡ High Performance
-Optimized for powerful systems with many windows:
-- Maximum update frequencies for smooth operation
-- Multi-monitor floating for complex workflows
-- Minimal stabilization delays for immediate response
-- Fine-tuned for systems with 16+ concurrent windows
-
----
-
-## ⚡ Physics & Visual Effects
+The status dialog auto-closes after 10 seconds for non-intrusive monitoring.
+⚡ Physics & Visual Effects
 
 - **Physics Engine:**  
-  - Center attraction, inter-window repulsion, edge barriers  
-  - Space-seeking: windows move toward less crowded areas  
-  - Energy state management: adapts between "normal" and "chaos"  
-  - Collision resolution, velocity limiting, friction/damping
+  - Center attraction with configurable gravitational pull toward screen center
+  - Inter-window repulsion forces to prevent overlapping and maintain spacing
+  - Edge barriers that push windows away from screen boundaries  
+  - Velocity limiting and damping for natural, controlled movement
+  - Smart collision detection and resolution for smooth interactions
 
-- **Visual Effects:**  
-  - Time-phasing echoes (particle trails)  
-  - Manual window borders (red highlight for locked)  
-  - Blur effects (desktop composition integration)
+- **Performance Features:**  
+  - Configurable update frequencies for physics and visual systems
+  - Performance metric tracking with automatic optimization
+  - Emergency performance protection for system stability
+  - Intelligent resource monitoring and adaptive scaling
 
-- **Layout Algorithms:**
-  - Advanced bin packing for optimal space utilization
-  - Genetic algorithm evolution for adaptive layout learning
-  - Custom layout presets with visual management
-  - Virtual desktop integration for multi-workspace productivity
+- **Screenshot Integration:**
+  - Smart detection of active screenshot operations vs. idle background processes
+  - Automatic physics pausing during actual screenshot capture to prevent interference
+  - Support for popular screenshot tools: ShareX, Greenshot, Snagit, Windows Snipping Tool
+  - Manual override controls for complete screenshot detection management
 
 ---
 
@@ -138,196 +125,145 @@ Optimized for powerful systems with many windows:
 **Requirements:**  
 - AutoHotkey v2.0+  
 - Windows 10/11  
-- Multi-monitor setups  
+- Multi-monitor setups supported
 - High-DPI compatible
 
-**Configuration Validation:**
-FWDE includes a comprehensive validation system that prevents invalid parameter combinations:
-- Range validation for all numeric parameters
-- Dependency checking between related settings  
-- Automatic fallback to safe defaults on validation failure
-- Real-time configuration status monitoring
+**Current Implementation:**
+FWDE v2 focuses on core functionality with a simplified, stable implementation:
+- Essential physics-based window management
+- Intelligent screenshot detection with minimal false positives
+- Smart window detection for DAWs, terminals, and development tools
+- Performance optimizations for smooth operation
+- Comprehensive system status monitoring and error tracking
 
-**Config Map (editable in script):**
+**Config Map (current simplified version):**
 ```ahk
 global Config := Map(
-    "MinMargin", 0,                 ; Distance from screen edges (pixels) [0-200]
+    ; Core Physics
     "AttractionForce", 0.0001,      ; Center gravitational pull [0.0001-1.0]
     "RepulsionForce", 0.369,        ; Window separation force [0.01-50.0]
-    "EdgeRepulsionForce", 0.80,     ; Screen edge push strength [0.1-10.0]
-    "SeamlessMonitorFloat", false,  ; Multi-monitor floating toggle
-    "UserMoveTimeout", 11111,       ; User interaction timeout (ms) [1000-60000]
-    "ManualLockDuration", 33333,    ; Manual lock duration (ms) [5000-300000]
-    "PhysicsTimeStep", 1,           ; Physics update frequency [1-100ms]
-    "VisualTimeStep", 2,            ; Visual update frequency [1-100ms]
-    "MaxSpeed", 12.0,               ; Maximum window velocity [1.0-100.0]
     "Damping", 0.001,               ; Friction coefficient [0.0001-0.1]
-    "Smoothing", 0.5                ; Motion smoothing factor [0.1-0.99]
+    "MaxSpeed", 12.0,               ; Maximum window velocity [1.0-100.0]
+    
+    ; Layout Parameters
+    "MinMargin", 0,                 ; Distance from screen edges (pixels)
+    "MinGap", 0,                    ; Minimum gap between windows
+    "EdgeRepulsionForce", 0.80,     ; Screen edge push strength [0.1-10.0]
+    
+    ; Timing & Performance
+    "PhysicsTimeStep", 1,           ; Physics update frequency (ms)
+    "VisualTimeStep", 2,            ; Visual update frequency (ms)
+    "UserMoveTimeout", 11111,       ; User interaction timeout (ms)
+    "ManualLockDuration", 33333,    ; Manual lock duration (ms)
+    
+    ; Screenshot Detection
+    "ScreenshotPauseDuration", 5000,    ; How long to pause physics after detection (ms)
+    "ScreenshotCheckInterval", 500,     ; How often to check for screenshot activity (ms)
+    
+    ; Features
+    "SeamlessMonitorFloat", false,  ; Multi-monitor floating toggle
+    "Smoothing", 0.5,               ; Motion smoothing factor [0.1-0.99]
+    "MinSpeedThreshold", 0.369      ; Minimum movement threshold
 )
 ```
 
-**Validation Rules:**
-- Attraction force must not exceed repulsion force for system stability
-- Physics updates should be more frequent than visual updates for smoothness
-- Speed and damping combinations are validated to prevent instability
-- All parameters are range-checked against safe operational limits
+**Screenshot Detection Configuration:**
+The system monitors these applications and window classes for active screenshot operations:
+- **Processes**: ShareX.exe, ScreenToGif.exe, Greenshot.exe, Snagit32.exe, SnippingTool.exe, PowerToys.ScreenRuler.exe, obs64.exe, and more
+- **Window Classes**: GDI+ Hook Window Class, CrosshairOverlay, ScreenshotOverlay, CaptureOverlay, SelectionOverlay
+- **Activity Detection**: Only pauses when screenshot tools show active capture UI, not when running idle in background
 
-**Layout Algorithm Configuration:**
-```ahk
-global LayoutAlgorithms := Map(
-    "BinPacking", Map(
-        "Strategy", "BestFit",           ; FirstFit, BestFit, NextFit, WorstFit
-        "AllowRotation", false,          ; Allow window rotation for better fit
-        "PackingEfficiency", 0.85        ; Target packing efficiency (0.0-1.0)
-    ),
-    "GeneticAlgorithm", Map(
-        "PopulationSize", 50,            ; Size of layout population
-        "MutationRate", 0.1,             ; Rate of layout mutations (0.0-1.0)
-        "CrossoverRate", 0.8,            ; Rate of layout crossover (0.0-1.0)
-        "FitnessWeights", Map(           ; Weights for fitness calculation
-            "Overlap", 0.3,              ; Penalty for window overlaps
-            "ScreenUsage", 0.25,         ; Reward for efficient screen usage
-            "Accessibility", 0.2,        ; Reward for accessible layouts
-            "UserPreference", 0.15,      ; Reward for user preference alignment
-            "Aesthetics", 0.1            ; Reward for aesthetic appeal
-        )
-    )
-)
-```
-
-**Layout Management Commands:**
-- Save current layout: `Ctrl + Alt + Shift + L`
-- Load saved layout: `Ctrl + Alt + Shift + K`
-- Toggle genetic evolution: `Ctrl + Alt + Shift + G`
-- Change packing strategy: `Ctrl + Alt + Shift + B`
-- Virtual desktop toggle: `Ctrl + Alt + Shift + V`
-
----
-
-## ⚡ Adaptive Performance Scaling
-
-FWDE includes an intelligent performance scaling system that monitors system resources and automatically adjusts quality settings:
-
-### 📊 Real-Time Resource Monitoring
-- **CPU Usage Tracking**: Continuous monitoring of system CPU load with historical analysis
-- **Memory Usage Analysis**: Real-time memory consumption tracking with threshold detection
-- **Frame Timing Metrics**: Frame rate and timing variance analysis for smooth operation
-- **Performance Trend Analysis**: Historical performance data for predictive optimization
-
-### 🎚️ Automatic Quality Adjustment
-- **Five-Tier Quality System**: Ultra, High, Medium, Low, and Minimal quality levels
-- **Intelligent Quality Selection**: Automatic quality level recommendation based on system performance
-- **Smooth Quality Transitions**: Seamless quality adjustments with user notification
-- **Emergency Performance Protection**: Automatic critical resource detection and protection
-
-### 📈 Performance Budget Management
-- **Operation-Specific Budgets**: Individual performance budgets for physics, movement, and visual operations
-- **Automatic Budget Enforcement**: Real-time performance monitoring with automatic adjustment
-- **Performance Metrics Dashboard**: Comprehensive real-time performance statistics and trends
-- **User-Controllable Settings**: Manual override and configuration of automatic performance scaling
-
-### Quality Level Characteristics:
-- **Ultra**: Maximum quality for high-end systems (1ms physics/visual updates, all advanced features)
-- **High**: High quality for powerful systems (1-2ms updates, advanced visuals enabled)
-- **Medium**: Balanced quality for most systems (2-3ms updates, selective advanced features)
-- **Low**: Performance optimized for older systems (3-5ms updates, essential features only)
-- **Minimal**: Minimum resource usage for limited systems (5-10ms updates, basic functionality)
-
----
-
-## 📋 Installation & Usage
-
-1. Install AutoHotkey v2.0+ from [autohotkey.com](https://autohotkey.com)
-2. Download FWDE.ahk and run it
-3. Script starts managing eligible windows automatically
-4. Use hotkeys or edit config for customization
-5. Enable multi-monitor floating with `Ctrl + Alt + M`
-
----
-
+**Float Detection Patterns:**
+The system automatically detects floating windows using:
+- **Process Whitelist**: DAW applications (Reaper, FL Studio, Ableton, etc.), terminals, development tools
+- **Window Class Patterns**: VST plugins, dialogs, console windows, floating tool windows
+- **Title Patterns**: Plugin names, command prompts, development tools, audio effects
+- **Window Style Analysis**: Popup windows, tool windows, always-on-top windows
 ## 🛠️ Customization
 
-Edit the Config map for:
+Edit the Config map in the script for:
 
 - **Physics:** Force strengths, speed limits, damping, update rates
-- **Window Management:** Timeout durations, margins, pattern rules
-- **Visuals:** Animation/smoothing, border colors, echo parameters
-- **Presets:** Use hotkeys Ctrl+Alt+1-5 to quickly switch between optimized configurations
+- **Window Management:** Timeout durations, margins, detection patterns
+- **Screenshot Detection:** Pause duration, check intervals, process lists
+- **Performance:** Update frequencies, monitoring thresholds, resource limits
 
-Edit the LayoutAlgorithms map for:
+**Easy Configuration Access:**
+- All settings are clearly documented in the script's Config map
+- Real-time changes take effect immediately without restart
+- Use `Ctrl + Alt + I` to monitor current system status and configuration effectiveness
+- Safe defaults ensure system stability even with experimental settings
 
-- **Bin Packing:** Strategy selection, rotation options, efficiency targets
-- **Genetic Algorithm:** Population size, mutation rates, fitness weights
-- **Custom Layouts:** Auto-save options, layout directory, maximum saved layouts
-- **Virtual Desktop:** Per-workspace settings, automatic switching, workspace profiles
-
-**Configuration Management:**
-- Real-time validation prevents destabilizing parameter combinations
-- Automatic fallback to safe defaults if validation fails
-- Configuration status checking with Ctrl+Alt+C
-- Easy preset switching for different workflow requirements
-
-**Advanced Layout Configuration:**
-- **Algorithm Selection**: Choose optimal packing strategy based on your workflow
-- **Evolution Parameters**: Tune genetic algorithm for faster or more thorough optimization
-- **Workspace Management**: Configure per-desktop layout rules and automatic switching
-- **Performance Optimization**: Adjust algorithm timing and efficiency for your system
+**Screenshot Detection Customization:**
+- Add new screenshot applications to the process list
+- Configure pause duration after screenshot detection
+- Adjust detection sensitivity and check intervals
+- Enable/disable detection entirely for specific workflows
 
 ---
 
 ## 🔍 Advanced Configuration
 
-- **High-DPI:** Lower MinSpeedThreshold (0.05-0.15)
-- **Low-Performance:** Higher MinSpeedThreshold (0.2-0.5), increase TimeStep
-- **Strict Spacing:** Lower OverlapTolerance (0-5)
-- **Loose Grouping:** Higher OverlapTolerance (20+)
-- **Layout Optimization:** Use genetic algorithm for workflows requiring perfect arrangements
-- **Space Efficiency:** Enable bin packing for maximum screen utilization
-- **Multi-Workspace:** Virtual desktop integration for complex professional workflows
-- **Performance Tuning:** Adjust algorithm parameters based on window count and system specs
+- **High-DPI:** Lower MinSpeedThreshold (0.05-0.15) for precise movement
+- **Low-Performance:** Higher MinSpeedThreshold (0.2-0.5), increase TimeStep values
+- **Strict Spacing:** Increase RepulsionForce for more window separation
+- **Loose Grouping:** Decrease RepulsionForce for closer window clustering  
+- **Multi-Monitor:** Enable SeamlessMonitorFloat for cross-monitor window movement
+- **Screenshot Workflows:** Adjust ScreenshotPauseDuration based on your capture workflow timing
+- **Performance Tuning:** Adjust TimeStep values based on window count and system capabilities
 
 ---
 
 ## 🐛 Troubleshooting
 
-- Windows not moving: Check physics engine (`Ctrl + Alt + P`) or system tray icon status
-- Too aggressive: Try Office Work preset (`Ctrl + Alt + 4`) or increase damping
-- Performance issues: Try Gaming preset (`Ctrl + Alt + 3`) or check performance metrics
-- Multi-monitor: Toggle seamless floating (`Ctrl + Alt + M`) or try High Performance preset (`Ctrl + Alt + 5`)
-- Configuration errors: Check status with `Ctrl + Alt + C` and load Default preset (`Ctrl + Alt + 1`)
-- Visual feedback issues: Check system tray for error indicators or reset system state
-- Window clipped at bottom: Window will be automatically resized to fit the monitor margin during optimization or placement.
-- **Layout issues**: Try different bin packing strategies (`Ctrl + Alt + Shift + B`) or reset genetic algorithm
-- **Virtual desktop problems**: Check Windows 11 virtual desktop settings and restart FWDE
-- **Performance with many windows**: Disable genetic algorithm or reduce population size
-- **Layout restoration failures**: Verify window titles and classes haven't changed
+**Common Issues:**
+- **Windows not moving**: Check physics engine status (`Ctrl + Alt + P`) and arrangement system (`Ctrl + Alt + A`)
+- **Too aggressive movement**: Increase Damping value or decrease RepulsionForce in Config
+- **Performance issues**: Increase PhysicsTimeStep and VisualTimeStep values for slower updates
+- **Multi-monitor problems**: Toggle seamless floating (`Ctrl + Alt + M`) and check monitor detection
+- **Screenshot interference**: Toggle screenshot detection (`Ctrl + Alt + S`) or adjust pause duration
 
-**System Tray Troubleshooting:**
-- Right-click system tray icon for quick access to all functions
-- Use "System Status" for comprehensive health monitoring  
-- "Reset System" clears all errors and restarts physics engine
-- "Performance Metrics" shows real-time operation statistics
+**System Status Checking:**
+- Use `Ctrl + Alt + I` to get comprehensive system status information
+- Check window count, physics status, and error information
+- Monitor screenshot detection status and physics pause state
+- Use `Ctrl + Alt + R` to manually refresh the window list if windows aren't being detected
 
-**Configuration Issues:**
-- If system becomes unstable, load the Default preset with `Ctrl + Alt + 1`
-- Use `Ctrl + Alt + C` to check for configuration validation errors
-- Invalid parameter combinations are automatically detected and prevented
-- System includes automatic fallback to safe defaults on critical errors
-- Visual notifications confirm all configuration changes and status
+**Screenshot Detection Issues:**
+- **False positives from idle processes**: The new system should eliminate this, but you can disable detection with `Ctrl + Alt + S`
+- **Physics not resuming after screenshot**: Check if screenshot process is still running active capture windows
+- **Screenshot tools not detected**: Add the process name to Config["ScreenshotProcesses"] array
+- **Detection too sensitive**: Increase ScreenshotCheckInterval or adjust detection thresholds
 
-**Layout Algorithm Troubleshooting:**
-- **Poor packing efficiency**: Try Best Fit or Guillotine strategies for complex arrangements
-- **Genetic algorithm not improving**: Increase population size or adjust fitness weights
-- **Layout presets not loading**: Check layout file integrity and window matching criteria
-- **Virtual desktop integration issues**: Ensure Windows 11 virtual desktop API is available
+**Emergency Controls:**
+- `Ctrl + Alt + Pause`: Complete emergency stop of all systems
+- `Ctrl + Alt + P`: Quick physics engine toggle for immediate control
+- `Ctrl + Alt + R`: Manual window list refresh to reset window tracking
+- System automatically recovers from most error conditions with safe fallbacks
 
-**Performance Issues:**
-- **High resource usage**: System automatically reduces quality level with notification
-- **Critical resource situations**: Emergency performance reduction with automatic recovery
-- **Performance monitoring**: Use `Ctrl + Alt + Shift + W` for comprehensive performance metrics
-- **Manual quality control**: Use `Ctrl + Alt + Shift + E` to manually cycle through quality levels
+---
+
+## 📋 Installation & Usage
+
+1. **Install AutoHotkey v2.0+** from [autohotkey.com](https://autohotkey.com)
+2. **Download FWDE.ahk** and run it (or compile to .exe for easier distribution)
+3. **Automatic Detection**: Script starts managing eligible floating windows automatically
+4. **Configuration**: Use hotkeys to control behavior or edit Config map in script for customization
+5. **Multi-Monitor**: Enable seamless multi-monitor floating with `Ctrl + Alt + M`
+
+**First Run:**
+- FWDE will show a tooltip confirming successful startup
+- Check system status anytime with `Ctrl + Alt + I`
+- Physics engine and arrangement system start enabled by default
+- Screenshot detection is enabled and will intelligently pause physics during capture operations
+
+**Supported Window Types:**
+- DAW plugins (VST, AU, etc.) from Reaper, FL Studio, Ableton, Cubase, and more
+- Development tools: Command Prompt, PowerShell, Windows Terminal, IDE floating windows
+- System dialogs and utility windows
+- Any window matching the configurable detection patterns
 
 ---
 
 *Created by Flalaski with AI assistance (DeepSeek, Gemini, CoPilot)*  
-*Countless iterations for the perfect balance of automatic organization and user control. Hope it's helpful! ♥*
+*Streamlined for stability and essential functionality. Hope it's helpful! ♥*

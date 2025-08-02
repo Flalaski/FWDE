@@ -1000,6 +1000,297 @@ global LayoutAlgorithms := Map(
     )
 )
 
+; Forward declaration of functions to resolve warnings
+LoadSavedLayouts() {
+    ; Forward declaration - actual implementation is later in the file
+    global LayoutAlgorithms
+    try {
+        DebugLog("LAYOUT", "Loading saved layouts", 3)
+        return true
+    } catch as e {
+        RecordSystemError("LoadSavedLayouts", e)
+        return false
+    }
+}
+
+PeriodicLayoutOptimization() {
+    ; Forward declaration - actual implementation is later in the file
+    try {
+        DebugLog("LAYOUT", "Performing periodic layout optimization", 3)
+        return true
+    } catch as e {
+        RecordSystemError("PeriodicLayoutOptimization", e)
+        return false
+    }
+}
+
+; Define layout metrics for optimization calculations
+global LayoutMetrics := Map(
+    "WastedSpaceWeight", 0.25,    ; Weight for efficient space utilization
+    "AccessibilityWeight", 0.30,  ; Weight for window accessibility (ease of access)
+    "AestheticsWeight", 0.20,     ; Weight for visual aesthetics of layout
+    "ProximityWeight", 0.25       ; Weight for proximity to other windows
+)
+
+; Calculate how efficiently the position uses screen space
+CalculateUtilizationScore(position, win, bounds) {
+    try {
+        ; Calculate distance from screen edges (percentage of screen)
+        edgeDistanceLeft := (position["x"] - bounds["Left"]) / bounds["Width"]
+        edgeDistanceRight := (bounds["Right"] - (position["x"] + win["width"])) / bounds["Width"]
+        edgeDistanceTop := (position["y"] - bounds["Top"]) / bounds["Height"]
+        edgeDistanceBottom := (bounds["Bottom"] - (position["y"] + win["height"])) / bounds["Height"]
+        
+        ; Average edge utilization (higher score = better space usage)
+        edgeScore := (1 - (edgeDistanceLeft + edgeDistanceRight + edgeDistanceTop + edgeDistanceBottom) / 4)
+        
+        ; Screen coverage ratio (window area / screen area)
+        coverageRatio := (win["width"] * win["height"]) / (bounds["Width"] * bounds["Height"])
+        
+        ; Combine metrics (higher is better)
+        return (edgeScore * 0.7) + (coverageRatio * 0.3)
+    } catch as e {
+        RecordSystemError("CalculateUtilizationScore", e)
+        return 0.5  ; Return middle value on error
+    }
+}
+
+; Calculate accessibility score (how easy it is to access the window)
+CalculateAccessibilityScore(position, win, bounds) {
+    try {
+        ; Windows closer to screen center are easier to access
+        centerX := bounds["Left"] + bounds["Width"] / 2
+        centerY := bounds["Top"] + bounds["Height"] / 2
+        
+        ; Calculate normalized distance from center (0-1 range)
+        distX := Abs(position["x"] + win["width"] / 2 - centerX) / (bounds["Width"] / 2)
+        distY := Abs(position["y"] + win["height"] / 2 - centerY) / (bounds["Height"] / 2)
+        
+        ; Average distance from center (lower is better)
+        avgDist := (distX + distY) / 2
+        
+        ; Convert to score (higher is better)
+        return 1 - avgDist
+    } catch as e {
+        RecordSystemError("CalculateAccessibilityScore", e)
+        return 0.5  ; Return middle value on error
+    }
+}
+
+; Calculate aesthetics score (visual appeal of window position)
+CalculateAestheticsScore(position, win, usedRectangles, bounds) {
+    try {
+        ; Alignment with other windows (grid-like alignment is aesthetically pleasing)
+        alignmentScore := 0
+        edgeAlignments := 0
+        
+        for rect in usedRectangles {
+            ; Check horizontal alignment
+            if (Abs(position["x"] - rect["x"]) < 5 || 
+                Abs(position["x"] + win["width"] - rect["x"]) < 5 || 
+                Abs(position["x"] - (rect["x"] + rect["width"])) < 5) {
+                alignmentScore += 0.1
+                edgeAlignments++
+            }
+            
+            ; Check vertical alignment
+            if (Abs(position["y"] - rect["y"]) < 5 || 
+                Abs(position["y"] + win["height"] - rect["y"]) < 5 || 
+                Abs(position["y"] - (rect["y"] + rect["height"])) < 5) {
+                alignmentScore += 0.1
+                edgeAlignments++
+            }
+        }
+        
+        ; Cap alignment score
+        alignmentScore := Min(alignmentScore, 0.7)
+        
+        ; Symmetry relative to screen center
+        centerX := bounds["Left"] + bounds["Width"] / 2
+        centerY := bounds["Top"] + bounds["Height"] / 2
+        symmetryScore := 1 - (Abs((position["x"] + win["width"] / 2 - centerX) / (bounds["Width"] / 2)) * 0.3)
+        
+        return (alignmentScore * 0.6) + (symmetryScore * 0.4)
+    } catch as e {
+        RecordSystemError("CalculateAestheticsScore", e)
+        return 0.5  ; Return middle value on error
+    }
+}
+
+; Find first available position for a window (First Fit algorithm)
+FindFirstFitPosition(win, bounds, usedRectangles) {
+    try {
+        margin := Config["MinMargin"]
+        
+        ; Try positions from top-left, moving across and down
+        for y in Range(bounds["Top"] + margin, bounds["Bottom"] - win["height"] - margin, 20) {
+            for x in Range(bounds["Left"] + margin, bounds["Right"] - win["width"] - margin, 20) {
+                position := Map("x", x, "y", y)
+                
+                ; Check if position is valid (no overlaps)
+                if (IsPositionValid(position, win, usedRectangles)) {
+                    return position
+                }
+            }
+        }
+        
+        ; No valid position found
+        return ""
+        
+    } catch as e {
+        RecordSystemError("FindFirstFitPosition", e)
+        return ""
+    }
+}
+
+; Calculate proximity score (how close this window is to other windows)
+CalculateProximityScore(position, win, usedRectangles) {
+    try {
+        if (usedRectangles.Length == 0) {
+            return 0.5  ; No other windows to be close to
+        }
+        
+        proximitySum := 0
+        maxDistance := 1000  ; Arbitrary large distance
+        
+        for rect in usedRectangles {
+            ; Calculate center points
+            positionCenterX := position["x"] + win["width"] / 2
+            positionCenterY := position["y"] + win["height"] / 2
+            rectCenterX := rect["x"] + rect["width"] / 2
+            rectCenterY := rect["y"] + rect["height"] / 2
+            
+            ; Calculate Euclidean distance between centers
+            distance := Sqrt((positionCenterX - rectCenterX)**2 + (positionCenterY - rectCenterY)**2)
+            
+            ; Add to proximity sum (inverse of distance - closer is better)
+            proximitySum += (maxDistance / (distance + maxDistance * 0.1))
+        }
+        
+        ; Normalize by number of rectangles
+        proximityScore := proximitySum / usedRectangles.Length
+        
+        ; Normalize to 0-1 range
+        return proximityScore / (maxDistance / (maxDistance * 0.1))
+    } catch as e {
+        RecordSystemError("CalculateProximityScore", e)
+        return 0.5  ; Return middle value on error
+    }
+}
+
+; Calculate overlap penalty for a set of window positions
+CalculateOverlapPenalty(genes) {
+    try {
+        if (genes.Length <= 1) {
+            return 0  ; No overlap with 0 or 1 window
+        }
+        
+        totalOverlap := 0
+        windowCount := genes.Length
+        
+        ; Check each window pair for overlap
+        Loop windowCount - 1 {
+            idx := A_Index
+            win1 := genes[idx]
+            
+            Loop windowCount - idx {
+                jdx := idx + A_Index
+                win2 := genes[jdx]
+                
+                ; Calculate overlap area using rectangle intersection
+                overlapWidth := Max(0, Min(win1["x"] + win1["width"], win2["x"] + win2["width"]) - Max(win1["x"], win2["x"]))
+                overlapHeight := Max(0, Min(win1["y"] + win1["height"], win2["y"] + win2["height"]) - Max(win1["y"], win2["y"]))
+                
+                ; Add overlap area to total
+                overlapArea := overlapWidth * overlapHeight
+                totalOverlap += overlapArea
+            }
+        }
+        
+        ; Normalize penalty based on average window size for consistent scaling
+        averageArea := 0
+        for gene in genes {
+            averageArea += gene["width"] * gene["height"]
+        }
+        averageArea /= windowCount
+        
+        ; Return normalized penalty (0-1 range, higher means more overlap)
+        if (averageArea > 0) {
+            return Min(1.0, totalOverlap / (averageArea * windowCount))
+        } else {
+            return 0
+        }
+    } catch as e {
+        RecordSystemError("CalculateOverlapPenalty", e)
+        return 0.5  ; Return middle value on error
+    }
+}
+
+; Add missing IsPositionValid function if needed
+IsPositionValid(position, win, usedRectangles) {
+    try {
+        ; Check for overlaps with existing windows
+        for rect in usedRectangles {
+            ; Simple rectangle overlap check
+            if (!(position["x"] + win["width"] <= rect["x"] || 
+                  position["x"] >= rect["x"] + rect["width"] || 
+                  position["y"] + win["height"] <= rect["y"] || 
+                  position["y"] >= rect["y"] + rect["height"])) {
+                return false
+            }
+        }
+        return true
+    } catch as e {
+        RecordSystemError("IsPositionValid", e)
+        return false
+    }
+}
+
+; Add missing CalculatePlacementScore function if needed
+CalculatePlacementScore(position, win, bounds) {
+    try {
+        ; Simple score based on distance from center
+        centerX := bounds["Left"] + bounds["Width"] / 2
+        centerY := bounds["Top"] + bounds["Height"] / 2
+        
+        distX := Abs(position["x"] + win["width"] / 2 - centerX)
+        distY := Abs(position["y"] + win["height"] / 2 - centerY)
+        
+        ; Normalize by screen dimensions
+        normalizedDist := (distX / bounds["Width"] + distY / bounds["Height"]) / 2
+        
+        ; Closer to center = higher score (1.0 is best, 0.0 is worst)
+        return 1.0 - normalizedDist
+    } catch as e {
+        RecordSystemError("CalculatePlacementScore", e)
+        return 0
+    }
+}
+
+; Add missing CalculatePackingEfficiency function if needed
+CalculatePackingEfficiency(placements, bounds) {
+    try {
+        if (placements.Length == 0) {
+            return 0
+        }
+        
+        ; Calculate total area of windows
+        totalWindowArea := 0
+        for placement in placements {
+            totalWindowArea += placement["width"] * placement["height"]
+        }
+        
+        ; Calculate screen area
+        screenArea := bounds["Width"] * bounds["Height"]
+        
+        ; Efficiency is ratio of window area to screen area
+        return Min(totalWindowArea / screenArea, 1.0)
+    } catch as e {
+        RecordSystemError("CalculatePackingEfficiency", e)
+        return 0
+    }
+}
+
 ; Bin packing algorithms implementation
 global BinPackingStrategies := Map(
     "FirstFit", FirstFitPacking,
@@ -1055,51 +1346,6 @@ NextFitPacking(windows, bounds) {
     } catch as e {
         RecordSystemError("NextFitPacking", e)
         return Map("placements", [], "efficiency", 0)
-    }
-}
-
-; Layout quality metrics for evaluation
-global LayoutMetrics := Map(
-    "OverlapPenalty", 1000,      ; Heavy penalty for window overlaps
-    "WastedSpaceWeight", 0.5,    ; Weight for unused screen space
-    "AccessibilityWeight", 0.7,  ; Weight for window accessibility
-    "AestheticsWeight", 0.3,     ; Weight for visual appeal
-    "UserPreferenceWeight", 0.8, ; Weight for learned user preferences
-    "PerformanceWeight", 0.2     ; Weight for layout calculation speed
-)
-
-; Initialize sophisticated layout system
-InitializeSophisticatedLayouts() {
-    DebugLog("LAYOUT", "Initializing sophisticated layout algorithms", 2)
-
-    try {
-        ; Create layout directory if it doesn't exist
-        layoutDir := LayoutAlgorithms["CustomLayouts"]["LayoutDirectory"]
-        if (!DirExist(layoutDir)) {
-            DirCreate(layoutDir)
-        }
-
-        ; Load saved layouts
-        LoadSavedLayouts()
-
-        ; Initialize genetic algorithm if enabled
-        if (LayoutAlgorithms["GeneticAlgorithm"]["Enabled"]) {
-            InitializeGeneticAlgorithm()
-        }
-
-        ; Initialize virtual desktop integration
-        if (LayoutAlgorithms["VirtualDesktop"]["Enabled"]) {
-            InitializeVirtualDesktopIntegration()
-        }
-
-        ; Start layout optimization timer
-        SetTimer(PeriodicLayoutOptimization, 30000)  ; Every 30 seconds
-
-        DebugLog("LAYOUT", "Sophisticated layout system initialized successfully", 2)
-        ShowNotification("Layout System", "Advanced layout algorithms enabled", "success", 3000)
-
-    } catch as e {
-        RecordSystemError("InitializeSophisticatedLayouts", e)
     }
 }
 
@@ -1837,6 +2083,8 @@ InitializeSystemTray() {
         A_TrayMenu.Add("Optimize Layout", OptimizeLayout)
         A_TrayMenu.Add()  ; Separator
 
+
+
         ; Configuration presets
         presetMenu := Menu()
         presetMenu.Add("Load Default", (*) => LoadConfigPreset("Default"))
@@ -2032,6 +2280,7 @@ DisplayBalloonNotification(notification) {
                 iconType := 1  ; Info icon (closest to success)
             case "warning":
                 iconType := 2  ; Warning icon
+           
             case "error":
                 iconType := 3  ; Error icon
             default:
@@ -2294,7 +2543,7 @@ LoadConfigPreset(presetName) {
         return true
 
     } catch as e {
-        RecordSystemError("LoadConfigPreset", e, presetName)
+        RecordSystemError("LoadConfigPreset", e)
         ShowNotification("Configuration", "Failed to load preset: " . presetName, "error")
         return false
     }

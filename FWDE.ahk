@@ -55,7 +55,7 @@ global Config := Map(
 
 ; Global state following old version structure
 global g := Map(
-    "Monitor", Config["SeamlessMonitorFloat"] ? GetVirtualDesktopBounds() : GetCurrentMonitorInfo(),
+    "Monitor", Map(),  ; Will be initialized later
     "ArrangementActive", true,
     "LastUserMove", 0,
     "ActiveWindow", 0,
@@ -146,7 +146,14 @@ SmoothStep(t) {
 
 ShowTooltip(text) {
     global g, Config
-    ToolTip(text, g["Monitor"]["CenterX"] - 100, g["Monitor"]["Top"] + 20)
+    
+    ; Use a safe position for tooltip
+    if (g["Monitor"].Has("CenterX") && g["Monitor"].Has("Top")) {
+        ToolTip(text, g["Monitor"]["CenterX"] - 100, g["Monitor"]["Top"] + 20)
+    } else {
+        ; Fallback to screen center if monitor info is not available
+        ToolTip(text, A_ScreenWidth // 2 - 100, 50)
+    }
     SetTimer(() => ToolTip(), -Config["TooltipDuration"])
 }
 
@@ -561,11 +568,22 @@ CalculateWindowForces(win, allWindows) {
         mR := virtualBounds["Right"]
         mB := virtualBounds["Bottom"]
     } else {
-        monitor := g["Monitor"]
-        mL := monitor["Left"]
-        mT := monitor["Top"]
-        mR := monitor["Right"]
-        mB := monitor["Bottom"]
+        ; Use the window's own monitor bounds instead of global monitor
+        winMonitorNum := win["monitor"]
+        winMonitorBounds := Map()
+        
+        ; Find the monitor bounds for this window
+        if (winMonitorNum > 0 && winMonitorNum <= g["AllMonitors"].Length) {
+            winMonitorBounds := g["AllMonitors"][winMonitorNum]
+        } else {
+            ; Fallback to primary monitor if window monitor is invalid
+            winMonitorBounds := GetPrimaryMonitorCoordinates()
+        }
+        
+        mL := winMonitorBounds["Left"]
+        mT := winMonitorBounds["Top"]
+        mR := winMonitorBounds["Right"]
+        mB := winMonitorBounds["Bottom"]
     }
 
     monLeft := mL
@@ -743,7 +761,6 @@ ApplyWindowMovements() {
         
         if (deltaX > movementThreshold || deltaY > movementThreshold) {
             ; Boundary enforcement (from old version)
-            monitor := g["Monitor"]
             if (Config["SeamlessMonitorFloat"]) {
                 virtualBounds := GetVirtualDesktopBounds()
                 monLeft := virtualBounds["Left"]
@@ -751,10 +768,22 @@ ApplyWindowMovements() {
                 monRight := virtualBounds["Right"] - win["width"]
                 monBottom := virtualBounds["Bottom"] - win["height"]
             } else {
-                monLeft := monitor["Left"]
-                monTop := monitor["Top"] + Config["MinMargin"]
-                monRight := monitor["Right"] - win["width"]
-                monBottom := monitor["Bottom"] - Config["MinMargin"] - win["height"]
+                ; Use the window's own monitor bounds instead of global monitor
+                winMonitorNum := win["monitor"]
+                winMonitorBounds := Map()
+                
+                ; Find the monitor bounds for this window
+                if (winMonitorNum > 0 && winMonitorNum <= g["AllMonitors"].Length) {
+                    winMonitorBounds := g["AllMonitors"][winMonitorNum]
+                } else {
+                    ; Fallback to primary monitor if window monitor is invalid
+                    winMonitorBounds := GetPrimaryMonitorCoordinates()
+                }
+                
+                monLeft := winMonitorBounds["Left"]
+                monTop := winMonitorBounds["Top"] + Config["MinMargin"]
+                monRight := winMonitorBounds["Right"] - win["width"]
+                monBottom := winMonitorBounds["Bottom"] - Config["MinMargin"] - win["height"]
             }
             
             newX := Max(monLeft, Min(newX, monRight))
@@ -892,15 +921,9 @@ GetVisibleWindows(monitor) {
                 ; In seamless mode, include all windows from all monitors
                 includeWindow := true
             } else {
-                ; In traditional mode, only include windows on current monitor or already tracked
-                isTracked := false
-                for trackedWin in g["Windows"] {
-                    if (trackedWin["hwnd"] == hwnd) {
-                        isTracked := true
-                        break
-                    }
-                }
-                includeWindow := (winMonitor == monitor["Number"] || isTracked)
+                ; In traditional mode, include all windows but keep them on their respective monitors
+                ; Always include floating windows regardless of which monitor they're on
+                includeWindow := true
             }
             
             if (includeWindow) {
@@ -1001,12 +1024,16 @@ UpdateWindowStates() {
         ; Use virtual desktop bounds if seamless floating is enabled
         if (Config["SeamlessMonitorFloat"]) {
             currentMonitor := GetVirtualDesktopBounds()
+            g["Monitor"] := currentMonitor
+            g["Windows"] := GetVisibleWindows(currentMonitor)
         } else {
-            currentMonitor := GetCurrentMonitorInfo()
+            ; In non-seamless mode, don't change monitor bounds based on mouse
+            ; Keep the current monitor bounds stable
+            if (!g["Monitor"].Has("Left")) {
+                g["Monitor"] := GetPrimaryMonitorCoordinates()
+            }
+            g["Windows"] := GetVisibleWindows(g["Monitor"])
         }
-        
-        g["Monitor"] := currentMonitor
-        g["Windows"] := GetVisibleWindows(currentMonitor)
         
         if (g["ArrangementActive"] && g["PhysicsEnabled"])
             CalculateDynamicLayout()
@@ -1203,6 +1230,13 @@ MoveWindowToMonitor(targetMonitor) {
 ; ===== INITIALIZATION (following old version pattern) =====
 ; Initialize monitor tracking
 MonitorManager.Update()
+
+; Initialize the global monitor state properly
+if (Config["SeamlessMonitorFloat"]) {
+    g["Monitor"] := GetVirtualDesktopBounds()
+} else {
+    g["Monitor"] := GetCurrentMonitorInfo()
+}
 
 ; Start main timers
 SetTimer(UpdateWindowStates, Config["PhysicsTimeStep"])

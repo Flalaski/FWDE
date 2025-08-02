@@ -701,13 +701,14 @@ SaveCustomAutomationRules() {
             }
         }
         
+        ; Use the global JSON stringify function
         rulesText := JSON.stringify(customRules, 2)
         FileAppend(rulesText, customRulesFile)
         
         DebugLog("DAW_AUTO", "Saved custom automation rules", 3)
         return true
         
-    } catch Error as e {
+    } catch as e {
         RecordSystemError("SaveCustomAutomationRules", e)
         return false
     }
@@ -797,3 +798,13 @@ IsDAWWindow(hwnd, dawName) {
 SetTimer(() => {
     InitializeDAWAutomation()
 }, -6000)  ; Initialize after 6 second delay
+
+; Helper function to check if array contains value
+HasValue(arr, value) {
+    for item in arr {
+        if (item == value) {
+            return true
+        }
+    }
+    return false
+}

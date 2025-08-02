@@ -34,9 +34,128 @@ ParseJSON(jsonText) {
     return Map()
 }
 StringifyJSON(obj, indent := 0) {
-    ; Minimal placeholder: returns "{}" for now
-    return "{}"
+    ; Enhanced JSON stringifier that properly handles nested Maps and Arrays
+    try {
+        return StringifyJSONRecursive(obj, indent, 0)
+    } catch as e {
+        DebugLog("JSON", "Stringify error: " . e.Message, 1)
+        return "{}"
+    }
 }
+
+; Recursive JSON stringifier with proper Map/Array handling
+StringifyJSONRecursive(obj, indent := 0, depth := 0) {
+    indentStr := ""
+    if (indent > 0) {
+        Loop indent * depth {
+            indentStr .= " "
+        }
+    }
+    
+    nextIndentStr := ""
+    if (indent > 0) {
+        Loop indent * (depth + 1) {
+            nextIndentStr .= " "
+        }
+    }
+    
+    objType := Type(obj)
+    
+    switch objType {
+        case "Map":
+            if (obj.Count == 0) {
+                return "{}"
+            }
+            
+            result := "{"
+            if (indent > 0) {
+                result .= "`n"
+            }
+            
+            first := true
+            for key, value in obj {
+                if (!first) {
+                    result .= ","
+                    if (indent > 0) {
+                        result .= "`n"
+                    }
+                } else {
+                    first := false
+                }
+                
+                if (indent > 0) {
+                    result .= nextIndentStr
+                }
+                
+                result .= '"' . EscapeJSONString(String(key)) . '": '
+                result .= StringifyJSONRecursive(value, indent, depth + 1)
+            }
+            
+            if (indent > 0) {
+                result .= "`n" . indentStr
+            }
+            result .= "}"
+            return result
+            
+        case "Array":
+            if (obj.Length == 0) {
+                return "[]"
+            }
+            
+            result := "[
+"
+            if (indent > 0) {
+                result .= "`n"
+            }
+            
+            Loop obj.Length {
+                if (A_Index > 1) {
+                    result .= ","
+                    if (indent > 0) {
+                        result .= "`n"
+                    }
+                }
+                
+                if (indent > 0) {
+                    result .= nextIndentStr
+                }
+                
+                result .= StringifyJSONRecursive(obj[A_Index], indent, depth + 1)
+            }
+            
+            if (indent > 0) {
+                result .= "`n" . indentStr
+            }
+            result .= "]"
+            return result
+            
+        case "String":
+            return '"' . EscapeJSONString(obj) . '"'
+            
+        case "Integer", "Float":
+            return String(obj)
+            
+        default:
+            if (obj == true || obj == false) {
+                return obj ? "true" : "false"
+            }
+            if (obj == "") {
+                return '""'
+            }
+            return '"' . EscapeJSONString(String(obj)) . '"'
+    }
+}
+
+; Escape string for JSON
+EscapeJSONString(str) {
+    str := StrReplace(str, "\", "\\")
+    str := StrReplace(str, '"', '\"')
+    str := StrReplace(str, "`n", "\n")
+    str := StrReplace(str, "`r", "\r")
+    str := StrReplace(str, "`t", "\t")
+    return str
+}
+
 global JSON := Map(
     "parse", ParseJSON,
     "stringify", StringifyJSON
@@ -76,7 +195,7 @@ global Config := Map(
     "ScreenshotPauseDuration", 5000, ; How long to pause system during screenshot operations (ms)
     "ScreenshotProcesses", [          ; Screenshot tools that trigger system pause
         "ShareX.exe",
-        "ScreenToGif.exe", 
+        "ScreenToGif.exe",
         "Greenshot.exe",
         "LightShot.exe",
         "Snagit32.exe",
@@ -90,7 +209,7 @@ global Config := Map(
     "ScreenshotWindowClasses", [      ; Window classes that indicate screenshot activity
         "GDI+ Hook Window Class",
         "CrosshairOverlay",
-        "ScreenshotOverlay", 
+        "ScreenshotOverlay",
         "CaptureOverlay",
         "SelectionOverlay",
         "SnipOverlay"
@@ -300,7 +419,7 @@ global ConfigSchema := Map(
     "required", ["MinMargin", "AttractionForce", "RepulsionForce", "PhysicsTimeStep"],
     "structure", Map(
         "MinMargin", "number",
-        "MinGap", "number", 
+        "MinGap", "number",
         "ManualGapBonus", "number",
         "AttractionForce", "float",
         "RepulsionForce", "float",
@@ -427,7 +546,7 @@ IsWindowValid(hwnd) {
 ; Initialize configuration system on startup
 InitializeConfigurationSystem() {
     DebugLog("CONFIG", "Initializing configuration system", 2)
-    
+
     ; Load configuration from file if it exists
     if (FileExist(ConfigFile)) {
         if (LoadConfigurationFromFile()) {
@@ -439,7 +558,7 @@ InitializeConfigurationSystem() {
         DebugLog("CONFIG", "No configuration file found, creating with defaults", 2)
         SaveConfigurationToFile()
     }
-    
+
     ; Start configuration file monitoring for hot-reload
     SetTimer(CheckConfigurationChanges, ConfigWatcher["CheckInterval"])
 }
@@ -447,22 +566,22 @@ InitializeConfigurationSystem() {
 ; JSON-based configuration loading with comprehensive validation
 LoadConfigurationFromFile() {
     global Config, ConfigFile, ConfigBackupFile, ConfigSchema
-    
+
     try {
         ; Read and parse JSON configuration
         configText := FileRead(ConfigFile)
         configData := JSON.parse(configText)
-        
+
         ; Validate JSON structure
         validationResult := ValidateConfigurationSchema(configData)
         if (!validationResult["valid"]) {
             DebugLog("CONFIG", "Configuration schema validation failed: " validationResult["error"], 1)
             return AttemptConfigurationRecovery()
         }
-        
+
         ; Create backup of current configuration before applying changes
         BackupCurrentConfiguration()
-        
+
         ; Apply configuration with validation
         appliedConfig := Map()
         for key, value in configData {
@@ -477,28 +596,28 @@ LoadConfigurationFromFile() {
                 }
             }
         }
-        
+
         ; Validate complete configuration
         fullValidation := ValidateConfiguration(appliedConfig)
         if (!fullValidation["valid"]) {
             DebugLog("CONFIG", "Full configuration validation failed", 1)
-            for error in fullValidation["errors"] {
-                DebugLog("CONFIG", "Validation error: " error, 1)
+            for validationError in fullValidation["errors"] {
+                DebugLog("CONFIG", "Validation error: " . validationError, 1)
             }
             return AttemptConfigurationRecovery()
         }
-        
+
         ; Apply validated configuration
         for key, value in appliedConfig {
             Config[key] := value
         }
-        
+
         ; Trigger system updates based on configuration changes
         ApplyConfigurationChanges_Placeholder(appliedConfig)
-        
+
         DebugLog("CONFIG", "Configuration loaded and applied successfully", 2)
         return true
-        
+
     } catch as e {
         RecordSystemError("LoadConfigurationFromFile", e, ConfigFile)
         return AttemptConfigurationRecovery()
@@ -508,12 +627,12 @@ LoadConfigurationFromFile() {
 ; Atomic configuration saving with backup and validation
 SaveConfigurationToFile() {
     global Config, ConfigFile, ConfigBackupFile, ConfigSchema, ConfigWatcher
-    
+
     ; Declare all variables at function scope for proper error handling
     tempFile := ConfigFile . ".tmp"
     configToSave := Map()
     jsonText := ""
-    
+
     try {
         ; Validate configuration before saving
         validation := ValidateConfiguration(Config)
@@ -521,44 +640,49 @@ SaveConfigurationToFile() {
             DebugLog("CONFIG", "Cannot save invalid configuration", 1)
             return false
         }
-        
+
         ; Create configuration object for JSON
         configToSave["_metadata"] := Map(
             "version", ConfigSchema["version"],
             "saved", FormatTime(A_Now, "yyyy-MM-dd HH:mm:ss"),
             "application", "FWDE"
         )
-        
+
         ; Add all configuration parameters
         for key, value in Config {
             if (ConfigSchema["structure"].Has(key)) {
                 configToSave[key] := value
             }
         }
-        
+
         ; Convert to JSON with formatting
         jsonText := JSON.stringify(configToSave, 2)  ; 2-space indentation
-        
+
         ; Write to temporary file first
         FileAppend(jsonText, tempFile)
-        
+
         ; Create backup of existing configuration
         if (FileExist(ConfigFile)) {
             FileCopy(ConfigFile, ConfigBackupFile, 1)
         }
-        
+
         ; Atomically replace configuration file
         FileMove(tempFile, ConfigFile, 1)
-        
+
         ; Update file watcher
-        ConfigWatcher["LastFileTime"] := FileGetTime(ConfigFile, "M")
-        
+        try {
+            ConfigWatcher["LastFileTime"] := FileGetTime(ConfigFile, "M")
+        } catch {
+            ; Ignore file time errors
+            ConfigWatcher["LastFileTime"] := A_TickCount
+        }
+
         DebugLog("CONFIG", "Configuration saved successfully to " ConfigFile, 2)
         return true
-        
+
     } catch as e {
         RecordSystemError("SaveConfigurationToFile", e, ConfigFile)
-        
+
         ; Clean up temporary file if it exists
         try {
             if (FileExist(tempFile)) {
@@ -567,7 +691,7 @@ SaveConfigurationToFile() {
         } catch {
             ; Ignore cleanup errors
         }
-        
+
         return false
     }
 }
@@ -575,30 +699,30 @@ SaveConfigurationToFile() {
 ; Configuration schema validation
 ValidateConfigurationSchema(configData) {
     global ConfigSchema
-    
+
     try {
         ; Check if it's a valid Map/Object
         if (Type(configData) != "Map") {
             return Map("valid", false, "error", "Configuration must be a JSON object")
         }
-        
+
         ; Check required parameters
         for requiredParam in ConfigSchema["required"] {
             if (!configData.Has(requiredParam)) {
                 return Map("valid", false, "error", "Missing required parameter: " requiredParam)
             }
         }
-        
+
         ; Validate parameter types
         for key, value in configData {
             if (key == "_metadata") {
                 continue  ; Skip metadata
             }
-            
+
             if (ConfigSchema["structure"].Has(key)) {
                 expectedType := ConfigSchema["structure"][key]
                 actualType := Type(value)
-                
+
                 ; Type checking
                 if (expectedType == "number" && (actualType != "Integer" && actualType != "Float")) {
                     return Map("valid", false, "error", "Parameter " key " must be a number")
@@ -611,9 +735,9 @@ ValidateConfigurationSchema(configData) {
                 }
             }
         }
-        
+
         return Map("valid", true)
-        
+
     } catch as e {
         return Map("valid", false, "error", "Schema validation error: " e.Message)
     }
@@ -625,16 +749,16 @@ SafeEval(expr) {
     if !RegExMatch(expr, "^[0-9\.\+\-\*/<>=!&|()\s]+$") {
         throw Error("Unsafe expression: " expr)
     }
-    
+
     ; Additional safety checks
     if (InStr(expr, "..") || InStr(expr, "//") || InStr(expr, "**")) {
         throw Error("Invalid operator sequence: " expr)
     }
-    
+
     try {
         ; Simple expression evaluator for basic math and comparisons
         ; Replace this with a proper expression parser for production use
-        
+
         ; For now, just handle basic comparison cases that we actually use
         if (InStr(expr, ">")) {
             parts := StrSplit(expr, ">")
@@ -644,7 +768,7 @@ SafeEval(expr) {
                 return IsNumber(left) && IsNumber(right) ? (Float(left) > Float(right)) : false
             }
         }
-        
+
         if (InStr(expr, "<")) {
             parts := StrSplit(expr, "<")
             if (parts.Length == 2) {
@@ -653,7 +777,7 @@ SafeEval(expr) {
                 return IsNumber(left) && IsNumber(right) ? (Float(left) < Float(right)) : false
             }
         }
-        
+
         if (InStr(expr, "*")) {
             parts := StrSplit(expr, "*")
             if (parts.Length == 2) {
@@ -662,15 +786,15 @@ SafeEval(expr) {
                 return IsNumber(left) && IsNumber(right) ? (Float(left) * Float(right)) : 0
             }
         }
-        
+
         ; If it's just a number, return it
         if (IsNumber(expr)) {
             return Float(expr)
         }
-        
+
         ; Default fallback
         return false
-        
+
     } catch as e {
         throw Error("Expression evaluation failed: " e.Message)
     }
@@ -781,18 +905,18 @@ ValidateConfigParameter(key, value) {
 ; Configuration change detection and hot-reload
 CheckConfigurationChanges() {
     global ConfigFile, ConfigWatcher
-    
+
     try {
         if (!FileExist(ConfigFile)) {
             return
         }
-        
+
         currentFileTime := FileGetTime(ConfigFile, "M")
-        
+
         if (currentFileTime != ConfigWatcher["LastFileTime"]) {
             ConfigWatcher["LastFileTime"] := currentFileTime
             DebugLog("CONFIG", "Configuration file change detected, reloading...", 2)
-            
+
             ; Hot-reload configuration
             if (HotReloadConfiguration()) {
                 ShowTooltip("Configuration reloaded successfully from file")
@@ -800,7 +924,7 @@ CheckConfigurationChanges() {
                 ShowTooltip("Configuration reload failed - check debug log")
             }
         }
-        
+
     } catch as e {
         RecordSystemError("CheckConfigurationChanges", e, ConfigFile)
     }
@@ -809,31 +933,31 @@ CheckConfigurationChanges() {
 ; Hot-reload configuration without system restart
 HotReloadConfiguration() {
     global Config, g
-    
+
     ; Declare previousConfig at function scope for rollback
     previousConfig := Map()
-    
+
     try {
         ; Store current state for rollback
         for key, value in Config {
             previousConfig[key] := value
         }
-        
+
         ; Load new configuration
         if (!LoadConfigurationFromFile()) {
             DebugLog("CONFIG", "Hot-reload failed during file loading", 1)
             return false
         }
-        
+
         ; Apply changes to running system
         ApplyConfigurationChanges(Config)
-        
+
         DebugLog("CONFIG", "Hot-reload completed successfully", 2)
         return true
-        
+
     } catch as e {
         RecordSystemError("HotReloadConfiguration", e)
-        
+
         ; Rollback on failure
         try {
             for key, value in previousConfig {
@@ -843,7 +967,7 @@ HotReloadConfiguration() {
         } catch {
             ; Ignore rollback errors
         }
-        
+
         return false
     }
 }
@@ -851,13 +975,13 @@ HotReloadConfiguration() {
 ; Dynamic layout calculation with physics
 CalculateDynamicLayout() {
     global g, Config, PerfTimers
-    
+
     if (!g.Get("PhysicsEnabled", false) || !g.Get("ArrangementActive", false)) {
         return
     }
-    
+
     startTime := A_TickCount
-    
+
     try {
         ; Update window positions with physics
         for win in g["Windows"] {
@@ -865,10 +989,10 @@ CalculateDynamicLayout() {
                 ApplyPhysicsToWindow(win)
             }
         }
-        
+
         ; Record performance metrics
         RecordPerformanceMetric("CalculateDynamicLayout", A_TickCount - startTime)
-        
+
     } catch as e {
         RecordSystemError("CalculateDynamicLayout", e)
     }
@@ -1013,33 +1137,33 @@ global LayoutMetrics := Map(
 ; Initialize sophisticated layout system
 InitializeSophisticatedLayouts() {
     DebugLog("LAYOUT", "Initializing sophisticated layout algorithms", 2)
-    
+
     try {
         ; Create layout directory if it doesn't exist
         layoutDir := LayoutAlgorithms["CustomLayouts"]["LayoutDirectory"]
         if (!DirExist(layoutDir)) {
             DirCreate(layoutDir)
         }
-        
+
         ; Load saved layouts
         LoadSavedLayouts()
-        
+
         ; Initialize genetic algorithm if enabled
         if (LayoutAlgorithms["GeneticAlgorithm"]["Enabled"]) {
             InitializeGeneticAlgorithm()
         }
-        
+
         ; Initialize virtual desktop integration
         if (LayoutAlgorithms["VirtualDesktop"]["Enabled"]) {
             InitializeVirtualDesktopIntegration()
         }
-        
+
         ; Start layout optimization timer
         SetTimer(PeriodicLayoutOptimization, 30000)  ; Every 30 seconds
-        
+
         DebugLog("LAYOUT", "Sophisticated layout system initialized successfully", 2)
         ShowNotification("Layout System", "Advanced layout algorithms enabled", "success", 3000)
-        
+
     } catch as e {
         RecordSystemError("InitializeSophisticatedLayouts", e)
     }
@@ -1049,17 +1173,17 @@ InitializeSophisticatedLayouts() {
 FirstFitPacking(windows, bounds) {
     try {
         DebugLog("PACKING", "Applying First Fit packing algorithm", 3)
-        
+
         ; Sort windows by area (largest first)
         sortedWindows := SortWindowsByArea(windows)
-        
+
         ; Initialize placement list
         placements := []
         usedRectangles := []
-        
+
         for win in sortedWindows {
             bestPosition := FindFirstFitPosition(win, bounds, usedRectangles)
-            
+
             if (bestPosition) {
                 placement := Map(
                     "hwnd", win["hwnd"],
@@ -1069,7 +1193,7 @@ FirstFitPacking(windows, bounds) {
                     "height", win["height"],
                     "score", CalculatePlacementScore(bestPosition, win, bounds)
                 )
-                
+
                 placements.Push(placement)
                 usedRectangles.Push(Map(
                     "x", bestPosition["x"],
@@ -1079,9 +1203,9 @@ FirstFitPacking(windows, bounds) {
                 ))
             }
         }
-        
+
         return Map("placements", placements, "efficiency", CalculatePackingEfficiency(placements, bounds))
-        
+
     } catch as e {
         RecordSystemError("FirstFitPacking", e)
         return Map("placements", [], "efficiency", 0)
@@ -1092,14 +1216,14 @@ FirstFitPacking(windows, bounds) {
 BestFitPacking(windows, bounds) {
     try {
         DebugLog("PACKING", "Applying Best Fit packing algorithm", 3)
-        
+
         sortedWindows := SortWindowsByArea(windows)
         placements := []
         usedRectangles := []
-        
+
         for win in sortedWindows {
             bestPosition := FindBestFitPosition(win, bounds, usedRectangles)
-            
+
             if (bestPosition) {
                 placement := Map(
                     "hwnd", win["hwnd"],
@@ -1109,7 +1233,7 @@ BestFitPacking(windows, bounds) {
                     "height", win["height"],
                     "score", bestPosition["score"]
                 )
-                
+
                 placements.Push(placement)
                 usedRectangles.Push(Map(
                     "x", bestPosition["x"],
@@ -1119,9 +1243,9 @@ BestFitPacking(windows, bounds) {
                 ))
             }
         }
-        
+
         return Map("placements", placements, "efficiency", CalculatePackingEfficiency(placements, bounds))
-        
+
     } catch as e {
         RecordSystemError("BestFitPacking", e)
         return Map("placements", [], "efficiency", 0)
@@ -1134,16 +1258,16 @@ FindBestFitPosition(win, bounds, usedRectangles) {
         bestPosition := ""
         bestScore := -1
         margin := Config["MinMargin"]
-        
+
         ; Try different positions
         for x in Range(bounds["Left"] + margin, bounds["Right"] - win["width"] - margin, 20) {
             for y in Range(bounds["Top"] + margin, bounds["Bottom"] - win["height"] - margin, 20) {
                 candidate := Map("x", x, "y", y)
-                
+
                 ; Check if position is valid (no overlaps)
                 if (IsPositionValid(candidate, win, usedRectangles)) {
                     score := CalculatePositionScore(candidate, win, bounds, usedRectangles)
-                    
+
                     if (score > bestScore) {
                         bestScore := score
                         bestPosition := candidate
@@ -1152,9 +1276,9 @@ FindBestFitPosition(win, bounds, usedRectangles) {
                 }
             }
         }
-        
+
         return bestPosition
-        
+
     } catch as e {
         RecordSystemError("FindBestFitPosition", e)
         return ""
@@ -1165,25 +1289,25 @@ FindBestFitPosition(win, bounds, usedRectangles) {
 CalculatePositionScore(position, win, bounds, usedRectangles) {
     try {
         score := 0
-        
+
         ; Screen utilization score (prefer positions that use screen efficiently)
         utilizationScore := CalculateUtilizationScore(position, win, bounds)
         score += utilizationScore * LayoutMetrics["WastedSpaceWeight"]
-        
+
         ; Accessibility score (prefer easily accessible positions)
         accessibilityScore := CalculateAccessibilityScore(position, win, bounds)
         score += accessibilityScore * LayoutMetrics["AccessibilityWeight"]
-        
+
         ; Aesthetics score (prefer visually pleasing arrangements)
         aestheticsScore := CalculateAestheticsScore(position, win, usedRectangles, bounds)
         score += aestheticsScore * LayoutMetrics["AestheticsWeight"]
-        
+
         ; Minimize wasted space between windows
         proximityScore := CalculateProximityScore(position, win, usedRectangles)
         score += proximityScore * 0.3
-        
+
         return score
-        
+
     } catch as e {
         RecordSystemError("CalculatePositionScore", e)
         return 0
@@ -1193,23 +1317,23 @@ CalculatePositionScore(position, win, bounds, usedRectangles) {
 ; Genetic Algorithm implementation for layout evolution
 InitializeGeneticAlgorithm() {
     global LayoutAlgorithms
-    
+
     try {
         DebugLog("GENETIC", "Initializing genetic algorithm for layout evolution", 2)
-        
+
         ga := LayoutAlgorithms["GeneticAlgorithm"]
-        
+
         ; Create initial population
         ga["Population"] := CreateInitialPopulation(ga["PopulationSize"])
         ga["CurrentGeneration"] := 0
         ga["BestFitness"] := 0
         ga["EvolutionHistory"] := []
-        
+
         ; Start evolution timer
         SetTimer(EvolveLayoutGeneration, 10000)  ; Evolve every 10 seconds
-        
+
         DebugLog("GENETIC", "Genetic algorithm initialized with population of " . ga["PopulationSize"], 2)
-        
+
     } catch as e {
         RecordSystemError("InitializeGeneticAlgorithm", e)
     }
@@ -1219,15 +1343,15 @@ InitializeGeneticAlgorithm() {
 CreateInitialPopulation(populationSize) {
     try {
         population := []
-        
+
         Loop populationSize {
             individual := CreateRandomLayoutIndividual()
             population.Push(individual)
         }
-        
+
         DebugLog("GENETIC", "Created initial population of " . populationSize . " individuals", 3)
         return population
-        
+
     } catch as e {
         RecordSystemError("CreateInitialPopulation", e)
         return []
@@ -1242,16 +1366,16 @@ CreateRandomLayoutIndividual() {
         if (windows.Length == 0) {
             return Map("genes", [], "fitness", 0)
         }
-        
+
         ; Create random genes (positions for each window)
         genes := []
         bounds := GetCurrentMonitorInfo()
-        
+
         for win in windows {
             ; Random position within bounds
             x := Random(bounds["Left"], bounds["Right"] - win["width"])
             y := Random(bounds["Top"], bounds["Bottom"] - win["height"])
-            
+
             gene := Map(
                 "hwnd", win["hwnd"],
                 "x", x,
@@ -1259,16 +1383,16 @@ CreateRandomLayoutIndividual() {
                 "width", win["width"],
                 "height", win["height"]
             )
-            
+
             genes.Push(gene)
         }
-        
+
         ; Calculate fitness
         individual := Map("genes", genes, "fitness", 0)
         individual["fitness"] := CalculateLayoutFitness(individual)
-        
+
         return individual
-        
+
     } catch as e {
         RecordSystemError("CreateRandomLayoutIndividual", e)
         return Map("genes", [], "fitness", 0)
@@ -1281,33 +1405,33 @@ CalculateLayoutFitness(individual) {
         if (individual["genes"].Length == 0) {
             return 0
         }
-        
+
         totalFitness := 0
         weights := LayoutAlgorithms["GeneticAlgorithm"]["FitnessWeights"]
         bounds := GetCurrentMonitorInfo()
-        
+
         ; Check for overlaps (penalty)
         overlapPenalty := CalculateOverlapPenalty(individual["genes"])
         totalFitness -= overlapPenalty * weights["Overlap"]
-        
+
         ; Screen usage efficiency
         screenUsage := CalculateScreenUsageEfficiency(individual["genes"], bounds)
         totalFitness += screenUsage * weights["ScreenUsage"]
-        
+
         ; Accessibility score
         accessibility := CalculateLayoutAccessibility(individual["genes"], bounds)
         totalFitness += accessibility * weights["Accessibility"]
-        
+
         ; User preference alignment
         userPreference := CalculateUserPreferenceAlignment(individual["genes"])
         totalFitness += userPreference * weights["UserPreference"]
-        
+
         ; Aesthetic appeal
         aesthetics := CalculateLayoutAesthetics(individual["genes"], bounds)
         totalFitness += aesthetics * weights["Aesthetics"]
-        
+
         return Max(0, totalFitness)  ; Ensure non-negative fitness
-        
+
     } catch as e {
         RecordSystemError("CalculateLayoutFitness", e)
         return 0
@@ -1317,49 +1441,49 @@ CalculateLayoutFitness(individual) {
 ; Evolve to the next generation
 EvolveLayoutGeneration() {
     global LayoutAlgorithms, g
-    
+
     try {
         if (!LayoutAlgorithms["GeneticAlgorithm"]["Enabled"] || !g.Get("PhysicsEnabled", false)) {
             return
         }
-        
+
         ga := LayoutAlgorithms["GeneticAlgorithm"]
-        
+
         ; Skip if no windows to manage
         if (!g.Has("Windows") || g["Windows"].Length == 0) {
             return
         }
-        
+
         ; Evaluate current population
         EvaluatePopulation(ga["Population"])
-        
+
         ; Create next generation
         newPopulation := CreateNextGeneration(ga["Population"])
-        
+
         ; Update population
         ga["Population"] := newPopulation
         ga["CurrentGeneration"] += 1
-        
+
         ; Track best fitness
         bestIndividual := GetBestIndividual(newPopulation)
         if (bestIndividual["fitness"] > ga["BestFitness"]) {
             ga["BestFitness"] := bestIndividual["fitness"]
-            
+
             ; Apply best layout if significantly better
             if (ShouldApplyGeneticLayout(bestIndividual)) {
                 ApplyGeneticLayout(bestIndividual)
             }
         }
-        
+
         ; Record evolution history
         RecordEvolutionHistory(ga)
-        
+
         ; Stop evolution if generation limit reached
         if (ga["CurrentGeneration"] >= ga["GenerationLimit"]) {
             SetTimer(EvolveLayoutGeneration, 0)
             DebugLog("GENETIC", "Evolution completed after " . ga["GenerationLimit"] . " generations", 2)
         }
-        
+
     } catch as e {
         RecordSystemError("EvolveLayoutGeneration", e)
     }
@@ -1368,13 +1492,13 @@ EvolveLayoutGeneration() {
 ; Custom Layout Presets System
 SaveCurrentLayout(layoutName) {
     global LayoutAlgorithms, g
-    
+
     try {
         if (!g.Has("Windows") || g["Windows"].Length == 0) {
             ShowNotification("Layout", "No windows to save", "warning")
             return false
         }
-        
+
         ; Capture current window positions
         layout := Map(
             "name", layoutName,
@@ -1383,12 +1507,12 @@ SaveCurrentLayout(layoutName) {
             "bounds", GetCurrentMonitorInfo(),
             "windows", []
         )
-        
+
         ; Save each window's position and properties
         for win in g["Windows"] {
             if (IsWindowValid(win["hwnd"])) {
                 WinGetPos(&x, &y, &w, &h, "ahk_id " win["hwnd"])
-                
+
                 windowData := Map(
                     "title", win["title"],
                     "class", win["class"],
@@ -1400,28 +1524,28 @@ SaveCurrentLayout(layoutName) {
                     "relativeX", (x - layout["bounds"]["Left"]) / layout["bounds"]["Width"],
                     "relativeY", (y - layout["bounds"]["Top"]) / layout["bounds"]["Height"]
                 )
-                
+
                 layout["windows"].Push(windowData)
             }
         }
-        
+
         ; Generate layout thumbnail
         layout["thumbnail"] := GenerateLayoutThumbnail(layout)
-        
+
         ; Save layout to file
         layoutFile := LayoutAlgorithms["CustomLayouts"]["LayoutDirectory"] . "\" . layoutName . ".json"
-        
+
         if (SaveLayoutToFile(layout, layoutFile)) {
             ; Update saved layouts map
             LayoutAlgorithms["CustomLayouts"]["SavedLayouts"][layoutName] := layout
-            
+
             DebugLog("LAYOUT", "Saved layout '" . layoutName . "' with " . layout["windows"].Length . " windows", 2)
             ShowNotification("Layout", "Layout '" . layoutName . "' saved successfully", "success")
             return true
         }
-        
+
         return false
-        
+
     } catch as e {
         RecordSystemError("SaveCurrentLayout", e, layoutName)
         ShowNotification("Layout", "Failed to save layout '" . layoutName . "'", "error")
@@ -1432,10 +1556,10 @@ SaveCurrentLayout(layoutName) {
 ; Load and apply a saved layout
 LoadLayout(layoutName) {
     global LayoutAlgorithms, g
-    
+
     try {
         savedLayouts := LayoutAlgorithms["CustomLayouts"]["SavedLayouts"]
-        
+
         if (!savedLayouts.Has(layoutName)) {
             ; Try loading from file
             if (!LoadLayoutFromFile(layoutName)) {
@@ -1443,37 +1567,37 @@ LoadLayout(layoutName) {
                 return false
             }
         }
-        
+
         layout := savedLayouts[layoutName]
         currentBounds := GetCurrentMonitorInfo()
-        
+
         ; Apply layout to current windows
         appliedCount := 0
         for savedWindow in layout["windows"] {
             ; Find matching current window
             matchingWindow := FindMatchingWindow(savedWindow)
-            
+
             if (matchingWindow) {
                 ; Calculate new position (scale to current monitor if different)
                 newX := currentBounds["Left"] + (savedWindow["relativeX"] * currentBounds["Width"])
                 newY := currentBounds["Top"] + (savedWindow["relativeY"] * currentBounds["Height"])
-                
+
                 ; Ensure window fits within bounds
                 newX := Max(currentBounds["Left"], Min(newX, currentBounds["Right"] - savedWindow["width"]))
                 newY := Max(currentBounds["Top"], Min(newY, currentBounds["Bottom"] - savedWindow["height"]))
-                
+
                 ; Apply position with smooth animation
                 AnimateWindowToPosition(matchingWindow["hwnd"], newX, newY)
                 appliedCount++
             }
         }
-        
+
         LayoutAlgorithms["CustomLayouts"]["CurrentLayout"] := layoutName
-        
+
         DebugLog("LAYOUT", "Applied layout '" . layoutName . "' to " . appliedCount . " windows", 2)
         ShowNotification("Layout", "Applied layout '" . layoutName . "' to " . appliedCount . " windows", "success")
         return true
-        
+
     } catch as e {
         RecordSystemError("LoadLayout", e, layoutName)
         ShowNotification("Layout", "Failed to load layout '" . layoutName . "'", "error")
@@ -1484,26 +1608,26 @@ LoadLayout(layoutName) {
 ; Virtual Desktop Integration (Windows 11+)
 InitializeVirtualDesktopIntegration() {
     global LayoutAlgorithms
-    
+
     try {
         DebugLog("VDESKTOP", "Initializing virtual desktop integration", 2)
-        
+
         ; Check if virtual desktop API is available (Windows 11+)
         if (!IsVirtualDesktopAPIAvailable()) {
             DebugLog("VDESKTOP", "Virtual desktop API not available", 2)
             LayoutAlgorithms["VirtualDesktop"]["Enabled"] := false
             return false
         }
-        
+
         ; Initialize workspace monitoring
         SetTimer(MonitorVirtualDesktopChanges, 2000)
-        
+
         ; Load workspace profiles
         LoadWorkspaceProfiles()
-        
+
         DebugLog("VDESKTOP", "Virtual desktop integration initialized successfully", 2)
         return true
-        
+
     } catch as e {
         RecordSystemError("InitializeVirtualDesktopIntegration", e)
         return false
@@ -1513,30 +1637,30 @@ InitializeVirtualDesktopIntegration() {
 ; Monitor virtual desktop changes
 MonitorVirtualDesktopChanges() {
     global LayoutAlgorithms
-    
+
     try {
         if (!LayoutAlgorithms["VirtualDesktop"]["Enabled"]) {
             return
         }
-        
+
         currentWorkspace := GetCurrentVirtualDesktop()
-        
+
         if (currentWorkspace != LayoutAlgorithms["VirtualDesktop"]["CurrentWorkspace"]) {
             DebugLog("VDESKTOP", "Virtual desktop changed to: " . currentWorkspace, 2)
-            
+
             ; Save current workspace layout if auto-save enabled
             if (LayoutAlgorithms["CustomLayouts"]["AutoSave"]) {
                 SaveWorkspaceLayout(LayoutAlgorithms["VirtualDesktop"]["CurrentWorkspace"])
             }
-            
+
             ; Load layout for new workspace
             if (LayoutAlgorithms["VirtualDesktop"]["AutoSwitchLayouts"]) {
                 LoadWorkspaceLayout(currentWorkspace)
             }
-            
+
             LayoutAlgorithms["VirtualDesktop"]["CurrentWorkspace"] := currentWorkspace
         }
-        
+
     } catch as e {
         RecordSystemError("MonitorVirtualDesktopChanges", e)
     }
@@ -1556,16 +1680,16 @@ MonitorVirtualDesktopChanges() {
 
 ^!+g:: {  ; Ctrl+Alt+Shift+G - Toggle genetic algorithm
     global LayoutAlgorithms
-    
+
     LayoutAlgorithms["GeneticAlgorithm"]["Enabled"] := !LayoutAlgorithms["GeneticAlgorithm"]["Enabled"]
     status := LayoutAlgorithms["GeneticAlgorithm"]["Enabled"] ? "enabled" : "disabled"
-    
+
     if (LayoutAlgorithms["GeneticAlgorithm"]["Enabled"]) {
         InitializeGeneticAlgorithm()
     } else {
         SetTimer(EvolveLayoutGeneration, 0)
     }
-    
+
     ShowNotification("Layout", "Genetic algorithm " . status, "info")
 }
 
@@ -1575,14 +1699,14 @@ MonitorVirtualDesktopChanges() {
 
 ^!+v:: {  ; Ctrl+Alt+Shift+V - Toggle virtual desktop integration
     global LayoutAlgorithms
-    
+
     LayoutAlgorithms["VirtualDesktop"]["Enabled"] := !LayoutAlgorithms["VirtualDesktop"]["Enabled"]
     status := LayoutAlgorithms["VirtualDesktop"]["Enabled"] ? "enabled" : "disabled"
-    
+
     if (LayoutAlgorithms["VirtualDesktop"]["Enabled"]) {
         InitializeVirtualDesktopIntegration()
     }
-    
+
     ShowNotification("Layout", "Virtual desktop integration " . status, "info")
 }
 
@@ -1591,7 +1715,7 @@ SortWindowsByArea(windows) {
     try {
         ; Create array with area calculations
         windowsWithArea := []
-        
+
         for win in windows {
             if (IsWindowValid(win["hwnd"])) {
                 area := win["width"] * win["height"]
@@ -1604,26 +1728,26 @@ SortWindowsByArea(windows) {
                 ))
             }
         }
-        
+
         ; Sort by area (largest first)
         sortedWindows := []
         while (windowsWithArea.Length > 0) {
             largestIndex := 1
             largestArea := windowsWithArea[1]["area"]
-            
+
             for i in Range(2, windowsWithArea.Length) {
                 if (windowsWithArea[i]["area"] > largestArea) {
                     largestArea := windowsWithArea[i]["area"]
                     largestIndex := i
                 }
             }
-            
+
             sortedWindows.Push(windowsWithArea[largestIndex]["window"])
             windowsWithArea.RemoveAt(largestIndex)
         }
-        
+
         return sortedWindows
-        
+
     } catch as e {
         RecordSystemError("SortWindowsByArea", e)
         return windows
@@ -1634,7 +1758,7 @@ SortWindowsByArea(windows) {
 Range(start, end, step := 1) {
     values := []
     current := start
-    
+
     if (step > 0) {
         while (current <= end) {
             values.Push(current)
@@ -1646,7 +1770,7 @@ Range(start, end, step := 1) {
             current += step
         }
     }
-    
+
     return values
 }
 
@@ -1735,22 +1859,22 @@ global SystemHealth := Map(
 ; Initialize visual feedback system
 InitializeVisualFeedback() {
     DebugLog("VISUAL", "Initializing visual feedback system", 2)
-    
+
     try {
         ; Initialize system tray
         InitializeSystemTray()
-        
+
         ; Initialize notification system
         InitializeNotificationSystem()
-        
+
         ; Initialize window border system
         InitializeWindowBorderSystem()
-        
+
         ; Start status monitoring
         SetTimer(UpdateSystemStatus, 1000)  ; Update every second
-        
+
         DebugLog("VISUAL", "Visual feedback system initialized successfully", 2)
-        
+
     } catch as e {
         RecordSystemError("InitializeVisualFeedback", e)
     }
@@ -1759,28 +1883,27 @@ InitializeVisualFeedback() {
 ; System tray integration with comprehensive status monitoring
 InitializeSystemTray() {
     global VisualFeedback
-    
+
     try {
         ; Set custom icon if available
         if (FileExist(VisualFeedback["SystemTray"]["Icon"])) {
             TraySetIcon(VisualFeedback["SystemTray"]["Icon"])
         }
-        
+
         ; Create context menu
         A_TrayMenu.Delete()  ; Clear default menu
-        
+
         ; Status section
         A_TrayMenu.Add("FWDE Status", ShowSystemStatus)
         A_TrayMenu.Add()  ; Separator
-        
+
         ; Control section
         A_TrayMenu.Add("Start/Stop Physics", TogglePhysics)
         A_TrayMenu.Add("Refresh Windows", RefreshWindows)
         A_TrayMenu.Add("Optimize Layout", OptimizeLayout)
         A_TrayMenu.Add()  ; Separator
-        
+
         ; Configuration presets
-        A_TrayMenu.Add("Configuration", "")
         presetMenu := Menu()
         presetMenu.Add("Load Default", (*) => LoadConfigPreset("Default"))
         presetMenu.Add("Load DAW Production", (*) => LoadConfigPreset("DAW_Production"))
@@ -1791,28 +1914,27 @@ InitializeSystemTray() {
         presetMenu.Add("Save Configuration", SaveCurrentConfig)
         presetMenu.Add("Show Config Status", ShowConfigStatus)
         A_TrayMenu.Add("Configuration", presetMenu)
-        
+
         ; Visual options
-        A_TrayMenu.Add("Visual Options", "")
         visualMenu := Menu()
         visualMenu.Add("Toggle Physics Overlay", TogglePhysicsOverlay)
         visualMenu.Add("Toggle Window Borders", ToggleWindowBorders)
         visualMenu.Add("Notification Settings", ShowNotificationSettings)
         A_TrayMenu.Add("Visual Options", visualMenu)
-        
+
         ; System section
         A_TrayMenu.Add()  ; Separator
         A_TrayMenu.Add("About FWDE", ShowAbout)
         A_TrayMenu.Add("Exit", ExitApplication)
-        
+
         ; Set default action (double-click)
         A_TrayMenu.Default := "FWDE Status"
-        
+
         ; Update initial tooltip
         UpdateSystemTrayTooltip()
-        
+
         DebugLog("TRAY", "System tray initialized with context menu", 2)
-        
+
     } catch as e {
         RecordSystemError("InitializeSystemTray", e)
     }
@@ -1821,20 +1943,20 @@ InitializeSystemTray() {
 ; Update system tray tooltip with current status
 UpdateSystemTrayTooltip() {
     global g, VisualFeedback, SystemHealth
-    
+
     try {
         status := g.Get("PhysicsEnabled", false) ? "Running" : "Stopped"
         windowCount := SystemHealth["ActiveWindows"]
         healthStatus := SystemHealth["Status"]
-        
+
         tooltipText := "FWDE - " . status . "`n"
         tooltipText .= "Windows: " . windowCount . "`n"
         tooltipText .= "Health: " . healthStatus . "`n"
         tooltipText .= "Click for options"
-        
+
         A_IconTip := tooltipText
         VisualFeedback["SystemTray"]["TooltipText"] := tooltipText
-        
+
     } catch as e {
         RecordSystemError("UpdateSystemTrayTooltip", e)
     }
@@ -1843,10 +1965,10 @@ UpdateSystemTrayTooltip() {
 ; Update system tray icon based on current status
 UpdateSystemTrayIcon() {
     global g, VisualFeedback, SystemHealth
-    
+
     try {
         newStatus := "Normal"
-        
+
         if (!g.Get("PhysicsEnabled", false)) {
             newStatus := "Paused"
         } else if (SystemHealth["Status"] == "Error" || SystemHealth["Status"] == "Critical") {
@@ -1854,10 +1976,10 @@ UpdateSystemTrayIcon() {
         } else if (SystemHealth["ActiveWindows"] > 0) {
             newStatus := "Active"
         }
-        
+
         if (VisualFeedback["SystemTray"]["Status"] != newStatus) {
             VisualFeedback["SystemTray"]["Status"] := newStatus
-            
+
             ; Update icon based on status (if custom icons available)
             switch newStatus {
                 case "Active":
@@ -1869,10 +1991,10 @@ UpdateSystemTrayIcon() {
                 default:
                     ; Default blue icon
             }
-            
+
             DebugLog("TRAY", "System tray icon updated to: " . newStatus, 3)
         }
-        
+
     } catch as e {
         RecordSystemError("UpdateSystemTrayIcon", e)
     }
@@ -1881,17 +2003,17 @@ UpdateSystemTrayIcon() {
 ; Enhanced notification system with theming and queue management
 InitializeNotificationSystem() {
     global VisualFeedback, NotificationThemes
-    
+
     try {
         ; Clear any existing notifications
         VisualFeedback["Notifications"]["Queue"] := []
         VisualFeedback["Notifications"]["History"] := []
-        
+
         ; Start notification processor
         SetTimer(ProcessNotificationQueue, 100)
-        
+
         DebugLog("NOTIFICATION", "Notification system initialized", 2)
-        
+
     } catch as e {
         RecordSystemError("InitializeNotificationSystem", e)
     }
@@ -1900,17 +2022,17 @@ InitializeNotificationSystem() {
 ; Enhanced notification function with theming and queue management
 ShowNotification(title, message, type := "info", duration := 0) {
     global VisualFeedback, NotificationThemes
-    
+
     try {
         if (!VisualFeedback["Notifications"]["Enabled"]) {
             return
         }
-        
+
         ; Use default duration if not specified
         if (duration == 0) {
             duration := VisualFeedback["Notifications"]["Duration"]
         }
-        
+
         ; Create notification object
         notification := Map(
             "Title", title,
@@ -1920,25 +2042,25 @@ ShowNotification(title, message, type := "info", duration := 0) {
             "Timestamp", A_TickCount,
             "ID", A_TickCount . "_" . Random(1000, 9999)
         )
-        
+
         ; Add to queue
         queue := VisualFeedback["Notifications"]["Queue"]
         if (queue.Length >= VisualFeedback["Notifications"]["MaxQueue"]) {
             queue.RemoveAt(1)  ; Remove oldest if queue full
         }
         queue.Push(notification)
-        
+
         ; Add to history
         history := VisualFeedback["Notifications"]["History"]
         history.Push(notification)
-        
+
         ; Keep history size manageable
         if (history.Length > 50) {
             history.RemoveAt(1)
         }
-        
+
         DebugLog("NOTIFICATION", title . ": " . message, 2)
-        
+
     } catch as e {
         RecordSystemError("ShowNotification", e)
     }
@@ -1947,18 +2069,18 @@ ShowNotification(title, message, type := "info", duration := 0) {
 ; Process notification queue and display notifications
 ProcessNotificationQueue() {
     global VisualFeedback
-    
+
     try {
         queue := VisualFeedback["Notifications"]["Queue"]
-        
+
         if (queue.Length > 0) {
             notification := queue[1]
             queue.RemoveAt(1)
-            
+
             ; Display notification using system balloon tip
             DisplayBalloonNotification(notification)
         }
-        
+
     } catch as e {
         RecordSystemError("ProcessNotificationQueue", e)
     }
@@ -1967,7 +2089,7 @@ ProcessNotificationQueue() {
 ; Display balloon notification with themed styling
 DisplayBalloonNotification(notification) {
     global VisualFeedback
-    
+
     try {
         ; Get icon type based on notification type
         iconType := 1  ; Info icon
@@ -1981,15 +2103,15 @@ DisplayBalloonNotification(notification) {
             default:
                 iconType := 1  ; Info icon
         }
-        
+
         ; Show balloon tip
         TrayTip(notification["Message"], notification["Title"], iconType)
-        
+
         ; Auto-hide after duration
         if (notification["Duration"] > 0) {
             SetTimer(() => TrayTip(), -notification["Duration"])
         }
-        
+
     } catch as e {
         RecordSystemError("DisplayBalloonNotification", e)
     }
@@ -1998,16 +2120,16 @@ DisplayBalloonNotification(notification) {
 ; Window border visual indicator system
 InitializeWindowBorderSystem() {
     global VisualFeedback
-    
+
     try {
         ; Clear any existing borders
         VisualFeedback["WindowBorders"]["ActiveBorders"] := Map()
-        
+
         ; Start border update timer
         SetTimer(UpdateWindowBorders, 500)  ; Update twice per second
-        
+
         DebugLog("BORDER", "Window border system initialized", 2)
-        
+
     } catch as e {
         RecordSystemError("InitializeWindowBorderSystem", e)
     }
@@ -2016,22 +2138,22 @@ InitializeWindowBorderSystem() {
 ; Add visual border to window based on state
 AddWindowBorder(hwnd, state, duration := 0) {
     global VisualFeedback
-    
+
     try {
         if (!VisualFeedback["WindowBorders"]["Enabled"]) {
             return
         }
-        
+
         ; Use default duration if not specified
         if (duration == 0) {
             duration := VisualFeedback["WindowBorders"]["Duration"]
         }
-        
+
         colors := VisualFeedback["WindowBorders"]["Colors"]
         if (!colors.Has(state)) {
             return
         }
-        
+
         ; Create border info
         borderInfo := Map(
             "HWND", hwnd,
@@ -2041,15 +2163,15 @@ AddWindowBorder(hwnd, state, duration := 0) {
             "Duration", duration,
             "Width", VisualFeedback["WindowBorders"]["Width"]
         )
-        
+
         ; Store border
         VisualFeedback["WindowBorders"]["ActiveBorders"][hwnd] := borderInfo
-        
+
         ; Apply visual border (simplified implementation)
         ApplyWindowBorder(borderInfo)
-        
+
         DebugLog("BORDER", "Added " . state . " border to window " . hwnd, 3)
-        
+
     } catch as e {
         RecordSystemError("AddWindowBorder", e, hwnd)
     }
@@ -2059,11 +2181,11 @@ AddWindowBorder(hwnd, state, duration := 0) {
 ApplyWindowBorder(borderInfo) {
     try {
         hwnd := borderInfo["HWND"]
-        
+
         if (!IsWindowValid(hwnd)) {
             return
         }
-        
+
         ; Simple implementation: brief window flash to indicate state
         ; In a full implementation, this would draw custom borders
         try {
@@ -2072,7 +2194,7 @@ ApplyWindowBorder(borderInfo) {
         } catch {
             ; Ignore flash failures
         }
-        
+
     } catch as e {
         RecordSystemError("ApplyWindowBorder", e, borderInfo["HWND"])
     }
@@ -2081,12 +2203,12 @@ ApplyWindowBorder(borderInfo) {
 ; Update and cleanup window borders
 UpdateWindowBorders() {
     global VisualFeedback
-    
+
     try {
         activeBorders := VisualFeedback["WindowBorders"]["ActiveBorders"]
         currentTime := A_TickCount
         bordersToRemove := []
-        
+
         ; Check each active border
         for hwnd, borderInfo in activeBorders {
             ; Check if window still exists
@@ -2094,7 +2216,7 @@ UpdateWindowBorders() {
                 bordersToRemove.Push(hwnd)
                 continue
             }
-            
+
             ; Check if border expired
             elapsed := currentTime - borderInfo["StartTime"]
             if (elapsed > borderInfo["Duration"]) {
@@ -2102,12 +2224,12 @@ UpdateWindowBorders() {
                 continue
             }
         }
-        
+
         ; Remove expired borders
         for hwnd in bordersToRemove {
             activeBorders.Delete(hwnd)
         }
-        
+
     } catch as e {
         RecordSystemError("UpdateWindowBorders", e)
     }
@@ -2116,23 +2238,23 @@ UpdateWindowBorders() {
 ; System status monitoring and health tracking
 UpdateSystemStatus() {
     global g, SystemHealth, VisualFeedback
-    
+
     try {
         ; Update active window count
         SystemHealth["ActiveWindows"] := g.Has("Windows") ? g["Windows"].Length : 0
-        
+
         ; Update performance metrics
         UpdatePerformanceMetrics()
-        
+
         ; Update system health status
         UpdateSystemHealthStatus()
-        
+
         ; Update visual feedback
         UpdateSystemTrayIcon()
         UpdateSystemTrayTooltip()
-        
+
         SystemHealth["LastUpdate"] := A_TickCount
-        
+
     } catch as e {
         RecordSystemError("UpdateSystemStatus", e)
     }
@@ -2141,23 +2263,23 @@ UpdateSystemStatus() {
 ; Update performance metrics for system monitoring
 UpdatePerformanceMetrics() {
     global PerfTimers, SystemHealth
-    
+
     try {
         metrics := SystemHealth["PerformanceMetrics"]
-        
+
         ; Update physics timing
         if (PerfTimers.Has("CalculateDynamicLayout")) {
             metrics["AvgPhysicsTime"] := PerfTimers["CalculateDynamicLayout"]["avgTime"]
         }
-        
+
         ; Update movement timing
         if (PerfTimers.Has("ApplyWindowMovements")) {
             metrics["AvgMovementTime"] := PerfTimers["ApplyWindowMovements"]["avgTime"]
         }
-        
+
         ; Update memory usage (simplified)
         metrics["MemoryUsage"] := ProcessGetWorkingSet()
-        
+
     } catch as e {
         RecordSystemError("UpdatePerformanceMetrics", e)
     }
@@ -2166,11 +2288,11 @@ UpdatePerformanceMetrics() {
 ; Update overall system health status
 UpdateSystemHealthStatus() {
     global SystemState, SystemHealth
-    
+
     try {
         errorCount := SystemState.Get("ErrorCount", 0)
         isHealthy := SystemState.Get("SystemHealthy", true)
-        
+
         ; Determine health status
         if (!isHealthy || errorCount > 10) {
             SystemHealth["Status"] := "Critical"
@@ -2181,14 +2303,14 @@ UpdateSystemHealthStatus() {
         } else {
             SystemHealth["Status"] := "Healthy"
         }
-        
+
         ; Calculate error rate
         if (SystemState.Has("FailedOperations") && SystemState["FailedOperations"].Length > 0) {
             SystemHealth["ErrorRate"] := errorCount / (errorCount + 100)  ; Simplified calculation
         } else {
             SystemHealth["ErrorRate"] := 0.0
         }
-        
+
     } catch as e {
         RecordSystemError("UpdateSystemHealthStatus", e)
     }
@@ -2197,45 +2319,45 @@ UpdateSystemHealthStatus() {
 ; Configuration preset management with visual feedback
 LoadConfigPreset(presetName) {
     global ConfigPresets, QualityLevels
-    
+
     try {
         if (!ConfigPresets.Has(presetName)) {
             ShowNotification("Configuration", "Preset '" . presetName . "' not found", "error")
             return false
         }
-        
+
         preset := ConfigPresets[presetName]
-        
+
         ; Backup current configuration
         BackupCurrentConfiguration()
-        
+
         ; Apply preset with validation
         validationResult := ValidateConfiguration(preset)
         if (!validationResult["valid"]) {
             ShowNotification("Configuration", "Preset validation failed", "error")
             return false
         }
-        
+
         ; Apply preset
         for key, value in preset {
             if (key != "description") {
                 Config[key] := value
             }
         }
-        
+
         ; Apply changes to running system
         ApplyConfigurationChanges(Config)
-        
+
         ; Save configuration
         SaveConfigurationToFile()
-        
+
         ; Show success notification
         description := preset.Get("description", presetName . " preset")
         ShowNotification("Configuration", "Loaded: " . description, "success")
-        
+
         DebugLog("CONFIG", "Loaded preset: " . presetName, 2)
         return true
-        
+
     } catch as e {
         RecordSystemError("LoadConfigPreset", e, presetName)
         ShowNotification("Configuration", "Failed to load preset: " . presetName, "error")
@@ -2246,13 +2368,13 @@ LoadConfigPreset(presetName) {
 ; Menu handlers for system tray
 ShowSystemStatus(*) {
     global SystemHealth, g
-    
+
     try {
         status := g.Get("PhysicsEnabled", false) ? "Running" : "Stopped"
         healthStatus := SystemHealth["Status"]
         windowCount := SystemHealth["ActiveWindows"]
         errorRate := Round(SystemHealth["ErrorRate"] * 100, 2)
-        
+
         statusText := "FWDE System Status`n`n"
         statusText .= "Physics Engine: " . status . "`n"
         statusText .= "System Health: " . healthStatus . "`n"
@@ -2262,9 +2384,9 @@ ShowSystemStatus(*) {
         statusText .= "Physics Time: " . Round(SystemHealth["PerformanceMetrics"]["AvgPhysicsTime"], 2) . "ms`n"
         statusText .= "Movement Time: " . Round(SystemHealth["PerformanceMetrics"]["AvgMovementTime"], 2) . "ms`n"
         statusText .= "Memory Usage: " . Round(SystemHealth["PerformanceMetrics"]["MemoryUsage"] / 1024 / 1024, 1) . "MB"
-        
+
         MsgBox(statusText, "FWDE System Status", "OK Icon64")
-        
+
     } catch as e {
         RecordSystemError("ShowSystemStatus", e)
     }
@@ -2272,9 +2394,7 @@ ShowSystemStatus(*) {
 
 TogglePhysics(*) {
     global g
-    
-   
-    
+
     if (g.Get("PhysicsEnabled", false)) {
         StopFWDE()
     } else {
@@ -2294,7 +2414,7 @@ OptimizeLayout(*) {
 
 TogglePhysicsOverlay(*) {
     global VisualFeedback
-    
+
     VisualFeedback["PhysicsOverlay"]["Enabled"] := !VisualFeedback["PhysicsOverlay"]["Enabled"]
     status := VisualFeedback["PhysicsOverlay"]["Enabled"] ? "enabled" : "disabled"
     ShowNotification("Visual", "Physics overlay " . status, "info")
@@ -2302,7 +2422,7 @@ TogglePhysicsOverlay(*) {
 
 ToggleWindowBorders(*) {
     global VisualFeedback
-    
+
     VisualFeedback["WindowBorders"]["Enabled"] := !VisualFeedback["WindowBorders"]["Enabled"]
     status := VisualFeedback["WindowBorders"]["Enabled"] ? "enabled" : "disabled"
     ShowNotification("Visual", "Window borders " . status, "info")
@@ -2310,11 +2430,11 @@ ToggleWindowBorders(*) {
 
 ShowNotificationSettings(*) {
     global VisualFeedback, NotificationThemes
-    
+
     try {
         currentTheme := VisualFeedback["Notifications"]["Theme"]
         enabled := VisualFeedback["Notifications"]["Enabled"] ? "Enabled" : "Disabled"
-        
+
         settingsText := "Notification Settings`n`n"
         settingsText .= "Status: " . enabled . "`n"
         settingsText .= "Current Theme: " . currentTheme . "`n"
@@ -2322,13 +2442,13 @@ ShowNotificationSettings(*) {
         settingsText .= "Duration: " . VisualFeedback["Notifications"]["Duration"] . "ms`n"
         settingsText .= "Max Queue: " . VisualFeedback["Notifications"]["MaxQueue"] . "`n`n"
         settingsText .= "Available Themes: "
-        
+
         for themeName in NotificationThemes {
             settingsText .= themeName . " "
         }
-        
+
         MsgBox(settingsText, "Notification Settings", "OK Icon64")
-        
+
     } catch as e {
         RecordSystemError("ShowNotificationSettings", e)
     }
@@ -2344,29 +2464,29 @@ SaveCurrentConfig(*) {
 
 ShowConfigStatus(*) {
     global Config
-    
+
     try {
         validation := ValidateConfiguration(Config)
         statusText := "Configuration Status`n`n"
         statusText .= "Valid: " . (validation["valid"] ? "Yes" : "No") . "`n`n"
-        
+
         if (validation["errors"].Length > 0) {
             statusText .= "Errors:`n"
-            for error in validation["errors"] {
-                statusText .= "• " . error . "`n"
+            for validationError in validation["errors"] {
+                statusText .= "• " . validationError . "`n"
             }
             statusText .= "`n"
         }
-        
+
         if (validation["warnings"].Length > 0) {
             statusText .= "Warnings:`n"
-            for warning in validation["warnings"] {
-                statusText .= "• " . warning . "`n"
+            for validationWarning in validation["warnings"] {
+                statusText .= "• " . validationWarning . "`n"
             }
         }
-        
+
         MsgBox(statusText, "Configuration Status", "OK Icon64")
-        
+
     } catch as e {
         RecordSystemError("ShowConfigStatus", e)
     }
@@ -2389,7 +2509,7 @@ ShowAbout(*) {
     aboutText .= "Ctrl+Alt+M - Toggle Multi-Monitor`n"
     aboutText .= "Ctrl+Alt+P - Pause/Resume Physics`n"
     aboutText .= "Ctrl+Alt+Q - Quit FWDE"
-    
+
     MsgBox(aboutText, "About FWDE", "OK Icon64")
 }
 
@@ -2401,32 +2521,32 @@ ExitApplication(*) {
 ; Enhanced window management with visual feedback
 RefreshWindowList() {
     global g, Config, VisualFeedback
-    
+
     try {
         ; Clear existing window list
         g["Windows"] := []
-        
+
         ; Get all visible windows
         windowList := WinGetList(,, "Program Manager")
-        
+
         for hwnd in windowList {
             try {
                 ; Get window info
                 WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
                 title := WinGetTitle("ahk_id " hwnd)
-                class := WinGetClass("ahk_id " hwnd)
+                windowClass := WinGetClass("ahk_id " hwnd)
                 processName := WinGetProcessName("ahk_id " hwnd)
-                
+
                 ; Skip invalid windows
                 if (w < 50 || h < 50 || title == "" || !WinGetMinMax("ahk_id " hwnd)) {
                     continue
                 }
-                
+
                 ; Create window object
                 winObj := Map(
                     "hwnd", hwnd,
                     "title", title,
-                    "class", class,
+                    "class", windowClass,
                     "process", processName,
                     "x", x,
                     "y", y,
@@ -2437,20 +2557,20 @@ RefreshWindowList() {
                     "manualLock", false,
                     "lastMoved", 0
                 )
-                
+
                 g["Windows"].Push(winObj)
-                
+
                 ; Add visual feedback for newly detected window
                 AddWindowBorder(hwnd, "Physics", 1000)
-                
+
             } catch {
                 ; Skip windows that can't be accessed
                 continue
             }
         }
-        
+
         DebugLog("WINDOW", "Found " g["Windows"].Length " manageable windows", 3)
-        
+
     } catch as e {
         RecordSystemError("RefreshWindowList", e)
     }
@@ -2459,13 +2579,13 @@ RefreshWindowList() {
 ; Enhanced window state management with visual feedback
 SetWindowManualLock(hwnd, locked := true) {
     global g, VisualFeedback
-    
+
     try {
         ; Find window in list
         for win in g["Windows"] {
             if (win["hwnd"] == hwnd) {
                 win["manualLock"] := locked
-                
+
                 ; Add visual feedback
                 if (locked) {
                     AddWindowBorder(hwnd, "Locked", Config["ManualLockDuration"])
@@ -2474,12 +2594,12 @@ SetWindowManualLock(hwnd, locked := true) {
                     AddWindowBorder(hwnd, "Physics", 1000)
                     ShowNotification("Window Control", "Window unlocked", "info", 1500)
                 }
-                
+
                 DebugLog("WINDOW", "Window " . hwnd . " lock set to: " . locked, 2)
                 break
             }
         }
-        
+
     } catch as e {
         RecordSystemError("SetWindowManualLock", e, hwnd)
     }
@@ -2495,10 +2615,10 @@ LoadSavedLayouts() {
         if (!DirExist(layoutDir)) {
             return
         }
-        
+
         savedLayouts := LayoutAlgorithms["CustomLayouts"]["SavedLayouts"]
         savedLayouts.Clear()
-        
+
         Loop Files, layoutDir "\*.json" {
             try {
                 layoutText := FileRead(A_LoopFileFullPath)
@@ -2509,7 +2629,7 @@ LoadSavedLayouts() {
                 continue
             }
         }
-        
+
         DebugLog("LAYOUT", "Loaded " . savedLayouts.Count . " saved layouts", 2)
     } catch as e {
         RecordSystemError("LoadSavedLayouts", e)
@@ -2522,12 +2642,12 @@ PeriodicLayoutOptimization() {
         if (!g.Get("PhysicsEnabled", false) || !LayoutAlgorithms["BinPacking"]["Enabled"]) {
             return
         }
-        
+
         ; Apply bin packing optimization periodically
         if (g.Has("Windows") && g["Windows"].Length > 2) {
             bounds := GetCurrentMonitorInfo()
             strategy := LayoutAlgorithms["BinPacking"]["Strategy"]
-            
+
             if (BinPackingStrategies.Has(strategy)) {
                 result := BinPackingStrategies[strategy](g["Windows"], bounds)
                 if (result["efficiency"] > 0.7) {  ; Only apply if efficiency is good
@@ -2544,7 +2664,7 @@ PeriodicLayoutOptimization() {
 FindFirstFitPosition(win, bounds, usedRectangles) {
     try {
         margin := Config["MinMargin"]
-        
+
         for y in Range(bounds["Top"] + margin, bounds["Bottom"] - win["height"] - margin, 10) {
             for x in Range(bounds["Left"] + margin, bounds["Right"] - win["width"] - margin, 10) {
                 candidate := Map("x", x, "y", y)
@@ -2563,14 +2683,14 @@ FindFirstFitPosition(win, bounds, usedRectangles) {
 CalculatePlacementScore(position, win, bounds) {
     try {
         score := 0
-        
+
         ; Distance from center (prefer center positions)
         centerX := bounds["Left"] + bounds["Width"] / 2
         centerY := bounds["Top"] + bounds["Height"] / 2
         distanceFromCenter := Sqrt((position["x"] - centerX)**2 + (position["y"] - centerY)**2)
         centerScore := 1 / (1 + distanceFromCenter / 1000)
         score += centerScore * 0.3
-        
+
         ; Screen edge distance (avoid edges)
         edgeDistance := Min(
             position["x"] - bounds["Left"],
@@ -2580,7 +2700,7 @@ CalculatePlacementScore(position, win, bounds) {
         )
         edgeScore := Min(1, edgeDistance / 50)
         score += edgeScore * 0.2
-        
+
         return score
     } catch as e {
         RecordSystemError("CalculatePlacementScore", e)
@@ -2593,15 +2713,15 @@ CalculatePackingEfficiency(placements, bounds) {
         if (placements.Length == 0) {
             return 0
         }
-        
+
         totalWindowArea := 0
         for placement in placements {
             totalWindowArea += placement["width"] * placement["height"]
         }
-        
+
         totalScreenArea := bounds["Width"] * bounds["Height"]
         efficiency := totalWindowArea / totalScreenArea
-        
+
         return Min(1, efficiency)
     } catch as e {
         RecordSystemError("CalculatePackingEfficiency", e)
@@ -2617,14 +2737,14 @@ IsPositionValid(position, win, usedRectangles) {
             "width", win["width"],
             "height", win["height"]
         )
-        
+
         ; Check for overlaps with used rectangles
         for rect in usedRectangles {
             if (RectanglesOverlap(winRect, rect)) {
                 return false
             }
         }
-        
+
         return true
     } catch as e {
         RecordSystemError("IsPositionValid", e)
@@ -2651,17 +2771,17 @@ CalculateUtilizationScore(position, win, bounds) {
         y := position["y"]
         w := win["width"]
         h := win["height"]
-        
+
         ; Calculate margins
         leftMargin := x - bounds["Left"]
         topMargin := y - bounds["Top"]
         rightMargin := bounds["Right"] - (x + w)
         bottomMargin := bounds["Bottom"] - (y + h)
-        
+
         ; Prefer balanced margins
-        marginBalance := 1 - (Max(leftMargin, rightMargin, topMargin, bottomMargin) / 
+        marginBalance := 1 - (Max(leftMargin, rightMargin, topMargin, bottomMargin) /
                              Min(bounds["Width"], bounds["Height"]))
-        
+
         return Max(0, marginBalance)
     } catch as e {
         RecordSystemError("CalculateUtilizationScore", e)
@@ -2674,14 +2794,14 @@ CalculateAccessibilityScore(position, win, bounds) {
         ; Score based on how accessible the window is
         x := position["x"]
         y := position["y"]
-        
+
         ; Prefer positions closer to the primary monitor area
         centerX := bounds["Left"] + bounds["Width"] / 2
         centerY := bounds["Top"] + bounds["Height"] / 2
-        
+
         distance := Sqrt((x - centerX)**2 + (y - centerY)**2)
         maxDistance := Sqrt(bounds["Width"]**2 + bounds["Height"]**2) / 2
-        
+
         return 1 - (distance / maxDistance)
     } catch as e {
         RecordSystemError("CalculateAccessibilityScore", e)
@@ -2692,11 +2812,11 @@ CalculateAccessibilityScore(position, win, bounds) {
 CalculateAestheticsScore(position, win, usedRectangles, bounds) {
     try {
         score := 0
-        
+
         ; Alignment score (prefer aligned edges)
         alignmentScore := 0
         for rect in usedRectangles {
-            if (Abs(position["x"] - rect["x"]) < 5 || 
+            if (Abs(position["x"] - rect["x"]) < 5 ||
                 Abs(position["y"] - rect["y"]) < 5 ||
                 Abs(position["x"] - (rect["x"] + rect["width"])) < 5 ||
                 Abs(position["y"] - (rect["y"] + rect["height"])) < 5) {
@@ -2704,7 +2824,7 @@ CalculateAestheticsScore(position, win, usedRectangles, bounds) {
             }
         }
         score += Min(1, alignmentScore)
-        
+
         return score
     } catch as e {
         RecordSystemError("CalculateAestheticsScore", e)
@@ -2717,14 +2837,14 @@ CalculateProximityScore(position, win, usedRectangles) {
         if (usedRectangles.Length == 0) {
             return 1
         }
-        
+
         ; Find closest rectangle
         minDistance := 999999
         for rect in usedRectangles {
             distance := CalculateRectangleDistance(position, win, rect)
             minDistance := Min(minDistance, distance)
         }
-        
+
         ; Score inversely proportional to distance
         return 1 / (1 + minDistance / 100)
     } catch as e {
@@ -2740,7 +2860,7 @@ CalculateRectangleDistance(pos, win, rect) {
         center1Y := pos["y"] + win["height"] / 2
         center2X := rect["x"] + rect["width"] / 2
         center2Y := rect["y"] + rect["height"] / 2
-        
+
         return Sqrt((center1X - center2X)**2 + (center1Y - center2Y)**2)
     } catch {
         return 999999
@@ -2772,7 +2892,7 @@ CalculateOverlapArea(rect1, rect2) {
         top := Max(rect1["y"], rect2["y"])
         right := Min(rect1["x"] + rect1["width"], rect2["x"] + rect2["width"])
         bottom := Min(rect1["y"] + rect1["height"], rect2["y"] + rect2["height"])
-        
+
         if (right > left && bottom > top) {
             return (right - left) * (bottom - top)
         }
@@ -2788,7 +2908,7 @@ CalculateScreenUsageEfficiency(genes, bounds) {
         for gene in genes {
             totalArea += gene["width"] * gene["height"]
         }
-        
+
         screenArea := bounds["Width"] * bounds["Height"]
         return totalArea / screenArea
     } catch as e {
@@ -2848,15 +2968,15 @@ CreateNextGeneration(population) {
         nextGen := []
         popSize := population.Length
         eliteCount := Integer(popSize * LayoutAlgorithms["GeneticAlgorithm"]["ElitismRate"])
-        
+
         ; Sort by fitness
         SortPopulationByFitness(population)
-        
+
         ; Keep elite individuals
         Loop eliteCount {
             nextGen.Push(population[A_Index])
         }
-        
+
         ; Generate new individuals through crossover and mutation
         Loop popSize - eliteCount {
             parent1 := TournamentSelection(population)
@@ -2865,7 +2985,7 @@ CreateNextGeneration(population) {
             child := Mutate(child)
             nextGen.Push(child)
         }
-        
+
         return nextGen
     } catch as e {
         RecordSystemError("CreateNextGeneration", e)
@@ -2897,19 +3017,19 @@ TournamentSelection(population) {
     try {
         tournamentSize := 3
         tournament := []
-        
+
         Loop tournamentSize {
             randomIndex := Random(1, population.Length)
             tournament.Push(population[randomIndex])
         }
-        
+
         bestIndividual := tournament[1]
         for individual in tournament {
             if (individual["fitness"] > bestIndividual["fitness"]) {
                 bestIndividual := individual
             }
         }
-        
+
         return bestIndividual
     } catch as e {
         RecordSystemError("TournamentSelection", e)
@@ -2922,14 +3042,14 @@ Crossover(parent1, parent2) {
         ; Single-point crossover
         genes1 := parent1["genes"]
         genes2 := parent2["genes"]
-        
+
         if (genes1.Length != genes2.Length || genes1.Length == 0) {
             return parent1
         }
-        
+
         crossoverPoint := Random(1, genes1.Length)
         childGenes := []
-        
+
         Loop genes1.Length {
             if (A_Index <= crossoverPoint) {
                 childGenes.Push(genes1[A_Index])
@@ -2937,10 +3057,10 @@ Crossover(parent1, parent2) {
                 childGenes.Push(genes2[A_Index])
             }
         }
-        
+
         child := Map("genes", childGenes, "fitness", 0)
         child["fitness"] := CalculateLayoutFitness(child)
-        
+
         return child
     } catch as e {
         RecordSystemError("Crossover", e)
@@ -2952,19 +3072,19 @@ Mutate(individual) {
     try {
         mutationRate := LayoutAlgorithms["GeneticAlgorithm"]["MutationRate"]
         bounds := GetCurrentMonitorInfo()
-        
+
         for gene in individual["genes"] {
             if (Random() < mutationRate) {
                 ; Slightly adjust position
                 gene["x"] += Random(-20, 20)
                 gene["y"] += Random(-20, 20)
-                
+
                 ; Keep within bounds
                 gene["x"] := Max(bounds["Left"], Min(gene["x"], bounds["Right"] - gene["width"]))
                 gene["y"] := Max(bounds["Top"], Min(gene["y"], bounds["Bottom"] - gene["height"]))
             }
         }
-        
+
         individual["fitness"] := CalculateLayoutFitness(individual)
         return individual
     } catch as e {
@@ -2978,7 +3098,7 @@ GetBestIndividual(population) {
         if (population.Length == 0) {
             return Map("genes", [], "fitness", 0)
         }
-        
+
         best := population[1]
         for individual in population {
             if (individual["fitness"] > best["fitness"]) {
@@ -3021,9 +3141,9 @@ RecordEvolutionHistory(ga) {
             "avgFitness", CalculateAverageFitness(ga["Population"]),
             "timestamp", A_TickCount
         )
-        
+
         ga["EvolutionHistory"].Push(historyEntry)
-        
+
         ; Keep history manageable
         if (ga["EvolutionHistory"].Length > 100) {
             ga["EvolutionHistory"].RemoveAt(1)
@@ -3038,7 +3158,7 @@ CalculateAverageFitness(population) {
         if (population.Length == 0) {
             return 0
         }
-        
+
         total := 0
         for individual in population {
             total += individual["fitness"]
@@ -3075,14 +3195,14 @@ SaveLayoutToFile(layout, filePath) {
 LoadLayoutFromFile(layoutName) {
     try {
         layoutFile := LayoutAlgorithms["CustomLayouts"]["LayoutDirectory"] . "\" . layoutName . ".json"
-        
+
         if (!FileExist(layoutFile)) {
             return false
         }
-        
+
         layoutText := FileRead(layoutFile)
         layout := JSON.parse(layoutText)
-        
+
         LayoutAlgorithms["CustomLayouts"]["SavedLayouts"][layoutName] := layout
         return true
     } catch as e {
@@ -3096,7 +3216,7 @@ FindMatchingWindow(savedWindow) {
     try {
         for win in g["Windows"] {
             ; Match by title or class
-            if (win["title"] == savedWindow["title"] || 
+            if (win["title"] == savedWindow["title"] ||
                 win["class"] == savedWindow["class"]) {
                 return win
             }
@@ -3113,11 +3233,11 @@ AnimateWindowToPosition(hwnd, targetX, targetY) {
         if (!IsWindowValid(hwnd)) {
             return
         }
-        
+
         ; Simple immediate positioning for now
         ; In full implementation, this would use smooth animation
         WinMove(targetX, targetY, , , "ahk_id " hwnd)
-        
+
         DebugLog("ANIMATE", "Moved window " . hwnd . " to " . targetX . "," . targetY, 3)
     } catch as e {
         RecordSystemError("AnimateWindowToPosition", e, hwnd)
@@ -3188,20 +3308,20 @@ LoadWorkspaceLayout(workspaceName) {
 ShowLayoutSelectionDialog() {
     try {
         savedLayouts := LayoutAlgorithms["CustomLayouts"]["SavedLayouts"]
-        
+
         if (savedLayouts.Count == 0) {
             MsgBox("No saved layouts found.", "Layout Selection", "OK Icon48")
             return
         }
-        
+
         layoutList := ""
         for layoutName in savedLayouts {
             layoutList .= layoutName . "|"
         }
         layoutList := RTrim(layoutList, "|")
-        
+
         selectedLayout := InputBox("Select layout to load:", "Layout Selection", "W300 H100", layoutList).Text
-        
+
         if (selectedLayout && savedLayouts.Has(selectedLayout)) {
             LoadLayout(selectedLayout)
         }
@@ -3217,11 +3337,11 @@ ShowBinPackingStrategyDialog() {
             strategies .= strategyName . "|"
         }
         strategies := RTrim(strategies, "|")
-        
+
         currentStrategy := LayoutAlgorithms["BinPacking"]["Strategy"]
-        
+
         selectedStrategy := InputBox("Current: " . currentStrategy . "`nSelect new strategy:", "Bin Packing Strategy", "W300 H120", strategies).Text
-        
+
         if (selectedStrategy && BinPackingStrategies.Has(selectedStrategy)) {
             LayoutAlgorithms["BinPacking"]["Strategy"] := selectedStrategy
             ShowNotification("Layout", "Bin packing strategy changed to: " . selectedStrategy, "success")
@@ -3256,7 +3376,7 @@ StartFWDE() {
     try {
         g["PhysicsEnabled"] := true
         g["ArrangementActive"] := true
-        
+
         RefreshWindowList()
         ShowNotification("FWDE", "Physics engine started", "success", 2000)
         DebugLog("SYSTEM", "FWDE started", 2)
@@ -3270,7 +3390,7 @@ StopFWDE() {
     try {
         g["PhysicsEnabled"] := false
         g["ArrangementActive"] := false
-        
+
         ShowNotification("FWDE", "Physics engine stopped", "info", 2000)
         DebugLog("SYSTEM", "FWDE stopped", 2)
     } catch as e {
@@ -3292,3 +3412,66 @@ SetTimer(() => InitializeVisualFeedback(), -2000)
 
 ; Initialize configuration system on startup
 SetTimer(() => InitializeConfigurationSystem(), -1000)
+
+; Add missing RecordPerformanceMetric function to resolve compile error
+RecordPerformanceMetric(operation, timeMs) {
+    global PerfTimers
+    try {
+        if (!PerfTimers.Has(operation)) {
+            PerfTimers[operation] := Map(
+                "totalTime", 0,
+                "count", 0,
+                "avgTime", 0,
+                "maxTime", 0,
+                "minTime", 999999
+            )
+        }
+
+        timer := PerfTimers[operation]
+        timer["totalTime"] += timeMs
+        timer["count"] += 1
+        timer["avgTime"] := timer["totalTime"] / timer["count"]
+        timer["maxTime"] := Max(timer["maxTime"], timeMs)
+        timer["minTime"] := Min(timer["minTime"], timeMs)
+
+        DebugLog("PERF", operation . " took " . timeMs . "ms (avg: " . Round(timer["avgTime"], 2) . "ms)", 3)
+    } catch as e {
+        RecordSystemError("RecordPerformanceMetric", e, operation)
+    }
+}
+
+; Add missing QualityLevels global variable
+global QualityLevels := Map(
+    "Low", Map(
+        "description", "Low quality settings for better performance",
+        "PhysicsTimeStep", 5,
+        "VisualTimeStep", 10,
+        "Smoothing", 0.3,
+        "MaxSpeed", 20.0,
+        "PhysicsUpdateInterval", 500
+    ),
+    "Medium", Map(
+        "description", "Balanced quality and performance",
+        "PhysicsTimeStep", 2,
+        "VisualTimeStep", 5,
+        "Smoothing", 0.5,
+        "MaxSpeed", 12.0,
+        "PhysicsUpdateInterval", 200
+    ),
+    "High", Map(
+        "description", "High quality settings for smooth visuals",
+        "PhysicsTimeStep", 1,
+        "VisualTimeStep", 2,
+        "Smoothing", 0.7,
+        "MaxSpeed", 8.0,
+        "PhysicsUpdateInterval", 100
+    ),
+    "Ultra", Map(
+        "description", "Ultra quality settings for maximum smoothness",
+        "PhysicsTimeStep", 1,
+        "VisualTimeStep", 1,
+        "Smoothing", 0.9,
+        "MaxSpeed", 6.0,
+        "PhysicsUpdateInterval", 50
+    )
+)

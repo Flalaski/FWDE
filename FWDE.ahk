@@ -1720,162 +1720,6 @@ CalculateAveragePopulationFitness(population) {
     }
 }
 
-; Remove all duplicate global variable declarations and function conflicts
-; Ensure each function is defined only once in the file
-
-; Add missing bin packing optimization function
-ApplyBinPackingOptimization() {
-    global g, LayoutAlgorithms, BinPackingStrategies
-
-    try {
-        windows := g.Get("Windows", [])
-        if (windows.Length < 2) {
-            return
-        }
-
-        bounds := GetCurrentMonitorInfo()
-        strategy := LayoutAlgorithms["BinPacking"]["Strategy"]
-
-        if (!BinPackingStrategies.Has(strategy)) {
-            DebugLog("LAYOUT", "Unknown bin packing strategy: " . strategy, 2)
-            return
-        }
-
-        ; Apply the selected bin packing algorithm
-        packingFunction := BinPackingStrategies[strategy]
-        result := packingFunction(windows, bounds)
-
-        if (result && result.Has("placements") && result["placements"].Length > 0) {
-            ApplyLayoutPlacements(result["placements"])
-            DebugLog("LAYOUT", "Applied " . strategy . " packing with " . result["efficiency"] . " efficiency", 2)
-        }
-
-    } catch as e {
-        RecordSystemError("ApplyBinPackingOptimization", e)
-    }
-}
-
-; Add missing calculation functions for genetic algorithm
-CalculateScreenUsageEfficiency(genes, bounds) {
-    try {
-        if (genes.Length == 0) {
-            return 0
-        }
-
-        totalWindowArea := 0
-        for gene in genes {
-            totalWindowArea += gene["width"] * gene["height"]
-        }
-
-        screenArea := bounds["Width"] * bounds["Height"]
-        return Min(1.0, totalWindowArea / screenArea)
-
-    } catch as e {
-        RecordSystemError("CalculateScreenUsageEfficiency", e)
-        return 0
-    }
-}
-
-CalculateLayoutAccessibility(genes, bounds) {
-    try {
-        if (genes.Length == 0) {
-            return 0
-        }
-
-        centerX := bounds["Left"] + bounds["Width"] / 2
-        centerY := bounds["Top"] + bounds["Height"] / 2
-        
-        totalAccessibility := 0
-        for gene in genes {
-            windowCenterX := gene["x"] + gene["width"] / 2
-            windowCenterY := gene["y"] + gene["height"] / 2
-            
-            distanceFromCenter := Sqrt((windowCenterX - centerX)**2 + (windowCenterY - centerY)**2)
-            maxDistance := Sqrt((bounds["Width"]/2)**2 + (bounds["Height"]/2)**2)
-            
-            accessibility := 1 - (distanceFromCenter / maxDistance)
-            totalAccessibility += accessibility
-        }
-
-        return totalAccessibility / genes.Length
-
-    } catch as e {
-        RecordSystemError("CalculateLayoutAccessibility", e)
-        return 0
-    }
-}
-
-CalculateUserPreferenceAlignment(genes) {
-    try {
-        ; Simplified user preference calculation
-        ; In full implementation, this would consider user behavior patterns
-        return 0.5  ; Neutral preference score
-
-    } catch as e {
-        RecordSystemError("CalculateUserPreferenceAlignment", e)
-        return 0
-    }
-}
-
-CalculateLayoutAesthetics(genes, bounds) {
-    try {
-        if (genes.Length <= 1) {
-            return 1.0  ; Single window is always aesthetic
-        }
-
-        aestheticScore := 0
-        
-        ; Check for alignment and symmetry
-        alignmentBonus := 0
-        edgeAlignments := 0
-        
-        for i in Range(1, genes.Length - 1) {
-            gene1 := genes[i]
-            for j in Range(i + 1, genes.Length) {
-                gene2 := genes[j]
-                
-                ; Check horizontal alignment
-                if (Abs(gene1["x"] - gene2["x"]) < 5 || 
-                    Abs(gene1["x"] + gene1["width"] - gene2["x"]) < 5 || 
-                    Abs(gene1["x"] - (gene2["x"] + gene2["width"])) < 5) {
-                    alignmentBonus += 0.1
-                    edgeAlignments++
-                }
-                
-                ; Check vertical alignment  
-                if (Abs(gene1["y"] - gene2["y"]) < 5 || 
-                    Abs(gene1["y"] + gene1["height"] - gene2["y"]) < 5 || 
-                    Abs(gene1["y"] - (gene2["y"] + gene2["height"])) < 5) {
-                    alignmentBonus += 0.1
-                    edgeAlignments++
-                }
-            }
-        }
-        
-        ; Cap alignment score
-        alignmentScore := Min(alignmentBonus, 0.7)
-        
-        ; Symmetry relative to screen center
-        centerX := bounds["Left"] + bounds["Width"] / 2
-        centerY := bounds["Top"] + bounds["Height"] / 2
-        
-        ; Calculate average distance from center for symmetry
-        totalSymmetry := 0
-        for gene in genes {
-            windowCenterX := gene["x"] + gene["width"] / 2
-            symmetryScore := 1 - (Abs((windowCenterX - centerX) / (bounds["Width"] / 2)) * 0.3)
-            totalSymmetry += symmetryScore
-        }
-        
-        avgSymmetry := totalSymmetry / genes.Length
-        
-        return (alignmentScore * 0.6) + (avgSymmetry * 0.4)
-    } catch as e {
-        RecordSystemError("CalculateLayoutAesthetics", e)
-        return 0.5  ; Return middle value on error
-    }
-}
-
 ; Refresh window list and start physics engine
 StartFWDE() {
     global g
@@ -2036,79 +1880,209 @@ ShowBinPackingStrategyDialog() {
     }
 }
 
-; Bin packing algorithms implementation
-global BinPackingStrategies := Map(
-    "FirstFit", FirstFitPacking,
-    "BestFit", BestFitPacking,
-    "NextFit", NextFitPacking,
-    "WorstFit", WorstFitPacking,
-    "BottomLeftFill", BottomLeftFillPacking,
-    "GuillotinePacking", GuillotinePacking
-)
-
-; Helper functions for layout algorithms
-SortWindowsByArea(windows) {
+; Emergency stop - stops all physics and timers
+^!x::
+{
     try {
-        ; Create array with area calculations
-        windowsWithArea := []
-
-        for win in windows {
-            if (IsWindowValid(win["hwnd"])) {
-                area := win["width"] * win["height"]
-                windowsWithArea.Push(Map(
-                    "window", win,
-                    "area", area,
-                    "hwnd", win["hwnd"],
-                    "width", win["width"],
-                    "height", win["height"]
-                ))
-            }
-        }
-
-        ; Sort by area (largest first)
-        sortedWindows := []
-        while (windowsWithArea.Length > 0) {
-            largestIndex := 1
-            largestArea := windowsWithArea[1]["area"]
-
-            for i in Range(2, windowsWithArea.Length) {
-                if (windowsWithArea[i]["area"] > largestArea) {
-                    largestArea := windowsWithArea[i]["area"]
-                    largestIndex := i
-                }
-            }
-
-            sortedWindows.Push(windowsWithArea[largestIndex]["window"])
-            windowsWithArea.RemoveAt(largestIndex)
-        }
-
-        return sortedWindows
-
+        StopFWDE()
+        SetTimer(CalculateDynamicLayout, 0)
+        SetTimer(PeriodicLayoutOptimization, 0)
+        SetTimer(CheckConfigurationChanges, 0)
+        SetTimer(EvolveLayoutGeneration, 0)
+        SetTimer(MonitorVirtualDesktopChanges, 0)
+        ShowNotification("FWDE", "Emergency stop - all systems halted", "warning", 5000)
+        DebugLog("MAIN", "Emergency stop activated", 1)
     } catch as e {
-        RecordSystemError("SortWindowsByArea", e)
-        return windows
+        RecordSystemError("EmergencyStopHotkey", e)
     }
 }
 
-; Range generator for loops
-Range(start, end, step := 1) {
-    values := []
-    current := start
-
-    if (step > 0) {
-        while (current <= end) {
-            values.Push(current)
-            current += step
-        }
-    } else {
-        while (current >= end) {
-            values.Push(current)
-            current += step
-        }
+; Show help/status information
+^!h::
+{
+    global g, Config
+    try {
+        status := "FWDE Status:`n"
+        status .= "Physics: " . (g.Get("PhysicsEnabled", false) ? "ON" : "OFF") . "`n"
+        status .= "Arrangement: " . (g.Get("ArrangementActive", false) ? "ON" : "OFF") . "`n"
+        status .= "Windows: " . g.Get("Windows", []).Length . "`n"
+        status .= "Multi-Monitor: " . (Config["SeamlessMonitorFloat"] ? "ON" : "OFF") . "`n`n"
+        status .= "Hotkeys:`n"
+        status .= "F1 - Toggle Physics`n"
+        status .= "F2 - Refresh Windows`n"
+        status .= "F3 - Optimize Layout`n"
+        status .= "Ctrl+Alt+M - Toggle Multi-Monitor`n"
+        status .= "Ctrl+Alt+L - Load Layout`n"
+        status .= "Ctrl+Alt+S - Save Layout`n"
+        status .= "Ctrl+Alt+B - Bin Packing Strategy`n"
+        status .= "Ctrl+Alt+X - Emergency Stop`n"
+        status .= "Ctrl+Alt+H - This Help"
+        
+        MsgBox(status, "FWDE Help & Status", "OK Info")
+    } catch as e {
+        RecordSystemError("HelpHotkey", e)
     }
-
-    return values
 }
+
+; Persistent timer to keep script alive and monitor system health
+SetTimer(SystemHealthCheck, 30000)  ; Check every 30 seconds
+
+SystemHealthCheck() {
+    global SystemState, g
+    try {
+        ; Check if system is healthy
+        if (!SystemState["SystemHealthy"]) {
+            DebugLog("HEALTH", "System unhealthy, attempting recovery", 1)
+            
+            ; Attempt automatic recovery
+            if (SystemState["RecoveryAttempts"] < SystemState["MaxRecoveryAttempts"]) {
+                SystemState["RecoveryAttempts"]++
+                
+                ; Reset system state
+                g["PhysicsEnabled"] := true
+                g["ArrangementActive"] := true
+                SystemState["SystemHealthy"] := true
+                SystemState["ErrorCount"] := 0
+                
+                ; Restart core systems
+                StartFWDE()
+                
+                DebugLog("HEALTH", "Recovery attempt " . SystemState["RecoveryAttempts"] . " completed", 2)
+            } else {
+                DebugLog("HEALTH", "Maximum recovery attempts reached", 1)
+                ShowNotification("FWDE", "System recovery failed - manual intervention required", "error", 10000)
+            }
+        } else {
+            ; Reset recovery counter on healthy operation
+            SystemState["RecoveryAttempts"] := 0
+        }
+        
+        ; Log system status periodically
+        DebugLog("HEALTH", "System health check completed - Status: " . (SystemState["SystemHealthy"] ? "HEALTHY" : "UNHEALTHY"), 3)
+        
+    } catch as e {
+        RecordSystemError("SystemHealthCheck", e)
+        SystemState["SystemHealthy"] := false
+        SystemState["ErrorCount"]++
+    }
+}
+
+; Main script initialization - call this at the end of the script
+Main() {
+    try {
+        DebugLog("MAIN", "Starting FWDE initialization", 2)
+        
+        ; Initialize configuration system
+        InitializeConfigurationSystem()
+        
+        ; Initialize sophisticated layouts
+        InitializeSophisticatedLayouts()
+        
+        ; Start the physics engine
+        StartFWDE()
+        
+        ; Show startup notification
+        ShowNotification("FWDE", "Floating Windows Dynamic Equilibrium started successfully", "success", 3000)
+        
+        DebugLog("MAIN", "FWDE initialization completed", 2)
+        
+    } catch as e {
+        RecordSystemError("Main", e)
+        MsgBox("FWDE failed to initialize: " . e.Message, "Startup Error", "OK Icon!")
+        ExitApp()
+    }
+}
+
+; Hotkey definitions for user control
+; Toggle physics engine on/off
+F1::
+{
+    global g
+    try {
+        if (g.Get("PhysicsEnabled", false)) {
+            StopFWDE()
+        } else {
+            StartFWDE()
+        }
+    } catch as e {
+        RecordSystemError("F1Hotkey", e)
+    }
+}
+
+; Refresh window list
+F2::
+{
+    try {
+        RefreshWindowList()
+        ShowNotification("FWDE", "Window list refreshed", "info", 2000)
+    } catch as e {
+        RecordSystemError("F2Hotkey", e)
+    }
+}
+
+; Optimize window positions manually
+F3::
+{
+    try {
+        OptimizeWindowPositions()
+        ShowNotification("FWDE", "Window positions optimized", "success", 2000)
+    } catch as e {
+        RecordSystemError("F3Hotkey", e)
+    }
+}
+
+; Toggle seamless multi-monitor floating
+^!m::
+{
+    global Config
+    try {
+        Config["SeamlessMonitorFloat"] := !Config["SeamlessMonitorFloat"]
+        status := Config["SeamlessMonitorFloat"] ? "enabled" : "disabled"
+        ShowNotification("FWDE", "Seamless monitor floating " . status, "info", 3000)
+        DebugLog("CONFIG", "Seamless monitor floating toggled: " . status, 2)
+    } catch as e {
+        RecordSystemError("SeamlessToggleHotkey", e)
+    }
+}
+
+; Show layout selection dialog
+^!l::
+{
+    try {
+        ShowLayoutSelectionDialog()
+    } catch as e {
+        RecordSystemError("LayoutSelectionHotkey", e)
+    }
+}
+
+; Save current layout
+^!s::
+{
+    try {
+        result := InputBox("Enter layout name:", "Save Layout", "W300 H100")
+        if (result.Result == "OK" && result.Text != "") {
+            SaveCurrentLayout(result.Text)
+        }
+    } catch as e {
+        RecordSystemError("SaveLayoutHotkey", e)
+    }
+}
+
+; Show bin packing strategy selection
+^!b::
+{
+    try {
+        ShowBinPackingStrategyDialog()
+    } catch as e {
+        RecordSystemError("BinPackingHotkey", e)
+    }
+}
+
+; Make script persistent
+Persistent()
+
+; Call main initialization
+Main()
 
 ; Genetic Algorithm implementation for layout evolution
 InitializeGeneticAlgorithm() {
@@ -2234,6 +2208,43 @@ CalculateLayoutFitness(individual) {
     }
 }
 
+; Add missing overlap penalty calculation function
+CalculateOverlapPenalty(genes) {
+    try {
+        penalty := 0
+        if (genes.Length <= 1) {
+            return penalty
+        }
+        for i in Range(1, genes.Length - 1) {
+            gene1 := genes[i]
+            rect1 := Map("x", gene1["x"], "y", gene1["y"], "width", gene1["width"], "height", gene1["height"])
+            for j in Range(i + 1, genes.Length) {
+                gene2 := genes[j]
+                rect2 := Map("x", gene2["x"], "y", gene2["y"], "width", gene2["width"], "height", gene2["height"])
+                if (RectsOverlap(rect1, rect2)) {
+                    ; Calculate overlap area
+                    overlapX := Max(0, Min(rect1["x"] + rect1["width"], rect2["x"] + rect2["width"]) - Max(rect1["x"], rect2["x"]))
+                    overlapY := Max(0, Min(rect1["y"] + rect1["height"], rect2["y"] + rect2["height"]) - Max(rect1["y"], rect2["y"]))
+                    overlapArea := overlapX * overlapY
+                    penalty += overlapArea
+                }
+            }
+        }
+        return penalty
+    } catch as e {
+        RecordSystemError("CalculateOverlapPenalty", e)
+        return 0
+    }
+}
+
+; Helper function to check rectangle overlap
+RectsOverlap(rect1, rect2) {
+    return !(rect1["x"] + rect1["width"] <= rect2["x"]
+        || rect2["x"] + rect2["width"] <= rect1["x"]
+        || rect1["y"] + rect1["height"] <= rect2["y"]
+        || rect2["y"] + rect2["height"] <= rect1["y"])
+}
+
 ; Evolve to the next generation
 EvolveLayoutGeneration() {
     global LayoutAlgorithms, g
@@ -2284,6 +2295,123 @@ EvolveLayoutGeneration() {
         RecordSystemError("EvolveLayoutGeneration", e)
     }
 }
+
+; Initialize virtual desktop integration
+InitializeVirtualDesktopIntegration() {
+    global LayoutAlgorithms
+
+    try {
+        DebugLog("VDESKTOP", "Initializing virtual desktop integration", 2)
+
+        ; Check if virtual desktop API is available (Windows 11+)
+        if (!IsVirtualDesktopAPIAvailable()) {
+            DebugLog("VDESKTOP", "Virtual desktop API not available", 2)
+            LayoutAlgorithms["VirtualDesktop"]["Enabled"] := false
+            return false
+        }
+
+        ; Initialize workspace monitoring
+        SetTimer(MonitorVirtualDesktopChanges, 2000)
+
+        ; Load workspace profiles
+        LoadWorkspaceProfiles()
+
+        DebugLog("VDESKTOP", "Virtual desktop integration initialized successfully", 2)
+        return true
+
+    } catch as e {
+        RecordSystemError("InitializeVirtualDesktopIntegration", e)
+        return false
+    }
+}
+
+; Monitor virtual desktop changes
+MonitorVirtualDesktopChanges() {
+    global LayoutAlgorithms
+
+    try {
+        if (!LayoutAlgorithms["VirtualDesktop"]["Enabled"]) {
+            return
+        }
+
+        currentWorkspace := GetCurrentVirtualDesktop()
+
+        if (currentWorkspace != LayoutAlgorithms["VirtualDesktop"]["CurrentWorkspace"]) {
+            DebugLog("VDESKTOP", "Virtual desktop changed to: " . currentWorkspace, 2)
+
+            ; Save current workspace layout if auto-save enabled
+            if (LayoutAlgorithms["CustomLayouts"]["AutoSave"]) {
+                SaveWorkspaceLayout(LayoutAlgorithms["VirtualDesktop"]["CurrentWorkspace"])
+            }
+
+            ; Load layout for new workspace
+            if (LayoutAlgorithms["VirtualDesktop"]["AutoSwitchLayouts"]) {
+                LoadWorkspaceLayout(currentWorkspace)
+            }
+
+            LayoutAlgorithms["VirtualDesktop"]["CurrentWorkspace"] := currentWorkspace
+        }
+
+    } catch as e {
+        RecordSystemError("MonitorVirtualDesktopChanges", e)
+    }
+}
+
+; Bin packing algorithms implementation
+NextFitPacking(windows, bounds) {
+    try {
+        placements := []
+        currentX := bounds["Left"]
+        currentY := bounds["Top"]
+        maxRowHeight := 0
+
+        ; Sort windows by area (largest first)
+        sortedWindows := SortWindowsByArea(windows)
+
+        for win in sortedWindows {
+            ; If window doesn't fit in current row, start new row
+            if (currentX + win["width"] > bounds["Right"]) {
+                currentX := bounds["Left"]
+                currentY += maxRowHeight
+                maxRowHeight := 0
+            }
+            if (currentY + win["height"] > bounds["Bottom"]) {
+                break ; No more space
+            }
+            placements.Push(Map(
+                "hwnd", win["hwnd"],
+                "x", currentX,
+                "y", currentY,
+                "width", win["width"],
+                "height", win["height"]
+            ))
+            currentX += win["width"]
+            maxRowHeight := Max(maxRowHeight, win["height"])
+        }
+
+        ; Calculate packing efficiency
+        totalArea := 0
+        for p in placements {
+            totalArea += p["width"] * p["height"]
+        }
+        screenArea := bounds["Width"] * bounds["Height"]
+        efficiency := screenArea > 0 ? totalArea / screenArea : 0
+
+        return Map("placements", placements, "efficiency", efficiency)
+    } catch as e {
+        RecordSystemError("NextFitPacking", e)
+        return Map("placements", [], "efficiency", 0)
+    }
+}
+
+global BinPackingStrategies := Map(
+    "FirstFit", FirstFitPacking,
+    "BestFit", BestFitPacking,
+    "NextFit", NextFitPacking,
+    "WorstFit", WorstFitPacking,
+    "BottomLeftFill", BottomLeftFillPacking,
+    "GuillotinePacking", GuillotinePacking
+)
 
 ; Custom Layout Presets System - Save current layout
 SaveCurrentLayout(layoutName) {
@@ -2398,66 +2526,5 @@ LoadLayout(layoutName) {
         RecordSystemError("LoadLayout", e, layoutName)
         ShowNotification("Layout", "Failed to load layout '" . layoutName . "'", "error")
         return false
-    }
-}
-
-; Virtual Desktop Integration (Windows 11+)
-InitializeVirtualDesktopIntegration() {
-    global LayoutAlgorithms
-
-    try {
-        DebugLog("VDESKTOP", "Initializing virtual desktop integration", 2)
-
-        ; Check if virtual desktop API is available (Windows 11+)
-        if (!IsVirtualDesktopAPIAvailable()) {
-            DebugLog("VDESKTOP", "Virtual desktop API not available", 2)
-            LayoutAlgorithms["VirtualDesktop"]["Enabled"] := false
-            return false
-        }
-
-        ; Initialize workspace monitoring
-        SetTimer(MonitorVirtualDesktopChanges, 2000)
-
-        ; Load workspace profiles
-        LoadWorkspaceProfiles()
-
-        DebugLog("VDESKTOP", "Virtual desktop integration initialized successfully", 2)
-        return true
-
-    } catch as e {
-        RecordSystemError("InitializeVirtualDesktopIntegration", e)
-        return false
-    }
-}
-
-; Monitor virtual desktop changes
-MonitorVirtualDesktopChanges() {
-    global LayoutAlgorithms
-
-    try {
-        if (!LayoutAlgorithms["VirtualDesktop"]["Enabled"]) {
-            return
-        }
-
-        currentWorkspace := GetCurrentVirtualDesktop()
-
-        if (currentWorkspace != LayoutAlgorithms["VirtualDesktop"]["CurrentWorkspace"]) {
-            DebugLog("VDESKTOP", "Virtual desktop changed to: " . currentWorkspace, 2)
-
-            ; Save current workspace layout if auto-save enabled
-            if (LayoutAlgorithms["CustomLayouts"]["AutoSave"]) {
-                SaveWorkspaceLayout(LayoutAlgorithms["VirtualDesktop"]["CurrentWorkspace"])
-            }
-
-            ; Load layout for new workspace
-            if (LayoutAlgorithms["VirtualDesktop"]["AutoSwitchLayouts"]) {
-                LoadWorkspaceLayout(currentWorkspace)
-            }
-
-            LayoutAlgorithms["VirtualDesktop"]["CurrentWorkspace"] := currentWorkspace
-        }
-
-    } catch as e {
-        RecordSystemError("MonitorVirtualDesktopChanges", e)
     }
 }

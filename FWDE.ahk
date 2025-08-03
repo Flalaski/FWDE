@@ -817,13 +817,14 @@ class TimePhasing {
     }
 
     static CleanupEffects() {
-        for hwnd in this.echoes.Clone().Keys() {
+        ; Fix: Use for-loop over keys instead of .Keys()
+        for hwnd, _ in this.echoes.Clone() {
             if (!SafeWinExist(hwnd)) {
                 this.echoes.Delete(hwnd)
             }
         }
         ; Also clean up noise clouds
-        for hwnd in this.noiseClouds.Clone().Keys() {
+        for hwnd, _ in this.noiseClouds.Clone() {
             if (!SafeWinExist(hwnd)) {
                 this.noiseClouds.Delete(hwnd)
             }
@@ -2297,7 +2298,7 @@ GetTaskbarRect() {
 ^!P::TogglePhysics()              ; Ctrl+Alt+P for physics
 ^!F::ToggleTimePhasing()          ; Ctrl+Alt+F for time phasing effects
 ^!M::ToggleSeamlessMonitorFloat() ; Ctrl+Alt+M for seamless multi-monitor floating
-^!O::OptimizeWindowPositions()    ; Ctrl+Alt+O to optimize space utilization
+^!O::OptimizeWindowPositions()    ; Ctrl+Alt+O to optimize
 ^!L::ToggleWindowLock()           ; Ctrl+Alt+L to lock/unlock active window
 
 SetTimer(UpdateWindowStates, Config["PhysicsTimeStep"])

@@ -1280,3 +1280,7 @@ CalculateDynamicLayout() {
         ApplyStabilization(win)
     }
 }
+
+; --- Add main timers to start the engine ---
+SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
+SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])

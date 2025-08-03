@@ -1131,8 +1131,8 @@ ApplyWindowMovements() {
         if (!smoothPos.Has(hwnd))
             smoothPos[hwnd] := { x: hwndPos[hwnd].x, y: hwndPos[hwnd].y }
 
-        ; Space-like smooth movement (balanced for equilibrium)
-        alpha := 0.35  ; Higher value = faster convergence to target positions
+        ; Increase smoothing for less jitter
+        alpha := 0.18  ; Lower value = slower, smoother movement (was 0.35)
         smoothPos[hwnd].x := smoothPos[hwnd].x + (newX - smoothPos[hwnd].x) * alpha
         smoothPos[hwnd].y := smoothPos[hwnd].y + (newY - smoothPos[hwnd].y) * alpha
 
@@ -1161,8 +1161,8 @@ ApplyWindowMovements() {
         if (!lastPositions.Has(hwnd))
             lastPositions[hwnd] := { x: hwndPos[hwnd].x, y: hwndPos[hwnd].y }
 
-        ; More sensitive movement threshold for floating feel
-        if (Abs(smoothPos[hwnd].x - lastPositions[hwnd].x) >= 0.2 || Abs(smoothPos[hwnd].y - lastPositions[hwnd].y) >= 0.2) {
+        ; Increase threshold to avoid micro-movements
+        if (Abs(smoothPos[hwnd].x - lastPositions[hwnd].x) >= 0.6 || Abs(smoothPos[hwnd].y - lastPositions[hwnd].y) >= 0.6) {
             moveBatch.Push({ hwnd: hwnd, x: smoothPos[hwnd].x, y: smoothPos[hwnd].y })
             lastPositions[hwnd].x := smoothPos[hwnd].x
             lastPositions[hwnd].y := smoothPos[hwnd].y
@@ -1182,28 +1182,34 @@ ApplyWindowMovements() {
     static lastZOrderUpdate := 0
     static lastWindowCount := 0
     static lastPluginCount := 0
+    static lastPluginOrder := []
 
-    ; Count DAW plugin windows
+    ; Count DAW plugin windows and track their order
     pluginCount := 0
+    pluginOrder := []
     for win in g["Windows"] {
         if (IsDAWPlugin(win)) {
             pluginCount++
+            pluginOrder.Push(win["hwnd"])
         }
     }
 
+    ; Only update Z-order if plugin count, window count, or plugin order changed, or enough time passed
+    orderChanged := (pluginOrder != lastPluginOrder)
     if (pluginCount > 1 &&
-        (A_TickCount - lastZOrderUpdate > 5000 || pluginCount != lastPluginCount)) {
+        (A_TickCount - lastZOrderUpdate > 5000 || pluginCount != lastPluginCount || g["Windows"].Length != lastWindowCount || orderChanged)) {
         OrderWindowsBySize()
         lastZOrderUpdate := A_TickCount
         lastWindowCount := g["Windows"].Length
         lastPluginCount := pluginCount
+        lastPluginOrder := pluginOrder.Clone()
     }
 
     if (g["FairyDustEnabled"] && movedAny)
         TimePhasing.UpdateEchoes()
 }
 
-     ; Calc overlap
+; Calc overlap
 CalculateFutureOverlap(win, x, y, otherWindows) {
     overlapScore := 0
     for other in otherWindows {
@@ -1775,19 +1781,19 @@ OptimizeWindowPositions() {
             win["targetX"] := newPos["x"]
             win["targetY"] := newPos["y"]
             ; Add some velocity toward the target for smooth movement
-            win["vx"] := (newPos["x"] - win["x"]) * 0.1
+            win["vx"] := (newPos["x"] - win["x"]) *  0.1
             win["vy"] := (newPos["y"] - win["y"]) * 0.1
             repositionedCount++
         }
     }
 
     ShowTooltip("Optimized " repositionedCount " window positions for better space utilization")
+
 }
 
 ; Advanced space packing algorithm to find optimal window positions
 PackWindowsOptimally(windows, monitor) {
     if (windows.Length == 0)
-
         return Map()
 
     positions := Map()
@@ -1987,7 +1993,11 @@ GeneratePositionCandidates(window, placedWindows, monitor, strategy) {
         if !unique.Has(key)
             unique[key] := pos
     }
-    return unique.Values()
+    ; Return all values as an array
+    arr := []
+    for _, v in unique
+        arr.Push(v)
+    return arr
 }
 
 ; Score a position based on various criteria
@@ -2226,6 +2236,17 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
     }
 
     SetTimer(UpdateWindowStates, -Config["ResizeDelay"])
+}
+
+UpdateWindowStates() {
+    global g, Config
+    ; Get current monitor info or virtual desktop bounds
+    monitor := Config["SeamlessMonitorFloat"] ? GetVirtualDesktopBounds() : GetCurrentMonitorInfo()
+    ; Update window list
+    g["Windows"] := GetVisibleWindows(monitor)
+    ; Update manual borders and clear expired flags
+    UpdateManualBorders()
+    ClearManualFlags()
 }
 
 ; --- Improved Taskbar Detection and Context Menu ---

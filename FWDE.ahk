@@ -1787,6 +1787,7 @@ OptimizeWindowPositions() {
 ; Advanced space packing algorithm to find optimal window positions
 PackWindowsOptimally(windows, monitor) {
     if (windows.Length == 0)
+
         return Map()
 
     positions := Map()
@@ -2227,6 +2228,21 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
     SetTimer(UpdateWindowStates, -Config["ResizeDelay"])
 }
 
+; --- Improved Taskbar Detection and Context Menu ---
+
+global TaskbarMenu := Menu()
+TaskbarMenu.Add("Toggle Arrangement", (*) => ToggleArrangement())
+TaskbarMenu.Add("Optimize Windows", (*) => OptimizeWindowPositions())
+TaskbarMenu.Add("Toggle Physics", (*) => TogglePhysics())
+TaskbarMenu.Add("Toggle Time Phasing", (*) => ToggleTimePhasing())
+TaskbarMenu.Add("Toggle Seamless Float", (*) => ToggleSeamlessMonitorFloat())
+TaskbarMenu.Add("Exit", (*) => ExitApp())
+
+ShowTaskbarMenu() {
+    rect := GetTaskbarRect()
+    TaskbarMenu.Show(rect.left + 10, rect.top + 10)
+}
+
 GetTaskbarRect() {
     hwnd := WinExist("ahk_class Shell_TrayWnd")
     if (hwnd) {
@@ -2240,43 +2256,17 @@ GetTaskbarRect() {
         WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
         return { left: x, top: y, right: x + w, bottom: y + h }
     }
+    ; Try secondary taskbars (multi-monitor)
+    hwnd := WinExist("ahk_class Shell_SecondaryTrayWnd")
+    if (hwnd) {
+        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+        return { left: x, top: y, right: x + w, bottom: y + h }
+    }
     return { left: 0, top: A_ScreenHeight - 44, right: A_ScreenWidth, bottom: A_ScreenHeight }
 }
 
-
-UpdateWindowStates() {
-    global g, Config
-    try {
-        ; Use virtual desktop bounds if seamless floating is enabled
-        if (Config["SeamlessMonitorFloat"]) {
-            currentMonitor := GetVirtualDesktopBounds()
-        } else {
-            currentMonitor := GetCurrentMonitorInfo()
-        }
-
-        g["Monitor"] := currentMonitor
-        g["Windows"] := GetVisibleWindows(currentMonitor)
-        ClearManualFlags()
-        if (g["ArrangementActive"] && g["PhysicsEnabled"])
-            CalculateDynamicLayout()
-    }
-    catch {
-        ; Initialize with appropriate monitor bounds
-        initialMonitor := Config["SeamlessMonitorFloat"] ? GetVirtualDesktopBounds() : GetCurrentMonitorInfo()
-        g := Map(
-            "Monitor", initialMonitor,
-            "ArrangementActive", true,
-            "LastUserMove", 0,
-            "ActiveWindow", 0,
-            "Windows", [],
-            "PhysicsEnabled", true,
-            "FairyDustEnabled", true,
-            "ManualWindows", Map(),
-            "SystemEnergy", 0
-        )
-    }
-}
-
+; --- Hotkey to show the menu on right-click of the taskbar ---
+^!T::ShowTaskbarMenu() ; Ctrl+Alt+T to show the upgraded taskbar menu
 
 ;HOTKEYS
 

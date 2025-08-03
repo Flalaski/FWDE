@@ -682,16 +682,28 @@ class TimePhasing {
             WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
             this.echoes[hwnd].lastUpdate := A_TickCount
 
-            ; Create temporal echo phases
+            ; Precise expansion and flair for fairy dust
             phases := []
             phaseCount := Random(3, 6)
-            Loop phaseCount {
-                timeOffset := A_Index * Random(100, 300)
-                opacity := Random(30, 80) / A_Index
+            baseRadius := Random(12, 24)
+            baseOpacity := Random(30, 80)
+            baseLife := Random(20, 40)
+            for idx, _ in (phaseCount) {
+                ; Baby step generation: each echo phase expands slightly more than the previous
+                step := idx
+                radius := baseRadius + step * Random(6, 12)
+                opacity := baseOpacity / (1 + step * 0.5)
+                life := baseLife + step * Random(6, 12)
+                angle := Random(0, 359)
+                offsetX := Round(radius * Cos(angle * 3.14159 / 180))
+                offsetY := Round(radius * Sin(angle * 3.14159 / 180))
                 phases.Push({
-                    timeOffset: timeOffset,
+                    timeOffset: step * Random(80, 180),
                     opacity: opacity,
-                    life: Random(20, 40)
+                    life: life,
+                    offsetX: offsetX,
+                    offsetY: offsetY,
+                    radius: radius
                 })
             }
             this.echoes[hwnd].phases := phases
@@ -715,9 +727,14 @@ class TimePhasing {
                     continue
                 }
 
-                ; Update phase lifetimes
+                ; Update phase lifetimes and expansion
                 for phase in data.phases {
                     phase.life--
+                    ; Baby step expansion: increase radius and fade opacity
+                    if (phase.life > 0) {
+                        phase.radius += 1 + phase.life * 0.01
+                        phase.opacity := Max(phase.opacity - 2, 0)
+                    }
                 }
 
                 ; Remove expired phases
@@ -1128,6 +1145,7 @@ CalculateFutureOverlap(win, x, y, otherWindows) {
 
         overlapX := Max(0, Min(x + win["width"], other["x"] + other["width"]) - Max(x, other["x"]))
         overlapY := Max(0, Min(y + win["height"], other["y"] + other["height"]) - Max(y, other["y"]))
+
         overlapScore += (overlapX * overlapY) / (win["width"] * win["height"])
     }
     return overlapScore
@@ -1762,7 +1780,7 @@ FindBestPosition(window, placedWindows, monitor, gridSize, gridCols, gridRows) {
         "topLeft",      ; Pack from top-left
         "center",       ; Try near center first
         "edges",        ; Prefer screen edges
-        "gaps"          ; Fill gaps between existing windows
+        "gaps"                   ; Fill gaps between existing windows
     ]
 
     for strategy in strategies {

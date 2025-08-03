@@ -1,20 +1,16 @@
-#Requires AutoHotkey v2.0
-#SingleInstance Force
-#WinActivateForce
 #Warn
 #MaxThreadsPerHotkey 255
 #MaxThreads 255
-A_IconTip := "Floating Windows - Dynamic Equilibrium"
 ProcessSetPriority("High")
-
-
 #DllLoad "gdi32.dll"
 #DllLoad "user32.dll"
+; Pre-allocate memory buffers
 #DllLoad "dwmapi.dll" ; Desktop Composition API
 
 
 
 ; Pre-allocate memory buffers
+global DebugMode := true
 global g_NoiseBuffer := Buffer(1024)
 global g_PhysicsBuffer := Buffer(4096)
 
@@ -35,7 +31,6 @@ global Config := Map(
     "ManualGapBonus", 369,
     "AttractionForce", 0.0001,   ; << restore to a small value (not 3.2)
     "RepulsionForce", 0.369,    ; << restore to a small value (not 28)
-    "ManualRepulsionMultiplier", 1.3,
     "EdgeRepulsionForce", 0.80,
     "UserMoveTimeout", 11111,        ; How long to keep focused window still after interaction (ms)
     "ManualLockDuration", 33333,     ; How long manual window locks last (ms) - about 33 seconds
@@ -89,12 +84,13 @@ global Config := Map(
     "NoiseScale", 888,
     "NoiseInfluence", 100,
     "AnimationDuration", 32,    ; Higher = longer animations (try 16-32)
-    "PhysicsUpdateInterval", 200,
+    "PhysicsUpdateInterval", 1000,
+    "ManualRepulsionMultiplier", 1.0
 )
 
 global g := Map(
     "Monitor", Config["SeamlessMonitorFloat"] ? GetVirtualDesktopBounds() : GetCurrentMonitorInfo(),
-    "ArrangementActive", true,
+    "ArrangementActive", true,  ; Arrangement ON by default
     "LastUserMove", 0,
     "ActiveWindow", 0,
     "Windows", [],
@@ -103,14 +99,17 @@ global g := Map(
     "ManualWindows", Map(),
     "SystemEnergy", 1
 )
+#Requires AutoHotkey v2.0
 
 class NoiseAnimator {
     static permutations := [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,35,11,32,57,177,33,88,237,149,56,87,174,20,125,136,171,168,68,175,74,165,71,134,139,48,27,166,77,146,158,231,83,111,229,122,60,211,133,230,220,105,92,41,55,46,245,40,244,102,143,54,65,25,63,161,1,216,80,73,209,76,132,187,208,89,18,169,200,196,135,130,116,188,159,86,164,100,109,198,173,186,3,64,52,217,226,250,124,123,5,202,38,147,118,126,255,82,85,212,207,206,59,227,47,16,58,17,182,189,28,42,223,183,170,213,119,248,152,2,44,154,163,70,221,153,101,155,167,43,172,9,129,22,39,253,19,98,108,110,79,113,224,232,178,185,112,104,218,246,97,228,251,34,242,193,238,210,144,12,191,179,162,241,81,51,145,235,249,14,239,107,49,192,214,31,181,199,106,157,184,84,204,176,115,121,50,45,127,4,150,254,138,236,205,93,222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180]
+
 
     static grad3 := [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],[1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],[0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]]
 
     static F2 := 0.5*(Sqrt(3)-1)
     static G2 := (3-Sqrt(3))/6
+#Requires AutoHotkey v2.0
 
     static noise(x, y) {
         s := (x + y) * this.F2
@@ -1758,17 +1757,7 @@ OptimizeWindowPositions() {
     }
 
     ; Sort windows by area (largest first) for better packing
-    Loop windowsToPlace.Length - 1 {
-        i := A_Index
-        Loop windowsToPlace.Length - i {
-            j := A_Index
-            if (windowsToPlace[j]["area"] < windowsToPlace[j + 1]["area"]) {
-                temp := windowsToPlace[j]
-                windowsToPlace[j] := windowsToPlace[j + 1]
-                windowsToPlace[j + 1] := temp
-            }
-        }
-    }
+    windowsToPlace.Sort((a, b) => b["area"] - a["area"])
 
     ; Find optimal positions using space-efficient packing
     optimizedPositions := PackWindowsOptimally(windowsToPlace, monitor)
@@ -1781,7 +1770,7 @@ OptimizeWindowPositions() {
             win["targetX"] := newPos["x"]
             win["targetY"] := newPos["y"]
             ; Add some velocity toward the target for smooth movement
-            win["vx"] := (newPos["x"] - win["x"]) *  0.1
+            win["vx"] := (newPos["x"] - win["x"]) * 0.1
             win["vy"] := (newPos["y"] - win["y"]) * 0.1
             repositionedCount++
         }
@@ -2302,6 +2291,8 @@ SetTimer(UpdateWindowStates, Config["PhysicsTimeStep"])
 SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
 SetTimer(TimePhasing.UpdateEchoes.Bind(TimePhasing), Config["VisualTimeStep"])
 UpdateWindowStates()
+
+SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])      ; Only need this once
 
 OnMessage(0x0003, WindowMoveHandler)
 OnMessage(0x0005, WindowSizeHandler)

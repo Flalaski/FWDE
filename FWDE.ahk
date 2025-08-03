@@ -171,6 +171,37 @@ class NoiseAnimator {
     }
 }
 
+; Duplicate SafeWinExist definition removed to fix function conflict error.
+
+; Duplicate IsWindowValid definition removed to fix function conflict error.
+
+
+; Duplicate EaseOutCubic removed to fix function conflict error.
+
+
+; Duplicate GetCurrentMonitorInfo() removed to fix function conflict error.
+
+; Duplicate MonitorGetFromPoint definition removed to fix function conflict error.
+
+; Duplicate GetPrimaryMonitorCoordinates() removed to fix function conflict error.
+
+; [REMOVED DUPLICATE] GetVirtualDesktopBounds() function definition removed to resolve conflict.
+
+; [REMOVED DUPLICATE] FindNonOverlappingPosition function definition removed to resolve conflict.
+
+; [REMOVED DUPLICATE] IsOverlapping function definition removed to resolve conflict.
+; [REMOVED DUPLICATE] IsPluginWindow function definition removed to resolve conflict.
+
+; [REMOVED DUPLICATE] IsWindowFloating function definition removed to resolve conflict.
+
+
+
+; [REMOVED DUPLICATE] GetVisibleWindows function definition removed to resolve conflict.
+
+; [REMOVED DUPLICATE] CleanupStaleWindows function definition removed to resolve conflict.
+
+; [REMOVED DUPLICATE] TimePhasing class definition removed to resolve conflict.
+
 SafeWinExist(hwnd) {
     try {
         return WinExist("ahk_id " hwnd)
@@ -663,6 +694,7 @@ CleanupStaleWindows() {
 class TimePhasing {
     static echoes := Map()
     static lastCleanup := 0
+    static noiseClouds := Map() ; Store noise cloud data per hwnd
 
     static AddEcho(hwnd) {
         if (!SafeWinExist(hwnd))
@@ -712,9 +744,26 @@ class TimePhasing {
             return
         }
 
-        if (A_TickCount - this.lastCleanup > 2000) {
-            this.CleanupEffects()
-            this.lastCleanup := A_TickCount
+        ; --- Add/Update subtle pixel noise cloud ---
+        this.GenerateNoiseCloud(hwnd, x, y, w, h)
+    }
+
+    static GenerateNoiseCloud(hwnd, x, y, w, h) {
+        ; Generate a subtle pixel noise cloud for the window
+        cloudSize := Min(Max(w, h), 120)
+        density := 18 ; number of cloud points
+        points := []
+        for i, _ in (density) {
+            px := x + Random(0, w)
+            py := y + Random(0, h)
+            ; Use NoiseAnimator for procedural noise
+            noise := NoiseAnimator.noise(px * 0.03, py * 0.03)
+            alpha := 32 + Round(32 * Abs(noise))
+            points.Push({ x: px, y: py, alpha: alpha })
+        }
+        this.noiseClouds[hwnd] := {
+            points: points,
+            lastUpdate: A_TickCount
         }
     }
 
@@ -745,21 +794,39 @@ class TimePhasing {
                 continue
             }
         }
+
+        ; Update noise clouds for all managed windows
+        for hwnd, cloud in this.noiseClouds.Clone() {
+            if (!SafeWinExist(hwnd)) {
+                this.noiseClouds.Delete(hwnd)
+                continue
+            }
+            ; Optionally animate cloud points for a drifting effect
+            for pt in cloud.points {
+                pt.x += Random(-1, 1)
+                pt.y += Random(-1, 1)
+                ; Recalculate alpha with noise
+                pt.alpha := 32 + Round(32 * Abs(NoiseAnimator.noise(pt.x * 0.03, pt.y * 0.03)))
+            }
+            cloud.lastUpdate := A_TickCount
+        }
+    }
+
+    static GetNoiseCloud(hwnd) {
+        ; Retrieve noise cloud points for rendering
+        return this.noiseClouds.Has(hwnd) ? this.noiseClouds[hwnd].points : []
     }
 
     static CleanupEffects() {
-        for hwnd, data in this.echoes.Clone() {
-            if (!this.echoes.Has(hwnd))
-                continue
-            try {
-                if (!SafeWinExist(hwnd) || data.phases.Length == 0) {
-                    if (this.echoes.Has(hwnd))
-                        this.echoes.Delete(hwnd)
-                }
+        for hwnd in this.echoes.Clone().Keys() {
+            if (!SafeWinExist(hwnd)) {
+                this.echoes.Delete(hwnd)
             }
-            catch {
-                if (this.echoes.Has(hwnd))
-                    this.echoes.Delete(hwnd)
+        }
+        ; Also clean up noise clouds
+        for hwnd in this.noiseClouds.Clone().Keys() {
+            if (!SafeWinExist(hwnd)) {
+                this.noiseClouds.Delete(hwnd)
             }
         }
     }

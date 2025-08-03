@@ -1206,6 +1206,9 @@ ApplyWindowMovements() {
 
     if (g["FairyDustEnabled"] && movedAny)
         TimePhasing.UpdateEchoes()
+
+    ; --- Add this line to render clouds noise ---
+    RenderCloudsNoise()
 }
 
 ; Calc overlap
@@ -1756,8 +1759,18 @@ OptimizeWindowPositions() {
         return
     }
 
-    ; Sort windows by area (largest first) for better packing
-    windowsToPlace.Sort((a, b) => b["area"] - a["area"])
+    ; Manual sort by area (largest first)
+    Loop windowsToPlace.Length - 1 {
+        i := A_Index
+        Loop windowsToPlace.Length - i {
+            j := A_Index
+            if (windowsToPlace[j]["area"] < windowsToPlace[j + 1]["area"]) {
+                temp := windowsToPlace[j]
+                windowsToPlace[j] := windowsToPlace[j + 1]
+                windowsToPlace[j + 1] := temp
+            }
+        }
+    }
 
     ; Find optimal positions using space-efficient packing
     optimizedPositions := PackWindowsOptimally(windowsToPlace, monitor)
@@ -2416,3 +2429,47 @@ IsDAWPlugin(win) {
         return false
     }
 }
+
+global CloudNoiseOverlay := 0
+
+InitCloudNoiseOverlay() {
+    global CloudNoiseOverlay
+    if (!CloudNoiseOverlay) {
+        CloudNoiseOverlay := Gui("+ToolWindow -Caption +E0x20 +AlwaysOnTop +LastFound +E0x08000000")
+        CloudNoiseOverlay.BackColor := "000000"
+        CloudNoiseOverlay.Show("x0 y0 w" A_ScreenWidth " h" A_ScreenHeight " NA")
+        WinSetTransparent(1, CloudNoiseOverlay.Hwnd)
+        WinSetExStyle("+0x20", CloudNoiseOverlay.Hwnd)
+        ; Initialize GDI+ here if needed
+        ; To draw, add a Picture control and draw to a bitmap
+    }
+}
+
+RenderCloudsNoise() {
+    global g, CloudNoiseOverlay
+    InitCloudNoiseOverlay()
+    ; Clear previous drawings
+    ; CloudNoiseOverlay.Draw("Clear") ; <-- REMOVE or COMMENT OUT
+    ; Draw all cloud points for all windows in one pass
+    for win in g["Windows"] {
+        hwnd := win["hwnd"]
+        points := TimePhasing.GetNoiseCloud(hwnd)
+        if (points.Length == 0)
+            continue
+        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+        for pt in points {
+            px := pt.x
+            py := pt.y
+            size := 10
+            color := "FFFFFF"
+            alpha := Min(255, Max(32, pt.alpha))
+            ; CloudNoiseOverlay.Draw("Ellipse", px, py, size, size, "c" color " w0 a" alpha) ; <-- REMOVE or COMMENT OUT
+            ; To actually draw, use GDI/GDI+ to draw to a bitmap and display in a Picture control
+        }
+    }
+    ; Optionally hide overlay if no points
+    ; ...existing code...
+}
+
+; Optionally, call InitCloudNoiseOverlay() at script startup
+InitCloudNoiseOverlay()

@@ -45,7 +45,8 @@ global Config := Map(
         ".*Float.*",     ; Windows with "Float" in class
         ".*Dock.*",      ; Dockable windows
         "#32770",        ; Dialog boxes
-        "ConsoleWindowClass"  ; CMD/Console windows
+        "ConsoleWindowClass",  ; CMD/Console windows
+        "TextToSpeechWndClass" ; <-- Added for speak.exe main window
     ],
     "FloatTitlePatterns", [
         "VST.*",        ; VST windows
@@ -67,6 +68,10 @@ global Config := Map(
         "cmd.exe",       ; Command Prompt
         "conhost.exe",   ; Console Host
         "WindowsTerminal.exe" ; Windows Terminal
+        "DTDEMO.exe",       ; Dectalk TTS
+        "speak.exe",     ; legacy speak.exe
+        "speak",         ; legacy speak
+        "speak.EXE"      ; <-- Added for uppercase variant
     ],
     "Damping", 0.001,    ; Lower = less friction (0.001-0.01)
     "MaxSpeed", 12.0,    ; Limits maximum velocity
@@ -1777,6 +1782,7 @@ OptimizeWindowPositions() {
                 windowsToPlace[j + 1] := temp
             }
         }
+
     }
 
     ; Find optimal positions using space-efficient packing

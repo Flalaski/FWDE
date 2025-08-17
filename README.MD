@@ -1,89 +1,53 @@
 # FWDE - Floating Windows Dynamic Equilibrium
 
-*Advanced Physics-Based Window Management for Windows (AutoHotkey v2)*
+**Physics-Based Window Management for Windows (AutoHotkey v2)**
 
 ---
 
-## Overview
+## What is FWDE?
 
-FWDE is a physics-driven window manager for Windows, designed for DAW plugins, terminals, dialogs, and floating windows.  
-It uses real-time simulation for natural, intelligent arrangements, with multi-monitor support, manual controls, visual effects, and adaptive performance scaling.
-
----
-
-## File Structure
-
-- `FWDE.ahk` — Main script (all logic, config, hotkeys, functions)
-- `FWDEdesktop.png` — Window arrangement visualization
-- Other files/modules are optional and not required for core operation.
+FWDE is a physics-driven window manager for Windows, designed to intelligently arrange floating windows such as DAW plugins, terminals, dialogs, and tool windows. It uses real-time simulation for natural movement, multi-monitor support, manual controls, and visual effects.
 
 ---
 
-## Script Structure
+## Features
 
-### Global Variables
+- **Physics-Based Arrangement:** Windows move and settle using simulated forces (attraction, repulsion, damping).
+- **Manual Locking:** Lock/unlock windows to fix their position.
+- **Space Optimization:** Instantly optimize window positions for best fit.
+- **Multi-Monitor Support:** Seamless floating across all monitors.
+- **Visual Feedback:** Borders for locked windows, time-phasing effects, and procedural noise clouds.
+- **Performance Scaling:** Adaptive update rates and resource management.
+- **Screenshot Detection:** Pauses physics during screenshots.
+- **Context Menu:** Quick actions from the taskbar.
 
-- `Config` — Main configuration map (physics, detection, visuals, timing, etc.)
-- `g` — Runtime state map (window list, monitor info, arrangement state, etc.)
-- `TaskbarMenu` — Context menu for quick actions
-- `CloudNoiseOverlay` — GUI overlay for visual noise effects
+---
 
-### Classes
+## Installation
 
-- `NoiseAnimator` — Generates procedural noise for visual effects
-- `TimePhasing` — Manages echo effects and noise clouds for plugin windows
+1. **Install [AutoHotkey v2](https://autohotkey.com)**
+2. **Download `FWDE.ahk`** and run it (or compile to .exe)
+3. **Use hotkeys or the taskbar menu** to control features
 
-### Main Functions
+---
 
-- **Window Detection & Management**
-  - `GetVisibleWindows(monitor)`
-  - `CleanupStaleWindows()`
-  - `IsWindowValid(hwnd)`
-  - `IsPluginWindow(hwnd)`
-  - `IsWindowFloating(hwnd)`
+## Usage
 
-- **Physics & Layout**
-  - `CalculateWindowForces(win, allWindows)`
-  - `ApplyWindowMovements()`
-  - `CalculateDynamicLayout()`
-  - `ResolveFloatingCollisions(windows)`
-  - `OptimizeWindowPositions()`
-  - `PackWindowsOptimally(windows, monitor)`
-  - `FindBestPosition(window, placedWindows, monitor, ...)`
-  - `CalculateSpaceSeekingForce(win, allWindows)`
-
-- **Manual Controls & Visuals**
-  - `AddManualWindowBorder(hwnd)`
-  - `RemoveManualWindowBorder(hwnd)`
-  - `UpdateManualBorders()`
-  - `DragWindow()`
-  - `ToggleArrangement()`
-  - `TogglePhysics()`
-  - `ToggleTimePhasing()`
-  - `ToggleSeamlessMonitorFloat()`
-  - `ToggleWindowLock()`
-  - `ShowTooltip(text)`
-  - `OrderWindowsBySize()`
-  - `RenderCloudsNoise()`
-  - `InitCloudNoiseOverlay()`
-
-- **Utility**
-  - `Clamp(val, min, max)`
-  - `MoveWindowAPI(hwnd, x, y, w, h)`
-  - Partitioning and collision helpers
+- FWDE automatically detects and manages eligible floating windows.
+- Use hotkeys or the taskbar menu for manual control.
+- Configuration is at the top of `FWDE.ahk` in the `Config` map.
 
 ---
 
 ## Configuration
 
-All settings are in the `Config` map at the top of the script.  
-Edit values for real-time changes:
+All settings are in the `Config` map at the top of `FWDE.ahk`.  
+Edit values for real-time changes. Example:
 
 ```ahk2
 global Config := Map(
     "MinMargin", 42,
     "MinGap", 21,
-    "ManualGapBonus", 369,
     "AttractionForce", 0.0001,
     "RepulsionForce", 0.369,
     "EdgeRepulsionForce", 0.80,
@@ -92,28 +56,7 @@ global Config := Map(
     "ResizeDelay", 22,
     "TooltipDuration", 15000,
     "SeamlessMonitorFloat", false,
-    "FloatStyles", 0x00C00000 | 0x00040000 | 0x00080000 | 0x00020000 | 0x00010000,
-    "FloatClassPatterns", [...],
-    "FloatTitlePatterns", [...],
-    "ForceFloatProcesses", [...],
-    "Damping", 0.001,
-    "MaxSpeed", 12.0,
-    "PhysicsTimeStep", 1,
-    "VisualTimeStep", 2,
-    "Smoothing", 0.5,
-    "Stabilization", Map(
-        "MinSpeedThreshold", 0.369,
-        "EnergyThreshold", 0.06,
-        "DampingBoost", 0.12,
-        "OverlapTolerance", 0
-    ),
-    "ManualWindowColor", "FF5555",
-    "ManualWindowAlpha", 222,
-    "NoiseScale", 888,
-    "NoiseInfluence", 100,
-    "AnimationDuration", 32,
-    "PhysicsUpdateInterval", 1000,
-    "ManualRepulsionMultiplier", 1.0
+    ...other settings...
 )
 ```
 
@@ -133,49 +76,26 @@ global Config := Map(
 
 ---
 
-## Features
+## How It Works
 
-- **Physics-Based Window Arrangement:** Windows move and settle using simulated forces, attraction, repulsion, and damping.
-- **Manual Window Locking:** Lock/unlock windows to fix their position.
-- **Space Optimization:** Instantly optimize window positions for best fit.
-- **Multi-Monitor Support:** Seamless floating across all monitors.
-- **Visual Feedback:** Manual window borders for locked windows.
-- **Performance Scaling:** Adaptive update rates and resource management.
-- **Screenshot Detection:** Pauses physics during active screenshot operations.
-- **Visual Effects:** Time-phasing echoes and procedural noise clouds for plugin windows.
-
----
-
-## Window Detection Patterns
-
-- **Process Whitelist:** DAW apps (Reaper, FL Studio, Ableton, etc.), terminals, development tools
-- **Window Class Patterns:** VST plugins, dialogs, console windows, floating tool windows
-- **Title Patterns:** Plugin names, command prompts, development tools, audio effects
-- **Window Style Analysis:** Popup/tool/always-on-top windows
-
----
-
-## Installation & Usage
-
-1. **Install AutoHotkey v2.0+** from [autohotkey.com](https://autohotkey.com)
-2. **Download FWDE.ahk** and run it (or compile to .exe)
-3. **Automatic Detection:** Script manages eligible floating windows automatically
-4. **Configuration:** Use hotkeys or edit `Config` map for customization
-5. **Multi-Monitor:** Enable seamless floating with `Ctrl + Alt + M`
+- **Detection:** Windows are included based on process, class, title, and style patterns (see `Config`).
+- **Physics:** Each window is simulated with forces for natural movement and collision avoidance.
+- **Manual Control:** Drag windows, lock/unlock, and optimize positions.
+- **Visuals:** Borders for locked windows, time-phasing echoes, and noise clouds for plugins.
 
 ---
 
 ## Troubleshooting
 
-- **Windows not moving:** Check physics (`Ctrl + Alt + P`) and arrangement (`Ctrl + Alt + Space`)
-- **Aggressive movement:** Increase `Damping` or decrease `RepulsionForce` in Config
-- **Performance issues:** Increase `PhysicsTimeStep` and `VisualTimeStep` for slower updates
-- **Multi-monitor problems:** Toggle seamless floating (`Ctrl + Alt + M`)
-- **Manual window lock not working:** Ensure window is managed and not excluded by detection patterns
+- **Windows not moving:** Check arrangement (`Ctrl+Alt+Space`) and physics (`Ctrl+Alt+P`).
+- **Aggressive movement:** Increase `Damping` or decrease `RepulsionForce` in `Config`.
+- **Performance issues:** Increase `PhysicsTimeStep` and `VisualTimeStep`.
+- **Multi-monitor problems:** Toggle seamless floating (`Ctrl+Alt+M`).
+- **Manual lock not working:** Ensure the window is managed and not excluded by detection patterns.
 
 ---
 
 ## Credits
 
-Created by Flalaski with AI assistance (DeepSeek, Gemini, Copilot).  
-Streamlined for stability and essential functionality. Hope it's helpful! ♥
+Created by Flalaski with AI assistance (Copilot, DeepSeek, Gemini).  
+Streamlined for stability and essential functionality.

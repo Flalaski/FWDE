@@ -26,7 +26,7 @@ global g_PhysicsBuffer := Buffer(4096)
 ; When enabled, windows are no longer confined to the current monitor boundaries
 
 global Config := Map(
-    "MinMargin", 42,
+    "MinMargin", 5,
     "MinGap", 21,
     "ManualGapBonus", 369,
     "AttractionForce", 0.0001,   ; << restore to a small value (not 3.2)
@@ -76,7 +76,7 @@ global Config := Map(
     "Damping", 0.001,    ; Lower = less friction (0.001-0.01)
     "MaxSpeed", 12.0,    ; Limits maximum velocity
     "PhysicsTimeStep", 1,   ; Lower = more frequent physics updates (1ms is max)
-    "VisualTimeStep", 2,    ; Lower = smoother visuals (try 16-33ms for 60-30fps)
+    "VisualTimeStep", 16,    ; Lower = smoother visuals (16ms = 60fps, 33ms = 30fps)
     "Smoothing", 0.5,  ; Higher = smoother but more lag (0.9-0.99)
     "Stabilization", Map(
         "MinSpeedThreshold", 0.369,  ; Lower values high-DPI (0.05-0.15) ~ Higher values (0.2-0.5)  low-performance systems
@@ -101,6 +101,18 @@ global g := Map(
     "Windows", [],
     "PhysicsEnabled", true,
     "FairyDustEnabled", true,
+    "TimePhasingConfig", Map(
+        "MaxEchoesPerWindow", 5,
+        "NoiseCloudDensity", 25,
+        "EffectUpdateFrequency", 16,  ; 60fps for effects
+        "EchoLifeRange", [20, 40],
+        "NoiseScale", 0.05,
+        "VisualQuality", "high",  ; "low", "medium", "high"
+        "EnableParticleTrails", true,
+        "TrailLength", 120,
+        "EnableColorShifting", true,
+        "EnableGlowEffects", true
+    ),
     "ManualWindows", Map(),
     "SystemEnergy", 1
 )
@@ -221,9 +233,109 @@ SafeWinExist(hwnd) {
     }
 }
 
+IsFullscreenWindow(hwnd) {
+    try {
+        if (!SafeWinExist(hwnd))
+            return false
+
+        ; Get window position and size
+        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+        if (w == 0 || h == 0)
+            return false
+
+        ; Get monitor bounds for the window
+        winCenterX := x + w/2
+        winCenterY := y + h/2
+        monNum := MonitorGetFromPoint(winCenterX, winCenterY)
+        if (!monNum) {
+            ; Fallback to primary monitor
+            monNum := MonitorGetPrimary()
+        }
+        
+        try {
+            MonitorGet monNum, &mL, &mT, &mR, &mB
+        }
+        catch {
+            ; Fallback to screen dimensions
+            mL := 0
+            mT := 0
+            mR := A_ScreenWidth
+            mB := A_ScreenHeight
+        }
+
+        ; Check if window covers the entire monitor (with small tolerance)
+        tolerance := 10
+        coversWidth := (w >= (mR - mL - tolerance))
+        coversHeight := (h >= (mB - mT - tolerance))
+        atOrigin := (x <= mL + tolerance && y <= mT + tolerance)
+
+        ; Additional checks for fullscreen indicators
+        try {
+            ; Check for fullscreen style flags
+            style := WinGetStyle("ahk_id " hwnd)
+            exStyle := WinGetExStyle("ahk_id " hwnd)
+            
+            ; Check for WS_POPUP style (common in fullscreen apps)
+            isPopup := (style & 0x80000000) != 0
+            
+            ; Check for WS_EX_TOPMOST (many fullscreen apps use this)
+            isTopmost := (exStyle & 0x8) != 0
+            
+            ; Check window class for common fullscreen patterns
+            winClass := WinGetClass("ahk_id " hwnd)
+            processName := WinGetProcessName("ahk_id " hwnd)
+            
+            ; Common fullscreen application patterns
+            fullscreenClasses := [
+                "UnityWndClass",      ; Unity games
+                "UnrealWindow",       ; Unreal Engine games
+                "Valve001",           ; Source games
+                "SDL_app",            ; SDL applications
+                "GLUT",               ; OpenGL applications
+                "Chrome_WidgetWin_1", ; Chrome fullscreen
+                "MozillaWindowClass", ; Firefox fullscreen
+                "ApplicationFrameWindow" ; UWP apps
+            ]
+            
+            fullscreenProcesses := [
+                "steam.exe", "steamwebhelper.exe",
+                "chrome.exe", "firefox.exe", "msedge.exe",
+                "vlc.exe", "mpc-hc.exe", "potplayer.exe",
+                "obs64.exe", "obs32.exe", "streamlabs obs.exe",
+                "discord.exe", "teams.exe", "zoom.exe"
+            ]
+            
+            ; Check for fullscreen class patterns
+            for pattern in fullscreenClasses {
+                if (winClass == pattern)
+                    return true
+            }
+            
+            ; Check for fullscreen process patterns
+            for pattern in fullscreenProcesses {
+                if (InStr(processName, pattern))
+                    return true
+            }
+        }
+        catch {
+            ; If we can't get style info, continue with size-based detection
+        }
+
+        ; Return true if window covers the monitor and is at origin
+        return coversWidth && coversHeight && atOrigin
+    }
+    catch {
+        return false
+    }
+}
+
 IsWindowValid(hwnd) {
     try {
         if (!SafeWinExist(hwnd))
+            return false
+
+        ; Skip fullscreen windows completely
+        if (IsFullscreenWindow(hwnd))
             return false
 
         try {
@@ -484,6 +596,10 @@ IsWindowFloating(hwnd) {
     if (!SafeWinExist(hwnd))
         return false
 
+    ; Skip fullscreen windows completely
+    if (IsFullscreenWindow(hwnd))
+        return false
+
     try {
         ; Skip minimized/maximized windows
         if (WinGetMinMax("ahk_id " hwnd) != 0)
@@ -639,6 +755,35 @@ GetVisibleWindows(monitor) {
                     window["x"] := Clamp(window["x"], mL + Config["MinMargin"], mR - window["width"] - Config["MinMargin"])
                     window["y"] := Clamp(window["y"], mT + Config["MinMargin"], mB - window["height"] - Config["MinMargin"])
                 }
+                
+                ; Apply taskbar boundary constraints
+                taskbarRect := GetTaskbarRect()
+                if (taskbarRect) {
+                    ; Check if taskbar is at bottom of screen
+                    if (taskbarRect.top > A_ScreenHeight / 2) {
+                        ; Taskbar at bottom - adjust bottom boundary
+                        maxY := taskbarRect.top - Config["MinMargin"] - window["height"]
+                        window["y"] := Min(window["y"], maxY)
+                    }
+                    ; Check if taskbar is at top of screen
+                    else if (taskbarRect.bottom < A_ScreenHeight / 2) {
+                        ; Taskbar at top - adjust top boundary
+                        minY := taskbarRect.bottom + Config["MinMargin"]
+                        window["y"] := Max(window["y"], minY)
+                    }
+                    ; Check if taskbar is at left of screen
+                    else if (taskbarRect.right < A_ScreenWidth / 2) {
+                        ; Taskbar at left - adjust left boundary
+                        minX := taskbarRect.right + Config["MinMargin"]
+                        window["x"] := Max(window["x"], minX)
+                    }
+                    ; Check if taskbar is at right of screen
+                    else if (taskbarRect.left > A_ScreenWidth / 2) {
+                        ; Taskbar at right - adjust right boundary
+                        maxX := taskbarRect.left - Config["MinMargin"] - window["width"]
+                        window["x"] := Min(window["x"], maxX)
+                    }
+                }
 
                 ; Find existing window data if available
                 existingWin := 0
@@ -666,8 +811,8 @@ GetVisibleWindows(monitor) {
                     "lastZOrder", existingWin ? existingWin.Get("lastZOrder", -1) : -1  ; Cache z-order state
                 ))
 
-                ; Add time-phasing echo for plugin windows
-                if (window["isPlugin"] && g["FairyDustEnabled"]) {
+                ; Add time-phasing echo for all floating windows
+                if (g["FairyDustEnabled"]) {
                     TimePhasing.AddEcho(window["hwnd"])
                 }
             }
@@ -705,9 +850,53 @@ class TimePhasing {
     static echoes := Map()
     static lastCleanup := 0
     static noiseClouds := Map() ; Store noise cloud data per hwnd
+    static particleTrails := Map() ; Store particle trails per window
+    static gdiPlusToken := 0
+    static overlayGui := 0
+    static overlayBitmap := 0
+    static overlayGraphics := 0
+    static lastRenderTime := 0
+
+    static InitGdiPlus() {
+        if (this.gdiPlusToken != 0)
+            return true
+            
+        try {
+            ; Initialize GDI+
+            DllCall("gdiplus\GdiplusStartup", "Ptr*", &token, "Ptr", 0, "Ptr", 0)
+            this.gdiPlusToken := token
+            
+            ; Create overlay GUI
+            this.overlayGui := Gui("+ToolWindow -Caption +E0x20 +AlwaysOnTop +LastFound +E0x08000000")
+            this.overlayGui.BackColor := "000000"
+            this.overlayGui.Show("x0 y0 w" A_ScreenWidth " h" A_ScreenHeight " NA")
+            WinSetTransparent(200, this.overlayGui.Hwnd)  ; Semi-transparent to see effects
+            WinSetExStyle("+0x20", this.overlayGui.Hwnd)
+            
+            ; Create bitmap and graphics for drawing
+            DllCall("gdiplus\GdipCreateBitmap", "Int", A_ScreenWidth, "Int", A_ScreenHeight, "Int", 0, "Int", 0x26200A, "Ptr*", &bitmap)
+            this.overlayBitmap := bitmap
+            DllCall("gdiplus\GdipGetImageGraphicsContext", "Ptr", bitmap, "Ptr*", &graphics)
+            this.overlayGraphics := graphics
+            
+            ; Set up graphics for transparency
+            DllCall("gdiplus\GdipSetCompositingMode", "Ptr", graphics, "Int", 1)  ; SourceOver
+            DllCall("gdiplus\GdipSetCompositingQuality", "Ptr", graphics, "Int", 2)  ; HighQuality
+            DllCall("gdiplus\GdipSetSmoothingMode", "Ptr", graphics, "Int", 2)  ; AntiAlias
+            
+            return true
+        }
+        catch {
+            return false
+        }
+    }
 
     static AddEcho(hwnd) {
         if (!SafeWinExist(hwnd))
+            return
+
+        ; Initialize GDI+ if needed
+        if (!this.InitGdiPlus())
             return
 
         if (!this.echoes.Has(hwnd)) {
@@ -717,35 +906,51 @@ class TimePhasing {
             }
         }
 
-        if (A_TickCount - this.echoes[hwnd].lastUpdate < 500)
+        ; Use configurable update frequency
+        updateInterval := g["TimePhasingConfig"]["EffectUpdateFrequency"]
+        if (A_TickCount - this.echoes[hwnd].lastUpdate < updateInterval)
             return
 
         try {
             WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
             this.echoes[hwnd].lastUpdate := A_TickCount
 
-            ; Precise expansion and flair for fairy dust
+            ; Enhanced echo generation with better visual effects
             phases := []
-            phaseCount := Random(3, 6)
-            baseRadius := Random(12, 24)
-            baseOpacity := Random(30, 80)
-            baseLife := Random(20, 40)
-            for idx, _ in (phaseCount) {
-                ; Baby step generation: each echo phase expands slightly more than the previous
-                step := idx
-                radius := baseRadius + step * Random(6, 12)
-                opacity := baseOpacity / (1 + step * 0.5)
-                life := baseLife + step * Random(6, 12)
+            maxEchoes := g["TimePhasingConfig"]["MaxEchoesPerWindow"]
+            phaseCount := Random(2, maxEchoes)
+            
+            ; Create more varied and visually appealing echoes
+            Loop phaseCount {
+                idx := A_Index
+                ; Progressive expansion with smoother curves
+                step := idx - 1
+                baseRadius := Random(15, 30)
+                radius := baseRadius + step * Random(8, 15)
+                
+                ; Better opacity curve for smoother fading
+                baseOpacity := Random(40, 90)
+                opacity := baseOpacity * (1 - step * 0.3)
+                
+                ; Configurable life range
+                lifeRange := g["TimePhasingConfig"]["EchoLifeRange"]
+                life := Random(lifeRange[1], lifeRange[2]) + step * Random(3, 8)
+                
+                ; More natural angle distribution
                 angle := Random(0, 359)
                 offsetX := Round(radius * Cos(angle * 3.14159 / 180))
                 offsetY := Round(radius * Sin(angle * 3.14159 / 180))
+                
+                ; Enhanced phase properties
                 phases.Push({
-                    timeOffset: step * Random(80, 180),
-                    opacity: opacity,
+                    timeOffset: step * Random(60, 120),
+                    opacity: Max(opacity, 10),
                     life: life,
                     offsetX: offsetX,
                     offsetY: offsetY,
-                    radius: radius
+                    radius: radius,
+                    color: this.GenerateEchoColor(idx),
+                    size: Random(3, 8)
                 })
             }
             this.echoes[hwnd].phases := phases
@@ -754,50 +959,225 @@ class TimePhasing {
             return
         }
 
-        ; --- Add/Update subtle pixel noise cloud ---
+        ; --- Add/Update enhanced noise cloud ---
         this.GenerateNoiseCloud(hwnd, x, y, w, h)
+        
+        ; --- Add particle trails if enabled ---
+        if (g["TimePhasingConfig"]["EnableParticleTrails"]) {
+            this.GenerateParticleTrail(hwnd, x, y, w, h)
+        }
+    }
+
+    static GenerateEchoColor(index) {
+        ; Generate vibrant, varied colors for echoes
+        colors := [
+            "FF6B6B",  ; Coral
+            "4ECDC4",  ; Teal
+            "45B7D1",  ; Sky Blue
+            "96CEB4",  ; Mint
+            "FFEAA7",  ; Soft Yellow
+            "DDA0DD",  ; Plum
+            "98D8C8",  ; Seafoam
+            "F7DC6F"   ; Light Gold
+        ]
+        return colors[Mod(index - 1, colors.Length) + 1]
     }
 
     static GenerateNoiseCloud(hwnd, x, y, w, h) {
-        ; Generate a subtle pixel noise cloud for the window
-        cloudSize := Min(Max(w, h), 120)
-        density := 18 ; number of cloud points
+        ; Generate enhanced noise cloud with better distribution
+        density := g["TimePhasingConfig"]["NoiseCloudDensity"]
+        noiseScale := g["TimePhasingConfig"]["NoiseScale"]
         points := []
-        for i, _ in (density) {
-            px := x + Random(0, w)
-            py := y + Random(0, h)
-            ; Use NoiseAnimator for procedural noise
-            noise := NoiseAnimator.noise(px * 0.03, py * 0.03)
-            alpha := 32 + Round(32 * Abs(noise))
-            points.Push({ x: px, y: py, alpha: alpha })
+        
+        ; Use Poisson disk sampling for better distribution
+        Loop density {
+            i := A_Index
+            ; Try multiple positions for better coverage
+            attempts := 0
+            while (attempts < 10) {
+                px := x + Random(0, w)
+                py := y + Random(0, h)
+                
+                ; Check minimum distance from other points
+                minDist := 20
+                validPos := true
+                for pt in points {
+                    dist := Sqrt((px - pt.x)**2 + (py - pt.y)**2)
+                    if (dist < minDist) {
+                        validPos := false
+                        break
+                    }
+                }
+                
+                if (validPos) {
+                    ; Enhanced noise calculation
+                    noise := NoiseAnimator.noise(px * noiseScale, py * noiseScale)
+                    alpha := 25 + Round(40 * Abs(noise))
+                    
+                    ; Add color variation based on noise
+                    colorIntensity := Abs(noise)
+                    color := this.GenerateNoiseColor(colorIntensity)
+                    
+                    points.Push({ 
+                        x: px, 
+                        y: py, 
+                        alpha: Max(alpha, 60),  ; Ensure minimum visibility
+                        color: color,
+                        size: Random(4, 8),  ; Larger particles
+                        driftX: Random(-1.0, 1.0),
+                        driftY: Random(-1.0, 1.0)
+                    })
+                    break
+                }
+                attempts++
+            }
         }
+        
         this.noiseClouds[hwnd] := {
             points: points,
             lastUpdate: A_TickCount
         }
     }
 
+    static GenerateNoiseColor(intensity) {
+        ; Generate vibrant colors based on noise intensity
+        if (intensity < 0.3) {
+            return "FF6B6B"  ; Bright coral
+        } else if (intensity < 0.6) {
+            return "4ECDC4"  ; Bright teal
+        } else {
+            return "FFE66D"  ; Bright yellow
+        }
+    }
+
+    static GenerateParticleTrail(hwnd, x, y, w, h) {
+        ; Generate particle trails for enhanced visual effects
+        if (!this.particleTrails.Has(hwnd)) {
+            this.particleTrails[hwnd] := {
+                particles: [],
+                lastUpdate: 0
+            }
+        }
+        
+        trailData := this.particleTrails[hwnd]
+        
+        ; Add new particles to the trail
+        trailLength := g["TimePhasingConfig"]["TrailLength"]
+        if (trailData.particles.Length < trailLength) {
+            particleCount := Random(2, 4)
+            Loop particleCount {
+                particle := {
+                    x: x + Random(0, w),
+                    y: y + Random(0, h),
+                    life: trailLength,
+                    maxLife: trailLength,
+                    size: Random(3, 6),  ; Larger particles
+                    color: this.GenerateTrailColor(),
+                    alpha: 120,  ; More visible
+                    velocityX: Random(-1.5, 1.5),
+                    velocityY: Random(-1.5, 1.5)
+                }
+                trailData.particles.Push(particle)
+            }
+        }
+        
+        ; Update existing particles
+        validParticles := []
+        for particle in trailData.particles {
+            particle.life--
+            if (particle.life > 0) {
+                ; Move particle
+                particle.x += particle.velocityX
+                particle.y += particle.velocityY
+                
+                ; Fade out over time
+                lifeRatio := particle.life / particle.maxLife
+                particle.alpha := Round(80 * lifeRatio)
+                particle.size := Max(1, particle.size * lifeRatio)
+                
+                ; Add subtle color shift
+                if (g["TimePhasingConfig"]["EnableColorShifting"]) {
+                    particle.color := this.ShiftTrailColor(particle.color, lifeRatio)
+                }
+                
+                validParticles.Push(particle)
+            }
+        }
+        
+        trailData.particles := validParticles
+        trailData.lastUpdate := A_TickCount
+    }
+
+    static GenerateTrailColor() {
+        ; Generate colors for particle trails
+        colors := [
+            "FFD700",  ; Gold
+            "FF69B4",  ; Hot Pink
+            "00CED1",  ; Dark Turquoise
+            "FF6347",  ; Tomato
+            "9370DB",  ; Medium Purple
+            "32CD32"   ; Lime Green
+        ]
+        return colors[Random(1, colors.Length)]
+    }
+
+    static ShiftTrailColor(color, lifeRatio) {
+        ; Shift trail color based on life remaining
+        r := Integer("0x" SubStr(color, 1, 2))
+        green := Integer("0x" SubStr(color, 3, 2))
+        b := Integer("0x" SubStr(color, 5, 2))
+        
+        ; Shift toward cooler colors as particle fades
+        shift := (1 - lifeRatio) * 50
+        r := Max(0, Min(255, r - shift * 0.3))
+        green := Max(0, Min(255, green + shift * 0.2))
+        b := Max(0, Min(255, b + shift * 0.4))
+        
+        return Format("{:02X}{:02X}{:02X}", r, green, b)
+    }
+
     static UpdateEchoes() {
+        ; Debug: Check if we have any effects to render
+        if (this.echoes.Count == 0 && this.noiseClouds.Count == 0 && this.particleTrails.Count == 0) {
+            ; No effects to render, skip
+            return
+        }
+        
+        ; Periodic cleanup to prevent memory leaks
+        if (A_TickCount - this.lastCleanup > 10000) {  ; Cleanup every 10 seconds
+            this.PerformCleanup()
+            this.lastCleanup := A_TickCount
+        }
+
+        ; Update echoes with improved performance
         for hwnd, data in this.echoes.Clone() {
             try {
                 if (!SafeWinExist(hwnd)) {
-                    if (this.echoes.Has(hwnd))
-                        this.echoes.Delete(hwnd)
-                    continue
+                this.echoes.Delete(hwnd)
+                if (this.noiseClouds.Has(hwnd))
+                    this.noiseClouds.Delete(hwnd)
+                if (this.particleTrails.Has(hwnd))
+                    this.particleTrails.Delete(hwnd)
+                continue
                 }
 
-                ; Update phase lifetimes and expansion
+                ; Update phase lifetimes and expansion with smoother animation
+                validPhases := []
                 for phase in data.phases {
                     phase.life--
-                    ; Baby step expansion: increase radius and fade opacity
                     if (phase.life > 0) {
-                        phase.radius += 1 + phase.life * 0.01
-                        phase.opacity := Max(phase.opacity - 2, 0)
+                        ; Smoother expansion and fading
+                        expansionRate := 1 + phase.life * 0.008
+                        phase.radius += expansionRate
+                        phase.opacity := Max(phase.opacity - 1.5, 0)
+                        
+                        ; Add subtle color shift over time
+                        phase.color := this.ShiftColorOverTime(phase.color, phase.life)
+                        
+                        validPhases.Push(phase)
                     }
                 }
-
-                ; Remove expired phases
-                data.phases := data.phases.Filter(p => p.life > 0)
+                data.phases := validPhases
             }
             catch {
                 this.echoes.Delete(hwnd)
@@ -805,20 +1185,77 @@ class TimePhasing {
             }
         }
 
-        ; Update noise clouds for all managed windows
+        ; Update noise clouds with optimized animation
         for hwnd, cloud in this.noiseClouds.Clone() {
             if (!SafeWinExist(hwnd)) {
                 this.noiseClouds.Delete(hwnd)
                 continue
             }
-            ; Optionally animate cloud points for a drifting effect
+            
+            ; Animate cloud points with smoother drifting
             for pt in cloud.points {
-                pt.x += Random(-1, 1)
-                pt.y += Random(-1, 1)
-                ; Recalculate alpha with noise
-                pt.alpha := 32 + Round(32 * Abs(NoiseAnimator.noise(pt.x * 0.03, pt.y * 0.03)))
+                ; Apply drift with smoothing
+                pt.x += pt.driftX
+                pt.y += pt.driftY
+                
+                ; Keep points within window bounds (approximate)
+                WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " hwnd)
+                pt.x := Max(wx, Min(pt.x, wx + ww))
+                pt.y := Max(wy, Min(pt.y, wy + wh))
+                
+                ; Recalculate alpha with noise (less frequently for performance)
+                if (Random(1, 10) == 1) {  ; Only recalculate 10% of the time
+                    noiseScale := g["TimePhasingConfig"]["NoiseScale"]
+                    noise := NoiseAnimator.noise(pt.x * noiseScale, pt.y * noiseScale)
+                    pt.alpha := 25 + Round(40 * Abs(noise))
+                }
             }
             cloud.lastUpdate := A_TickCount
+        }
+        
+        ; Render effects if enough time has passed
+        renderInterval := g["TimePhasingConfig"]["EffectUpdateFrequency"]
+        if (A_TickCount - this.lastRenderTime >= renderInterval) {
+            this.RenderEffects()
+            this.lastRenderTime := A_TickCount
+        }
+    }
+
+    static ShiftColorOverTime(color, life) {
+        ; Subtle color shifting for dynamic effects
+        ; Convert hex to RGB
+        r := Integer("0x" SubStr(color, 1, 2))
+        green := Integer("0x" SubStr(color, 3, 2))
+        b := Integer("0x" SubStr(color, 5, 2))
+        
+        ; Apply subtle shift based on life remaining
+        shift := (20 - life) * 2
+        r := Max(0, Min(255, r + shift))
+        green := Max(0, Min(255, green - shift * 0.5))
+        b := Max(0, Min(255, b + shift * 0.3))
+        
+        ; Convert back to hex
+        return Format("{:02X}{:02X}{:02X}", r, green, b)
+    }
+
+    static PerformCleanup() {
+        ; Clean up expired echoes and noise clouds
+        for hwnd, data in this.echoes.Clone() {
+            if (!SafeWinExist(hwnd) || data.phases.Length == 0) {
+                this.echoes.Delete(hwnd)
+            }
+        }
+        
+        for hwnd, cloud in this.noiseClouds.Clone() {
+            if (!SafeWinExist(hwnd) || A_TickCount - cloud.lastUpdate > 30000) {
+                this.noiseClouds.Delete(hwnd)
+            }
+        }
+        
+        for hwnd, trailData in this.particleTrails.Clone() {
+            if (!SafeWinExist(hwnd) || A_TickCount - trailData.lastUpdate > 30000) {
+                this.particleTrails.Delete(hwnd)
+            }
         }
     }
 
@@ -827,19 +1264,176 @@ class TimePhasing {
         return this.noiseClouds.Has(hwnd) ? this.noiseClouds[hwnd].points : []
     }
 
+    static RenderEffects() {
+        if (!this.overlayGraphics || !this.InitGdiPlus())
+            return
+
+        try {
+            ; Clear the bitmap with transparent background
+            DllCall("gdiplus\GdipGraphicsClear", "Ptr", this.overlayGraphics, "UInt", 0x00000000)
+            
+            ; Debug: Count effects being rendered
+            echoCount := 0
+            cloudCount := 0
+            particleCount := 0
+            
+            ; Render echoes
+            for hwnd, data in this.echoes {
+                if (!SafeWinExist(hwnd))
+                    continue
+                    
+                WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " hwnd)
+                
+                for phase in data.phases {
+                    if (phase.life > 0 && phase.opacity > 0) {
+                        this.DrawEcho(wx, wy, phase)
+                        echoCount++
+                    }
+                }
+            }
+            
+            ; Render noise clouds
+            for hwnd, cloud in this.noiseClouds {
+                if (!SafeWinExist(hwnd))
+                    continue
+                    
+                for pt in cloud.points {
+                    if (pt.alpha > 0) {
+                        this.DrawNoisePoint(pt)
+                        cloudCount++
+                    }
+                }
+            }
+            
+            ; Render particle trails
+            if (g["TimePhasingConfig"]["EnableParticleTrails"]) {
+                for hwnd, trailData in this.particleTrails {
+                    if (!SafeWinExist(hwnd))
+                        continue
+                        
+                    for particle in trailData.particles {
+                        if (particle.life > 0 && particle.alpha > 0) {
+                            this.DrawParticle(particle)
+                            particleCount++
+                        }
+                    }
+                }
+            }
+            
+            ; Present the rendered frame to the GUI
+            ; Update the GUI with the bitmap content
+            if (this.overlayGui && this.overlayBitmap) {
+                ; Get the GUI's device context
+                hdc := DllCall("GetDC", "Ptr", this.overlayGui.Hwnd, "Ptr")
+                if (hdc) {
+                    ; Create a graphics object from the GUI's DC
+                    DllCall("gdiplus\GdipCreateFromHDC", "Ptr", hdc, "Ptr*", &guiGraphics)
+                    if (guiGraphics) {
+                        ; Draw the bitmap to the GUI
+                        DllCall("gdiplus\GdipDrawImage", "Ptr", guiGraphics, "Ptr", this.overlayBitmap, "Int", 0, "Int", 0)
+                        DllCall("gdiplus\GdipDeleteGraphics", "Ptr", guiGraphics)
+                    }
+                    DllCall("ReleaseDC", "Ptr", this.overlayGui.Hwnd, "Ptr", hdc)
+                }
+                this.overlayGui.Show("NA")  ; Show without activating
+            }
+            
+            ; Debug output (remove after testing)
+            if (echoCount > 0 || cloudCount > 0 || particleCount > 0) {
+                ; OutputDebug("Rendered: " echoCount " echoes, " cloudCount " clouds, " particleCount " particles")
+            }
+        }
+        catch {
+            ; Handle rendering errors gracefully
+        }
+    }
+
+    static DrawEcho(windowX, windowY, phase) {
+        ; Draw echo phase using GDI+
+        centerX := windowX + phase.offsetX
+        centerY := windowY + phase.offsetY
+        
+        ; Create brush for the echo
+        color := "0x" phase.color
+        alpha := Round(phase.opacity * 255 / 100)
+        brushColor := (alpha << 24) | color
+        
+        DllCall("gdiplus\GdipCreateSolidFill", "UInt", brushColor, "Ptr*", &brush)
+        DllCall("gdiplus\GdipFillEllipse", "Ptr", this.overlayGraphics, "Ptr", brush, 
+                "Float", centerX - phase.size, "Float", centerY - phase.size, 
+                "Float", phase.size * 2, "Float", phase.size * 2)
+        DllCall("gdiplus\GdipDeleteBrush", "Ptr", brush)
+    }
+
+    static DrawNoisePoint(pt) {
+        ; Draw noise cloud point using GDI+
+        alpha := Round(pt.alpha * 255 / 100)
+        color := Integer("0x" pt.color)
+        brushColor := (alpha << 24) | color
+        
+        DllCall("gdiplus\GdipCreateSolidFill", "UInt", brushColor, "Ptr*", &brush)
+        DllCall("gdiplus\GdipFillEllipse", "Ptr", this.overlayGraphics, "Ptr", brush,
+                "Float", pt.x - pt.size, "Float", pt.y - pt.size,
+                "Float", pt.size * 2, "Float", pt.size * 2)
+        DllCall("gdiplus\GdipDeleteBrush", "Ptr", brush)
+    }
+
+    static DrawParticle(particle) {
+        ; Draw particle with glow effect if enabled
+        alpha := Round(particle.alpha * 255 / 100)
+        color := Integer("0x" particle.color)
+        brushColor := (alpha << 24) | color
+        
+        ; Draw main particle
+        DllCall("gdiplus\GdipCreateSolidFill", "UInt", brushColor, "Ptr*", &brush)
+        DllCall("gdiplus\GdipFillEllipse", "Ptr", this.overlayGraphics, "Ptr", brush,
+                "Float", particle.x - particle.size, "Float", particle.y - particle.size,
+                "Float", particle.size * 2, "Float", particle.size * 2)
+        DllCall("gdiplus\GdipDeleteBrush", "Ptr", brush)
+        
+        ; Add glow effect if enabled
+        if (g["TimePhasingConfig"]["EnableGlowEffects"]) {
+            glowAlpha := Round(alpha * 0.3)
+            glowColor := (glowAlpha << 24) | color
+            glowSize := particle.size * 2
+            
+            DllCall("gdiplus\GdipCreateSolidFill", "UInt", glowColor, "Ptr*", &glowBrush)
+            DllCall("gdiplus\GdipFillEllipse", "Ptr", this.overlayGraphics, "Ptr", glowBrush,
+                    "Float", particle.x - glowSize, "Float", particle.y - glowSize,
+                    "Float", glowSize * 2, "Float", glowSize * 2)
+            DllCall("gdiplus\GdipDeleteBrush", "Ptr", glowBrush)
+        }
+    }
+
     static CleanupEffects() {
-        ; Fix: Use for-loop over keys instead of .Keys()
-        for hwnd, _ in this.echoes.Clone() {
-            if (!SafeWinExist(hwnd)) {
-                this.echoes.Delete(hwnd)
-            }
+        ; Enhanced cleanup with proper resource management
+        this.PerformCleanup()
+        
+        ; Clean up GDI+ resources
+        if (this.overlayGraphics) {
+            DllCall("gdiplus\GdipDeleteGraphics", "Ptr", this.overlayGraphics)
+            this.overlayGraphics := 0
         }
-        ; Also clean up noise clouds
-        for hwnd, _ in this.noiseClouds.Clone() {
-            if (!SafeWinExist(hwnd)) {
-                this.noiseClouds.Delete(hwnd)
-            }
+        
+        if (this.overlayBitmap) {
+            DllCall("gdiplus\GdipDisposeImage", "Ptr", this.overlayBitmap)
+            this.overlayBitmap := 0
         }
+        
+        if (this.overlayGui) {
+            this.overlayGui.Destroy()
+            this.overlayGui := 0
+        }
+        
+        if (this.gdiPlusToken) {
+            DllCall("gdiplus\GdiplusShutdown", "Ptr", this.gdiPlusToken)
+            this.gdiPlusToken := 0
+        }
+        
+        ; Clear all effect data
+        this.echoes.Clear()
+        this.noiseClouds.Clear()
+        this.particleTrails.Clear()
     }
 }
 
@@ -981,7 +1575,7 @@ CalculateWindowForces(win, allWindows) {
     }
 
     ; Soft edge boundaries (like invisible force fields)
-    edgeBuffer := 50
+    edgeBuffer := 10
     if (win["x"] < monLeft + edgeBuffer) {
         push := (monLeft + edgeBuffer - win["x"]) * 0.01
         vx += push
@@ -1131,6 +1725,31 @@ ApplyWindowMovements() {
             monTop := Config["MinMargin"]
             monBottom := A_ScreenHeight - Config["MinMargin"] - win["height"]
         }
+        
+        ; Apply taskbar boundary constraints
+        taskbarRect := GetTaskbarRect()
+        if (taskbarRect) {
+            ; Check if taskbar is at bottom of screen
+            if (taskbarRect.top > A_ScreenHeight / 2) {
+                ; Taskbar at bottom - adjust bottom boundary
+                monBottom := Min(monBottom, taskbarRect.top - Config["MinMargin"] - win["height"])
+            }
+            ; Check if taskbar is at top of screen
+            else if (taskbarRect.bottom < A_ScreenHeight / 2) {
+                ; Taskbar at top - adjust top boundary
+                monTop := Max(monTop, taskbarRect.bottom + Config["MinMargin"])
+            }
+            ; Check if taskbar is at left of screen
+            else if (taskbarRect.right < A_ScreenWidth / 2) {
+                ; Taskbar at left - adjust left boundary
+                monLeft := Max(monLeft, taskbarRect.right + Config["MinMargin"])
+            }
+            ; Check if taskbar is at right of screen
+            else if (taskbarRect.left > A_ScreenWidth / 2) {
+                ; Taskbar at right - adjust right boundary
+                monRight := Min(monRight, taskbarRect.left - Config["MinMargin"] - win["width"])
+            }
+        }
 
         hwnd := win["hwnd"]
         newX := win.Has("targetX") ? win["targetX"] : win["x"]
@@ -1218,9 +1837,6 @@ ApplyWindowMovements() {
 
     if (g["FairyDustEnabled"] && movedAny)
         TimePhasing.UpdateEchoes()
-
-    ; --- Add this line to render clouds noise ---
-    RenderCloudsNoise()
 }
 
 ; Calc overlap
@@ -1267,10 +1883,39 @@ ResolveCollisions(positions) {
                 mB := A_ScreenHeight
             }
 
-            newX := Max(mL + Config["MinMargin"] + 2,
-                       Min(pos1["x"], mR - pos1["width"] - Config["MinMargin"] - 2))
-            newY := Max(mT + Config["MinMargin"] + 2,
-                       Min(pos1["y"], mB - pos1["height"] - Config["MinMargin"] - 2))
+            newX := Max(mL + Config["MinMargin"],
+                       Min(pos1["x"], mR - pos1["width"] - Config["MinMargin"]))
+            newY := Max(mT + Config["MinMargin"],
+                       Min(pos1["y"], mB - pos1["height"] - Config["MinMargin"]))
+            
+            ; Apply taskbar boundary constraints
+            taskbarRect := GetTaskbarRect()
+            if (taskbarRect) {
+                ; Check if taskbar is at bottom of screen
+                if (taskbarRect.top > A_ScreenHeight / 2) {
+                    ; Taskbar at bottom - adjust bottom boundary
+                    maxY := taskbarRect.top - Config["MinMargin"] - pos1["height"]
+                    newY := Min(newY, maxY)
+                }
+                ; Check if taskbar is at top of screen
+                else if (taskbarRect.bottom < A_ScreenHeight / 2) {
+                    ; Taskbar at top - adjust top boundary
+                    minY := taskbarRect.bottom + Config["MinMargin"]
+                    newY := Max(newY, minY)
+                }
+                ; Check if taskbar is at left of screen
+                else if (taskbarRect.right < A_ScreenWidth / 2) {
+                    ; Taskbar at left - adjust left boundary
+                    minX := taskbarRect.right + Config["MinMargin"]
+                    newX := Max(newX, minX)
+                }
+                ; Check if taskbar is at right of screen
+                else if (taskbarRect.left > A_ScreenWidth / 2) {
+                    ; Taskbar at right - adjust right boundary
+                    maxX := taskbarRect.left - Config["MinMargin"] - pos1["width"]
+                    newX := Min(newX, maxX)
+                }
+            }
 
             if (newX != pos1["x"] || newY != pos1["y"]) {
                 pos1["x"] := newX
@@ -1666,7 +2311,7 @@ ToggleTimePhasing() {
         TimePhasing.CleanupEffects()
         SetTimer(TimePhasing.UpdateEchoes.Bind(TimePhasing), 0)
     } else {
-        SetTimer(TimePhasing.UpdateEchoes.Bind(TimePhasing), Config["VisualTimeStep"])
+        SetTimer(TimePhasing.UpdateEchoes.Bind(TimePhasing), g["TimePhasingConfig"]["EffectUpdateFrequency"])
     }
     ShowTooltip("Time Phasing Effects: " (g["FairyDustEnabled"] ? "ON" : "OFF"))
 }
@@ -2315,7 +2960,7 @@ GetTaskbarRect() {
 
 SetTimer(UpdateWindowStates, Config["PhysicsTimeStep"])
 SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
-SetTimer(TimePhasing.UpdateEchoes.Bind(TimePhasing), Config["VisualTimeStep"])
+SetTimer(TimePhasing.UpdateEchoes.Bind(TimePhasing), g["TimePhasingConfig"]["EffectUpdateFrequency"])
 UpdateWindowStates()
 
 SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])      ; Only need this once
@@ -2443,46 +3088,4 @@ IsDAWPlugin(win) {
     }
 }
 
-global CloudNoiseOverlay := 0
-
-InitCloudNoiseOverlay() {
-    global CloudNoiseOverlay
-    if (!CloudNoiseOverlay) {
-        CloudNoiseOverlay := Gui("+ToolWindow -Caption +E0x20 +AlwaysOnTop +LastFound +E0x08000000")
-        CloudNoiseOverlay.BackColor := "000000"
-        CloudNoiseOverlay.Show("x0 y0 w" A_ScreenWidth " h" A_ScreenHeight " NA")
-        WinSetTransparent(1, CloudNoiseOverlay.Hwnd)
-        WinSetExStyle("+0x20", CloudNoiseOverlay.Hwnd)
-        ; Initialize GDI+ here if needed
-        ; To draw, add a Picture control and draw to a bitmap
-    }
-}
-
-RenderCloudsNoise() {
-    global g, CloudNoiseOverlay
-    InitCloudNoiseOverlay()
-    ; Clear previous drawings
-    ; CloudNoiseOverlay.Draw("Clear") ; <-- REMOVE or COMMENT OUT
-    ; Draw all cloud points for all windows in one pass
-    for win in g["Windows"] {
-        hwnd := win["hwnd"]
-        points := TimePhasing.GetNoiseCloud(hwnd)
-        if (points.Length == 0)
-            continue
-        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-        for pt in points {
-            px := pt.x
-            py := pt.y
-            size := 10
-            color := "FFFFFF"
-            alpha := Min(255, Max(32, pt.alpha))
-            ; CloudNoiseOverlay.Draw("Ellipse", px, py, size, size, "c" color " w0 a" alpha) ; <-- REMOVE or COMMENT OUT
-            ; To actually draw, use GDI/GDI+ to draw to a bitmap and display in a Picture control
-        }
-    }
-    ; Optionally hide overlay if no points
-    ; ...existing code...
-}
-
-; Optionally, call InitCloudNoiseOverlay() at script startup
-InitCloudNoiseOverlay()
+; Old broken rendering system removed - now using proper GDI+ rendering in TimePhasing class

@@ -26,11 +26,11 @@ global g_PhysicsBuffer := Buffer(4096)
 ; When enabled, windows are no longer confined to the current monitor boundaries
 
 global Config := Map(
-    "MinMargin", 5,
+    "MinMargin", 2,  ; Reduced to allow windows closer to screen edges
     "MinGap", 21,
     "ManualGapBonus", 369,
-    "AttractionForce", 0.0001,   ; << restore to a small value (not 3.2)
-    "RepulsionForce", 0.369,    ; << restore to a small value (not 28)
+    "AttractionForce", 0.00005,   ; Reduced to allow more spreading
+    "RepulsionForce", 0.8,       ; Increased to push windows further apart
     "EdgeRepulsionForce", 0.80,
     "UserMoveTimeout", 11111,        ; How long to keep focused window still after interaction (ms)
     "ManualLockDuration", 33333,     ; How long manual window locks last (ms) - about 33 seconds
@@ -46,7 +46,22 @@ global Config := Map(
         ".*Dock.*",      ; Dockable windows
         "#32770",        ; Dialog boxes
         "ConsoleWindowClass",  ; CMD/Console windows
-        "TextToSpeechWndClass" ; <-- Added for speak.exe main window
+        "TextToSpeechWndClass", ; <-- Added for speak.exe main window
+        "MozillaWindowClass",  ; Firefox browser
+        "Chrome_WidgetWin_1",  ; Chrome browser
+        "ApplicationFrameWindow", ; Edge/UWP apps
+        "SunAwtFrame",          ; Java applications
+        "Notepad",              ; Notepad
+        "Notepad++",            ; Notepad++
+        "Code.exe",             ; VS Code
+        "Cursor.exe",           ; Cursor
+        "devenv.exe",           ; Visual Studio
+        "XamlExplorerHost",     ; XAML applications
+        "CabinetWClass",        ; File Explorer
+        "OpusApp",              ; Microsoft Word
+        "XLMAIN",               ; Microsoft Excel
+        "PPTFrameClass",        ; Microsoft PowerPoint
+        "rctrl_renwnd32"        ; Microsoft Outlook
     ],
     "FloatTitlePatterns", [
         "VST.*",        ; VST windows
@@ -67,11 +82,24 @@ global Config := Map(
         "protools.exe",
         "cmd.exe",       ; Command Prompt
         "conhost.exe",   ; Console Host
-        "WindowsTerminal.exe" ; Windows Terminal
+        "WindowsTerminal.exe", ; Windows Terminal
         "DTDEMO.exe",       ; Dectalk TTS
         "speak.exe",     ; legacy speak.exe
         "speak",         ; legacy speak
-        "speak.EXE"      ; <-- Added for uppercase variant
+        "speak.EXE",     ; <-- Added for uppercase variant
+        "firefox.exe",   ; Firefox browser
+        "chrome.exe",    ; Chrome browser
+        "msedge.exe",    ; Edge browser
+        "code.exe",      ; VS Code
+        "cursor.exe",    ; Cursor editor
+        "notepad.exe",   ; Notepad
+        "notepad++.exe", ; Notepad++
+        "devenv.exe",    ; Visual Studio
+        "explorer.exe",  ; File Explorer
+        "winword.exe",   ; Microsoft Word
+        "excel.exe",     ; Microsoft Excel
+        "powerpnt.exe",  ; Microsoft PowerPoint
+        "outlook.exe"    ; Microsoft Outlook
     ],
     "Damping", 0.001,    ; Lower = less friction (0.001-0.01)
     "MaxSpeed", 12.0,    ; Limits maximum velocity
@@ -263,15 +291,48 @@ IsFullscreenWindow(hwnd) {
             mB := A_ScreenHeight
         }
 
-        ; Check if window covers the entire monitor (with small tolerance)
-        tolerance := 10
-        coversWidth := (w >= (mR - mL - tolerance))
-        coversHeight := (h >= (mB - mT - tolerance))
-        atOrigin := (x <= mL + tolerance && y <= mT + tolerance)
+        ; Check window properties
+        winClass := WinGetClass("ahk_id " hwnd)
+        processName := WinGetProcessName("ahk_id " hwnd)
+        title := WinGetTitle("ahk_id " hwnd)
+        
+        ; Skip normal browser windows and common applications that should be manageable
+        ; These are NOT considered fullscreen even if they cover the screen
+        manageableClasses := [
+            "MozillaWindowClass",        ; Firefox
+            "Chrome_WidgetWin_1",        ; Chrome
+            "ApplicationFrameWindow",    ; Edge/UWP apps
+            "SunAwtFrame",              ; Java applications
+            "Notepad",                  ; Notepad
+            "Notepad++",                ; Notepad++
+            "Code.exe",                 ; VS Code
+            "Cursor.exe",               ; Cursor
+            "devenv.exe",               ; Visual Studio
+            "XamlExplorerHost",         ; XAML applications
+            "CabinetWClass",            ; File Explorer
+            "WorkerW",                  ; Desktop windows
+            "Progman"                   ; Program Manager
+        ]
+        
+        manageableProcesses := [
+            "firefox.exe", "chrome.exe", "msedge.exe", "code.exe", "cursor.exe",
+            "notepad.exe", "notepad++.exe", "devenv.exe", "explorer.exe",
+            "winword.exe", "excel.exe", "powerpnt.exe", "outlook.exe"
+        ]
+        
+        ; Check if this is a manageable window (not fullscreen)
+        for pattern in manageableClasses {
+            if (winClass == pattern)
+                return false
+        }
+        
+        for pattern in manageableProcesses {
+            if (InStr(processName, pattern))
+                return false
+        }
 
-        ; Additional checks for fullscreen indicators
+        ; Check for actual fullscreen indicators
         try {
-            ; Check for fullscreen style flags
             style := WinGetStyle("ahk_id " hwnd)
             exStyle := WinGetExStyle("ahk_id " hwnd)
             
@@ -281,48 +342,63 @@ IsFullscreenWindow(hwnd) {
             ; Check for WS_EX_TOPMOST (many fullscreen apps use this)
             isTopmost := (exStyle & 0x8) != 0
             
-            ; Check window class for common fullscreen patterns
-            winClass := WinGetClass("ahk_id " hwnd)
-            processName := WinGetProcessName("ahk_id " hwnd)
-            
-            ; Common fullscreen application patterns
+            ; True fullscreen applications
             fullscreenClasses := [
                 "UnityWndClass",      ; Unity games
                 "UnrealWindow",       ; Unreal Engine games
                 "Valve001",           ; Source games
                 "SDL_app",            ; SDL applications
                 "GLUT",               ; OpenGL applications
-                "Chrome_WidgetWin_1", ; Chrome fullscreen
-                "MozillaWindowClass", ; Firefox fullscreen
-                "ApplicationFrameWindow" ; UWP apps
+                "d3d",                ; DirectX applications
+                "D3D"                 ; DirectX applications
             ]
             
             fullscreenProcesses := [
                 "steam.exe", "steamwebhelper.exe",
-                "chrome.exe", "firefox.exe", "msedge.exe",
                 "vlc.exe", "mpc-hc.exe", "potplayer.exe",
-                "obs64.exe", "obs32.exe", "streamlabs obs.exe",
-                "discord.exe", "teams.exe", "zoom.exe"
+                "obs64.exe", "obs32.exe", "streamlabs obs.exe"
             ]
             
-            ; Check for fullscreen class patterns
+            ; Check for actual fullscreen class patterns
             for pattern in fullscreenClasses {
                 if (winClass == pattern)
                     return true
             }
             
-            ; Check for fullscreen process patterns
+            ; Check for actual fullscreen process patterns
             for pattern in fullscreenProcesses {
                 if (InStr(processName, pattern))
                     return true
+            }
+            
+            ; Check for fullscreen style combinations
+            if (isPopup && isTopmost) {
+                return true
             }
         }
         catch {
             ; If we can't get style info, continue with size-based detection
         }
 
-        ; Return true if window covers the monitor and is at origin
-        return coversWidth && coversHeight && atOrigin
+        ; Check if window covers the entire monitor AND has fullscreen characteristics
+        tolerance := 50  ; Increased tolerance for normal windows
+        coversWidth := (w >= (mR - mL - tolerance))
+        coversHeight := (h >= (mB - mT - tolerance))
+        atOrigin := (x <= mL + tolerance && y <= mT + tolerance)
+
+        ; Only consider it fullscreen if it covers the monitor AND has suspicious characteristics
+        if (coversWidth && coversHeight && atOrigin) {
+            ; Additional check: if it looks like a normal window (has titlebar, etc.), don't consider it fullscreen
+            if (title != "" && !InStr(title, "Full Screen") && !InStr(title, "Fullscreen")) {
+                ; Check if it has normal window characteristics
+                if (style & 0x00C00000) {  ; WS_CAPTION (has titlebar)
+                    return false  ; It's a normal window that happens to be large
+                }
+            }
+            return true
+        }
+
+        return false
     }
     catch {
         return false
@@ -1575,7 +1651,7 @@ CalculateWindowForces(win, allWindows) {
     }
 
     ; Soft edge boundaries (like invisible force fields)
-    edgeBuffer := 10
+    edgeBuffer := 5  ; Reduced to allow windows closer to edges
     if (win["x"] < monLeft + edgeBuffer) {
         push := (monLeft + edgeBuffer - win["x"]) * 0.01
         vx += push
@@ -1606,19 +1682,19 @@ CalculateWindowForces(win, allWindows) {
         dist := Max(Sqrt(dx*dx + dy*dy), 1)
 
         ; Dynamic interaction range based on window sizes
-        interactionRange := Sqrt(win["width"] * win["height"] + other["width"] * other["height"]) / 4  ; Reduced from /3 for tighter zones
+        interactionRange := Sqrt(win["width"] * win["height"] + other["width"] * other["height"]) / 2.5  ; Increased for wider gaps
 
         ; Smaller windows get proportionally larger interaction zones
         sizeBonus := Max(1, 200 / Min(win["width"], win["height"]))  ; Boost for small windows
         interactionRange *= sizeBonus
 
-        if (dist < interactionRange * 1.2) {  ; Expanded repulsion zone from 0.8 to 1.2
+        if (dist < interactionRange * 1.5) {  ; Further expanded repulsion zone for wider gaps
             ; Close range: much stronger repulsion to prevent prolonged overlap
-            repulsionForce := Config["RepulsionForce"] * (interactionRange * 1.2 - dist) / (interactionRange * 1.2)
+            repulsionForce := Config["RepulsionForce"] * (interactionRange * 1.5 - dist) / (interactionRange * 1.5)
             repulsionForce *= (other.Has("IsManual") ? Config["ManualRepulsionMultiplier"] : 1)
 
             ; Progressive force scaling - stronger when closer
-            proximityMultiplier := 1 + (1 - dist / (interactionRange * 1.2)) * 2  ; Up to 3x stronger when very close
+            proximityMultiplier := 1 + (1 - dist / (interactionRange * 1.5)) * 2  ; Up to 3x stronger when very close
 
             vx += dx * repulsionForce * proximityMultiplier / dist * 0.6  ; Increased from 0.4
             vy += dy * repulsionForce * proximityMultiplier / dist * 0.6
@@ -1767,7 +1843,7 @@ ApplyWindowMovements() {
         smoothPos[hwnd].y := smoothPos[hwnd].y + (newY - smoothPos[hwnd].y) * alpha
 
         ; Gentle boundary enforcement (soft collision with edges)
-        edgeBuffer := 20
+        edgeBuffer := 10  ; Reduced to allow windows closer to edges
         if (smoothPos[hwnd].x < monLeft + edgeBuffer) {
             resistance := (monLeft + edgeBuffer - smoothPos[hwnd].x) / edgeBuffer
             smoothPos[hwnd].x := Lerp(smoothPos[hwnd].x, monLeft + edgeBuffer, resistance * 0.1)
@@ -2766,7 +2842,7 @@ FindLeastCrowdedDirection(win, allWindows, mL, mT, mR, mB) {
 
     bestDirection := Map()
     lowestDensity := 999999
-    searchDistance := 200  ; How far to look ahead
+    searchDistance := 300  ; How far to look ahead - increased for better space utilization
 
     for dir in directions {
         ; Calculate test point in this direction
@@ -2793,7 +2869,7 @@ FindLeastCrowdedDirection(win, allWindows, mL, mT, mR, mB) {
 ; Calculate window density at a specific point
 CalculateDensityAtPoint(testX, testY, allWindows, excludeHwnd := 0) {
     density := 0
-    influenceRadius := 150
+    influenceRadius := 200  ; Increased for better space distribution
 
     for win in allWindows {
         if (excludeHwnd != 0 && win["hwnd"] == excludeHwnd)
@@ -2946,6 +3022,257 @@ GetTaskbarRect() {
     return { left: 0, top: A_ScreenHeight - 44, right: A_ScreenWidth, bottom: A_ScreenHeight }
 }
 
+; --- Debug function to show window information ---
+DebugWindowInfo() {
+    global g, Config
+    
+    ; Get all visible windows
+    allWindows := []
+    trackedWindows := []
+    untrackedWindows := []
+    
+    ; Get current monitor for filtering
+    CoordMode "Mouse", "Screen"
+    MouseGetPos(&mx, &my)
+    activeMonitor := MonitorGetFromPoint(mx, my)
+    try {
+        MonitorGet activeMonitor, &mL, &mT, &mR, &mB
+    } catch {
+        mL := 0, mT := 0, mR := A_ScreenWidth, mB := A_ScreenHeight
+    }
+    
+    ; Check all windows
+    for hwnd in WinGetList() {
+        try {
+            if (!SafeWinExist(hwnd))
+                continue
+                
+            WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+            if (w == 0 || h == 0)
+                continue
+                
+            title := WinGetTitle("ahk_id " hwnd)
+            winClass := WinGetClass("ahk_id " hwnd)
+            processName := WinGetProcessName("ahk_id " hwnd)
+            
+            if (title == "" || title == "Program Manager")
+                continue
+                
+            isPlugin := IsPluginWindow(hwnd)
+            isFloating := IsWindowFloating(hwnd)
+            isTracked := false
+            
+            ; Check if window is currently tracked
+            for trackedWin in g["Windows"] {
+                if (trackedWin["hwnd"] == hwnd) {
+                    isTracked := true
+                    break
+                }
+            }
+            
+            windowInfo := Map(
+                "hwnd", hwnd,
+                "title", title,
+                "class", winClass,
+                "process", processName,
+                "x", x, "y", y, "width", w, "height", h,
+                "isPlugin", isPlugin,
+                "isFloating", isFloating,
+                "isTracked", isTracked
+            )
+            
+            allWindows.Push(windowInfo)
+            
+            if (isTracked) {
+                trackedWindows.Push(windowInfo)
+            } else if (isFloating || isPlugin) {
+                untrackedWindows.Push(windowInfo)
+            }
+            
+        } catch {
+            continue
+        }
+    }
+    
+    ; Create debug message
+    debugMsg := "=== FWDE WINDOW DEBUG ===`n`n"
+    debugMsg .= "Arrangement Active: " . (g["ArrangementActive"] ? "YES" : "NO") . "`n"
+    debugMsg .= "Total Windows: " . allWindows.Length . "`n"
+    debugMsg .= "Tracked Windows: " . trackedWindows.Length . "`n"
+    debugMsg .= "Untracked Floating Windows: " . untrackedWindows.Length . "`n`n"
+    
+    debugMsg .= "--- TRACKED WINDOWS ---`n"
+    for win in trackedWindows {
+        debugMsg .= "✓ " . win["title"] . " (" . win["class"] . ") [" . win["process"] . "]`n"
+        debugMsg .= "  Size: " . win["width"] . "x" . win["height"] . " at " . win["x"] . "," . win["y"] . "`n"
+    }
+    
+    debugMsg .= "`n--- UNTRACKED FLOATING WINDOWS ---`n"
+    for win in untrackedWindows {
+        debugMsg .= "✗ " . win["title"] . " (" . win["class"] . ") [" . win["process"] . "]`n"
+        debugMsg .= "  Size: " . win["width"] . "x" . win["height"] . " at " . win["x"] . "," . win["y"] . "`n"
+        debugMsg .= "  Plugin: " . (win["isPlugin"] ? "YES" : "NO") . " | Floating: " . (win["isFloating"] ? "YES" : "NO") . "`n"
+    }
+    
+    debugMsg .= "`n--- CONFIG PATTERNS ---`n"
+    debugMsg .= "ForceFloatProcesses: " . Config["ForceFloatProcesses"].Length . " patterns`n"
+    debugMsg .= "FloatClassPatterns: " . Config["FloatClassPatterns"].Length . " patterns`n"
+    debugMsg .= "FloatTitlePatterns: " . Config["FloatTitlePatterns"].Length . " patterns`n"
+    
+    ; Show tooltip with debug info
+    ToolTip(debugMsg)
+    SetTimer(() => ToolTip(), -10000)  ; Hide after 10 seconds
+}
+
+; --- Force add active window to tracking ---
+ForceAddActiveWindow() {
+    global g, Config
+    
+    hwnd := WinExist("A")
+    if (!hwnd || !SafeWinExist(hwnd)) {
+        ToolTip("No active window found!")
+        SetTimer(() => ToolTip(), -2000)
+        return
+    }
+    
+    try {
+        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+        title := WinGetTitle("ahk_id " hwnd)
+        winClass := WinGetClass("ahk_id " hwnd)
+        processName := WinGetProcessName("ahk_id " hwnd)
+        
+        if (w == 0 || h == 0) {
+            ToolTip("Invalid window size!")
+            SetTimer(() => ToolTip(), -2000)
+            return
+        }
+        
+        ; Check if already tracked
+        for win in g["Windows"] {
+            if (win["hwnd"] == hwnd) {
+                ToolTip("Window already tracked: " . title)
+                SetTimer(() => ToolTip(), -2000)
+                return
+            }
+        }
+        
+        ; Get monitor info
+        winCenterX := x + w/2
+        winCenterY := y + h/2
+        winMonitor := MonitorGetFromPoint(winCenterX, winCenterY)
+        if (!winMonitor) {
+            winMonitor := MonitorGetPrimary()
+        }
+        
+        ; Add to tracking
+        g["Windows"].Push(Map(
+            "hwnd", hwnd,
+            "x", x, "y", y,
+            "width", w, "height", h,
+            "area", w * h,
+            "mass", w * h / 100000,
+            "lastMove", 0,
+            "vx", 0, "vy", 0,
+            "targetX", x, "targetY", y,
+            "monitor", winMonitor,
+            "isPlugin", IsPluginWindow(hwnd),
+            "lastSeen", A_TickCount,
+            "lastZOrder", -1,
+            "forced", true  ; Mark as manually added
+        ))
+        
+        ToolTip("Added to tracking: " . title . " (" . winClass . ")")
+        SetTimer(() => ToolTip(), -3000)
+        
+    } catch {
+        ToolTip("Failed to add window to tracking!")
+        SetTimer(() => ToolTip(), -2000)
+    }
+}
+
+; --- Debug active window details ---
+DebugActiveWindow() {
+    global g, Config
+    
+    hwnd := WinExist("A")
+    if (!hwnd) {
+        ToolTip("No active window!")
+        SetTimer(() => ToolTip(), -2000)
+        return
+    }
+    
+    try {
+        title := WinGetTitle("ahk_id " hwnd)
+        winClass := WinGetClass("ahk_id " hwnd)
+        processName := WinGetProcessName("ahk_id " hwnd)
+        style := WinGetStyle("ahk_id " hwnd)
+        exStyle := WinGetExStyle("ahk_id " hwnd)
+        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+        minMax := WinGetMinMax("ahk_id " hwnd)
+        
+        isPlugin := IsPluginWindow(hwnd)
+        isFloating := IsWindowFloating(hwnd)
+        isValid := IsWindowValid(hwnd)
+        isFullscreen := IsFullscreenWindow(hwnd)
+        
+        debugMsg := "=== ACTIVE WINDOW DEBUG ===`n`n"
+        debugMsg .= "Title: " . title . "`n"
+        debugMsg .= "Class: " . winClass . "`n"
+        debugMsg .= "Process: " . processName . "`n"
+        debugMsg .= "Position: " . x . "," . y . " Size: " . w . "x" . h . "`n"
+        debugMsg .= "Min/Max: " . minMax . "`n"
+        debugMsg .= "Style: 0x" . Format("{:08X}", style) . "`n"
+        debugMsg .= "ExStyle: 0x" . Format("{:08X}", exStyle) . "`n`n"
+        
+        debugMsg .= "--- DETECTION RESULTS ---`n"
+        debugMsg .= "IsValid: " . (isValid ? "YES" : "NO") . "`n"
+        debugMsg .= "IsPlugin: " . (isPlugin ? "YES" : "NO") . "`n"
+        debugMsg .= "IsFloating: " . (isFloating ? "YES" : "NO") . "`n"
+        debugMsg .= "IsFullscreen: " . (isFullscreen ? "YES" : "NO") . "`n`n"
+        
+        debugMsg .= "--- PATTERN CHECKS ---`n"
+        
+        ; Check ForceFloatProcesses
+        debugMsg .= "ForceFloatProcesses: "
+        for pattern in Config["ForceFloatProcesses"] {
+            if (processName ~= "i)^" pattern "$") {
+                debugMsg .= "MATCH (" . pattern . ") "
+            }
+        }
+        debugMsg .= "`n"
+        
+        ; Check FloatClassPatterns
+        debugMsg .= "FloatClassPatterns: "
+        for pattern in Config["FloatClassPatterns"] {
+            if (winClass ~= "i)" pattern) {
+                debugMsg .= "MATCH (" . pattern . ") "
+            }
+        }
+        debugMsg .= "`n"
+        
+        ; Check FloatTitlePatterns
+        debugMsg .= "FloatTitlePatterns: "
+        for pattern in Config["FloatTitlePatterns"] {
+            if (title ~= "i)" pattern) {
+                debugMsg .= "MATCH (" . pattern . ") "
+            }
+        }
+        debugMsg .= "`n"
+        
+        ; Check style flags
+        debugMsg .= "FloatStyles: " . ((style & Config["FloatStyles"]) != 0 ? "MATCH" : "NO MATCH") . "`n"
+        debugMsg .= "WS_EX_TOOLWINDOW: " . ((exStyle & 0x80) ? "YES" : "NO") . "`n"
+        debugMsg .= "WS_VISIBLE: " . ((style & 0x10000000) ? "YES" : "NO") . "`n"
+        
+        ToolTip(debugMsg)
+        SetTimer(() => ToolTip(), -15000)  ; Show for 15 seconds
+        
+    } catch {
+        ToolTip("Failed to get window details!")
+        SetTimer(() => ToolTip(), -2000)
+    }
+}
+
 ; --- Hotkey to show the menu on right-click of the taskbar ---
 ^!T::ShowTaskbarMenu() ; Ctrl+Alt+T to show the upgraded taskbar menu
 
@@ -2957,7 +3284,10 @@ GetTaskbarRect() {
 ^!M::ToggleSeamlessMonitorFloat() ; Ctrl+Alt+M for seamless multi-monitor floating
 ^!O::OptimizeWindowPositions()    ; Ctrl+Alt+O to optimize
 ^!L::ToggleWindowLock()           ; Ctrl+Alt+L to lock/unlock active window
-
+^!D::DebugWindowInfo()            ; Ctrl+Alt+D to debug window information
+^!A::ForceAddActiveWindow()       ; Ctrl+Alt+A to force add active window
+^!I::DebugActiveWindow()          ; Ctrl+Alt+I to debug active window details
+ 
 SetTimer(UpdateWindowStates, Config["PhysicsTimeStep"])
 SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
 SetTimer(TimePhasing.UpdateEchoes.Bind(TimePhasing), g["TimePhasingConfig"]["EffectUpdateFrequency"])

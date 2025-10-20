@@ -1834,8 +1834,13 @@ ApplyWindowMovements() {
         if (!hwndPos.Has(hwnd))
             continue
 
-        if (!smoothPos.Has(hwnd))
+        if (!smoothPos.Has(hwnd)) {
+            ; Initialize smoothPos with current position to prevent jumping
             smoothPos[hwnd] := { x: hwndPos[hwnd].x, y: hwndPos[hwnd].y }
+            ; Also initialize lastPositions to prevent immediate movement
+            if (!lastPositions.Has(hwnd))
+                lastPositions[hwnd] := { x: hwndPos[hwnd].x, y: hwndPos[hwnd].y }
+        }
 
         ; Increase smoothing for less jitter
         alpha := 0.18  ; Lower value = slower, smoother movement (was 0.35)
@@ -1901,8 +1906,23 @@ ApplyWindowMovements() {
     }
 
     ; Only update Z-order if plugin count, window count, or plugin order changed, or enough time passed
+    ; Also check for maximized windows to prevent looping issues
     orderChanged := (pluginOrder != lastPluginOrder)
-    if (pluginCount > 1 &&
+    hasMaximizedWindows := false
+    
+    ; Check if any tracked windows are maximized (shouldn't happen, but safety check)
+    for win in g["Windows"] {
+        try {
+            if (WinGetMinMax("ahk_id " win["hwnd"]) != 0) {
+                hasMaximizedWindows := true
+                break
+            }
+        } catch {
+            continue
+        }
+    }
+    
+    if (pluginCount > 1 && !hasMaximizedWindows &&
         (A_TickCount - lastZOrderUpdate > 5000 || pluginCount != lastPluginCount || g["Windows"].Length != lastWindowCount || orderChanged)) {
         OrderWindowsBySize()
         lastZOrderUpdate := A_TickCount
@@ -3346,6 +3366,14 @@ OrderWindowsBySize() {
     windowAreas := []
     for win in g["Windows"] {
         if (win["hwnd"] != g["ActiveWindow"] && IsDAWPlugin(win)) {
+            ; Double-check that window is not maximized/minimized before processing
+            try {
+                if (WinGetMinMax("ahk_id " win["hwnd"]) != 0)
+                    continue
+            } catch {
+                continue
+            }
+            
             windowAreas.Push({
                 hwnd: win["hwnd"],
                 area: win["width"] * win["height"],
@@ -3376,6 +3404,10 @@ OrderWindowsBySize() {
     ; Use gentle reordering to prevent flashing
     for i, winData in windowAreas {
         try {
+            ; Final safety check - ensure window is still valid and not maximized
+            if (!SafeWinExist(winData.hwnd) || WinGetMinMax("ahk_id " winData.hwnd) != 0)
+                continue
+                
             ; Only reorder if the window's z-order actually needs to change
             newZOrder := (i <= windowAreas.Length // 2) ? 1 : 0  ; 1 for bottom, 0 for top
 

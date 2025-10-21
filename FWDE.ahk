@@ -323,12 +323,12 @@ IsFullscreenWindow(hwnd) {
         ; Check if this is a manageable window (not fullscreen)
         for pattern in manageableClasses {
             if (winClass == pattern)
-                return false
+                return false  ; This is a manageable window, not fullscreen
         }
         
         for pattern in manageableProcesses {
             if (InStr(processName, pattern))
-                return false
+                return false  ; This is a manageable process, not fullscreen
         }
 
         ; Check for actual fullscreen indicators
@@ -1589,16 +1589,20 @@ CalculateWindowForces(win, allWindows) {
     global g, Config
 
     ; Keep active window and recently moved windows still
+    ; Exception: Allow Electron apps (like Cursor, VS Code) to be affected by physics even when active
     isActiveWindow := (win["hwnd"] == g["ActiveWindow"])
     isRecentlyMoved := (A_TickCount - g["LastUserMove"] < Config["UserMoveTimeout"])
     isCurrentlyFocused := (win["hwnd"] == WinExist("A"))
     isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
+    isElectronWindow := IsElectronApp(win["hwnd"])
 
-    if (isActiveWindow || isRecentlyMoved && isCurrentlyFocused || isManuallyLocked) {
+    ; Skip protection for Electron apps - they can be pushed even when active
+    if (!isElectronWindow && (isActiveWindow || isRecentlyMoved && isCurrentlyFocused || isManuallyLocked)) {
         win["vx"] := 0
         win["vy"] := 0
         return
     }
+    
 
     ; Predeclare monitor bounds to avoid local variable warning
     mL := 0, mT := 0, mR := A_ScreenWidth, mB := A_ScreenHeight
@@ -1636,11 +1640,15 @@ CalculateWindowForces(win, allWindows) {
     ; Gentle center attraction with distance falloff - stronger for equilibrium
     if (centerDist > 100) {  ; Reduced threshold for earlier attraction
         attractionScale := Min(0.25, centerDist/1200)  ; Stronger attraction (was 0.15 and /1500)
-        vx := prev_vx * 0.98 + dx * Config["AttractionForce"] * 0.08 * attractionScale  ; Increased from 0.05
-        vy := prev_vy * 0.98 + dy * Config["AttractionForce"] * 0.08 * attractionScale
+        ; Use less damping for Electron apps
+        dampingFactor := IsElectronApp(win["hwnd"]) ? 0.99 : 0.98
+        vx := prev_vx * dampingFactor + dx * Config["AttractionForce"] * 0.08 * attractionScale  ; Increased from 0.05
+        vy := prev_vy * dampingFactor + dy * Config["AttractionForce"] * 0.08 * attractionScale
     } else {
-        vx := prev_vx * 0.995  ; Slightly more damping near center
-        vy := prev_vy * 0.995
+        ; Use less damping for Electron apps near center
+        dampingFactor := IsElectronApp(win["hwnd"]) ? 0.998 : 0.995
+        vx := prev_vx * dampingFactor  ; Slightly more damping near center
+        vy := prev_vy * dampingFactor
     }
 
     ; Space-seeking behavior: move toward empty areas when crowded
@@ -1671,8 +1679,14 @@ CalculateWindowForces(win, allWindows) {
 
     ; Dynamic inter-window forces (no grid constraints)
     for other in allWindows {
-        if (other == win || other["hwnd"] == g["ActiveWindow"])
+        if (other == win)
             continue
+            
+        ; Skip active window protection for Electron apps - they can push each other
+        ; Also allow any window to push against active Electron apps
+        if (other["hwnd"] == g["ActiveWindow"] && !IsElectronApp(other["hwnd"])) {
+            continue
+        }
 
         ; Calculate distance between window centers
         otherX := other["x"] + other["width"]/2
@@ -1695,6 +1709,7 @@ CalculateWindowForces(win, allWindows) {
 
             ; Progressive force scaling - stronger when closer
             proximityMultiplier := 1 + (1 - dist / (interactionRange * 1.5)) * 2  ; Up to 3x stronger when very close
+            
 
             vx += dx * repulsionForce * proximityMultiplier / dist * 0.6  ; Increased from 0.4
             vy += dy * repulsionForce * proximityMultiplier / dist * 0.6
@@ -1708,18 +1723,21 @@ CalculateWindowForces(win, allWindows) {
     }
 
     ; Space-like momentum with equilibrium-seeking damping
-    vx *= 0.994  ; Slightly more friction for settling
-    vy *= 0.994
+    ; Use less damping for Electron apps to make them more responsive
+    dampingFactor := IsElectronApp(win["hwnd"]) ? 0.998 : 0.994  ; Less friction for Electron apps
+    vx *= dampingFactor
+    vy *= dampingFactor
 
     ; Floating speed limits (balanced for equilibrium)
     maxFloatSpeed := Config["MaxSpeed"] * 2.0  ; Reduced from 2.5
     vx := Min(Max(vx, -maxFloatSpeed), maxFloatSpeed)
     vy := Min(Max(vy, -maxFloatSpeed), maxFloatSpeed)
 
-    ; Progressive stabilization based on speed
+    ; Progressive stabilization based on speed - less aggressive for Electron apps
     if (Abs(vx) < 0.15 && Abs(vy) < 0.15) {  ; Increased threshold for earlier settling
-        vx *= 0.88  ; Stronger dampening when slow for equilibrium
-        vy *= 0.88
+        stabilizationFactor := IsElectronApp(win["hwnd"]) ? 0.95 : 0.88  ; Less aggressive stabilization for Electron apps
+        vx *= stabilizationFactor
+        vy *= stabilizationFactor
     }
 
     win["vx"] := vx
@@ -1775,7 +1793,8 @@ ApplyWindowMovements() {
     movedAny := false
 
     for win in g["Windows"] {
-        if (win["hwnd"] == g["ActiveWindow"])
+        ; Allow Electron apps to be moved even when they're the active window
+        if (win["hwnd"] == g["ActiveWindow"] && !IsElectronApp(win["hwnd"]))
             continue
 
         ; Safely get monitor bounds
@@ -1843,7 +1862,8 @@ ApplyWindowMovements() {
         }
 
         ; Increase smoothing for less jitter
-        alpha := 0.18  ; Lower value = slower, smoother movement (was 0.35)
+        ; Use less smoothing for Electron apps to make them more responsive
+        alpha := IsElectronApp(hwnd) ? 0.45 : 0.18  ; Higher alpha = more responsive movement
         smoothPos[hwnd].x := smoothPos[hwnd].x + (newX - smoothPos[hwnd].x) * alpha
         smoothPos[hwnd].y := smoothPos[hwnd].y + (newY - smoothPos[hwnd].y) * alpha
 
@@ -2321,12 +2341,15 @@ DragWindow() {
 
         for win in g["Windows"] {
             if (win["hwnd"] == winID) {
-                win["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
-                win["IsManual"] := true
-                win["vx"] := 0
-                win["vy"] := 0
+                ; Don't auto-lock Electron apps - they update their UI frequently
+                if (!IsElectronApp(winID)) {
+                    win["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
+                    win["IsManual"] := true
+                    win["vx"] := 0
+                    win["vy"] := 0
+                    AddManualWindowBorder(winID)
+                }
                 win["monitor"] := monNum
-                AddManualWindowBorder(winID)
                 break
             }
         }
@@ -2935,12 +2958,15 @@ WindowMoveHandler(wParam, lParam, msg, hwnd) {
 
         for win in g["Windows"] {
             if (win["hwnd"] == hwnd) {
-                win["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
-                win["IsManual"] := true
-                win["vx"] := 0
-                win["vy"] := 0
+                ; Don't auto-lock Electron apps - they update their UI frequently
+                if (!IsElectronApp(hwnd)) {
+                    win["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
+                    win["IsManual"] := true
+                    win["vx"] := 0
+                    win["vy"] := 0
+                    AddManualWindowBorder(hwnd)
+                }
                 win["monitor"] := monNum
-                AddManualWindowBorder(hwnd)
                 break
             }
         }
@@ -2977,12 +3003,15 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
 
         for win in g["Windows"] {
             if (win["hwnd"] == hwnd) {
-                win["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
-                win["IsManual"] := true
-                win["vx"] := 0
-                win["vy"] := 0
+                ; Don't auto-lock Electron apps - they update their UI frequently
+                if (!IsElectronApp(hwnd)) {
+                    win["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
+                    win["IsManual"] := true
+                    win["vx"] := 0
+                    win["vy"] := 0
+                    AddManualWindowBorder(hwnd)
+                }
                 win["monitor"] := monNum
-                AddManualWindowBorder(hwnd)
                 break
             }
         }
@@ -3444,6 +3473,63 @@ IsDAWPlugin(win) {
     try {
         ; Use the consolidated IsPluginWindow function
         return IsPluginWindow(win["hwnd"])
+    }
+    catch {
+        return false
+    }
+}
+
+; Helper function to identify Electron-based applications
+IsElectronApp(hwnd) {
+    try {
+        if (!SafeWinExist(hwnd))
+            return false
+            
+        winClass := WinGetClass("ahk_id " hwnd)
+        processName := WinGetProcessName("ahk_id " hwnd)
+        
+        ; Electron apps typically use Chrome_WidgetWin_1 class
+        electronClasses := [
+            "Chrome_WidgetWin_1",        ; Standard Electron/Chromium class
+            "Chrome_WidgetWin_0",        ; Alternative Electron class
+            "ElectronMainWindow",         ; Some Electron apps use this
+            "CEF-OSC-WIDGET"             ; Chromium Embedded Framework
+        ]
+        
+        ; Electron-based applications
+        electronProcesses := [
+            "cursor.exe",                ; Cursor editor
+            "code.exe",                  ; VS Code
+            "discord.exe",               ; Discord
+            "slack.exe",                 ; Slack
+            "spotify.exe",               ; Spotify
+            "whatsapp.exe",              ; WhatsApp Desktop
+            "telegram.exe",              ; Telegram Desktop
+            "notion.exe",                ; Notion
+            "obsidian.exe",              ; Obsidian
+            "typora.exe",                ; Typora
+            "hyper.exe",                 ; Hyper terminal
+            "insomnia.exe",              ; Insomnia
+            "postman.exe",               ; Postman
+            "figma.exe",                 ; Figma Desktop
+            "sketch.exe",                ; Sketch (if Electron-based)
+            "atom.exe",                  ; Atom editor
+            "vscode.exe"                 ; Alternative VS Code process name
+        ]
+        
+        ; Check window class
+        for electronClass in electronClasses {
+            if (winClass == electronClass)
+                return true
+        }
+        
+        ; Check process name
+        for process in electronProcesses {
+            if (processName ~= "i)^" process "$")
+                return true
+        }
+        
+        return false
     }
     catch {
         return false

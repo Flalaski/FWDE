@@ -820,47 +820,6 @@ GetVisibleWindows(monitor) {
             }
 
             if (includeWindow) {
-                ; Apply margin constraints based on floating mode
-                if (Config["SeamlessMonitorFloat"]) {
-                    ; Use virtual desktop bounds for seamless floating
-                    virtualBounds := GetVirtualDesktopBounds()
-                    window["x"] := Clamp(window["x"], virtualBounds["Left"] + Config["MinMargin"], virtualBounds["Right"] - window["width"] - Config["MinMargin"])
-                    window["y"] := Clamp(window["y"], virtualBounds["Top"] + Config["MinMargin"], virtualBounds["Bottom"] - window["height"] - Config["MinMargin"])
-                } else {
-                    ; Apply margin constraints for current monitor
-                    window["x"] := Clamp(window["x"], mL + Config["MinMargin"], mR - window["width"] - Config["MinMargin"])
-                    window["y"] := Clamp(window["y"], mT + Config["MinMargin"], mB - window["height"] - Config["MinMargin"])
-                }
-                
-                ; Apply taskbar boundary constraints
-                taskbarRect := GetTaskbarRect()
-                if (taskbarRect) {
-                    ; Check if taskbar is at bottom of screen
-                    if (taskbarRect.top > A_ScreenHeight / 2) {
-                        ; Taskbar at bottom - adjust bottom boundary
-                        maxY := taskbarRect.top - Config["MinMargin"] - window["height"]
-                        window["y"] := Min(window["y"], maxY)
-                    }
-                    ; Check if taskbar is at top of screen
-                    else if (taskbarRect.bottom < A_ScreenHeight / 2) {
-                        ; Taskbar at top - adjust top boundary
-                        minY := taskbarRect.bottom + Config["MinMargin"]
-                        window["y"] := Max(window["y"], minY)
-                    }
-                    ; Check if taskbar is at left of screen
-                    else if (taskbarRect.right < A_ScreenWidth / 2) {
-                        ; Taskbar at left - adjust left boundary
-                        minX := taskbarRect.right + Config["MinMargin"]
-                        window["x"] := Max(window["x"], minX)
-                    }
-                    ; Check if taskbar is at right of screen
-                    else if (taskbarRect.left > A_ScreenWidth / 2) {
-                        ; Taskbar at right - adjust right boundary
-                        maxX := taskbarRect.left - Config["MinMargin"] - window["width"]
-                        window["x"] := Min(window["x"], maxX)
-                    }
-                }
-
                 ; Find existing window data if available
                 existingWin := 0
                 for win in g["Windows"] {
@@ -869,9 +828,67 @@ GetVisibleWindows(monitor) {
                         break
                     }
                 }
+                
+                ; CRITICAL: Check if window is manually locked BEFORE applying any position constraints
+                ; User-placed windows should NEVER have their position modified
+                isManuallyLocked := (existingWin && existingWin.Has("ManualLock") && A_TickCount < existingWin["ManualLock"])
+                ; Check if this window is the active window - CRITICAL: Never move the active window
+                isActiveWindow := (window["hwnd"] == g["ActiveWindow"])
+                
+                ; Only apply position constraints if window is NOT manually locked and NOT active
+                if (!isManuallyLocked && !isActiveWindow) {
+                    ; Apply margin constraints based on floating mode
+                    if (Config["SeamlessMonitorFloat"]) {
+                        ; Use virtual desktop bounds for seamless floating
+                        virtualBounds := GetVirtualDesktopBounds()
+                        window["x"] := Clamp(window["x"], virtualBounds["Left"] + Config["MinMargin"], virtualBounds["Right"] - window["width"] - Config["MinMargin"])
+                        window["y"] := Clamp(window["y"], virtualBounds["Top"] + Config["MinMargin"], virtualBounds["Bottom"] - window["height"] - Config["MinMargin"])
+                    } else {
+                        ; Apply margin constraints for current monitor
+                        window["x"] := Clamp(window["x"], mL + Config["MinMargin"], mR - window["width"] - Config["MinMargin"])
+                        window["y"] := Clamp(window["y"], mT + Config["MinMargin"], mB - window["height"] - Config["MinMargin"])
+                    }
+                    
+                    ; Apply taskbar boundary constraints
+                    taskbarRect := GetTaskbarRect()
+                    if (taskbarRect) {
+                        ; Check if taskbar is at bottom of screen
+                        if (taskbarRect.top > A_ScreenHeight / 2) {
+                            ; Taskbar at bottom - adjust bottom boundary
+                            maxY := taskbarRect.top - Config["MinMargin"] - window["height"]
+                            window["y"] := Min(window["y"], maxY)
+                        }
+                        ; Check if taskbar is at top of screen
+                        else if (taskbarRect.bottom < A_ScreenHeight / 2) {
+                            ; Taskbar at top - adjust top boundary
+                            minY := taskbarRect.bottom + Config["MinMargin"]
+                            window["y"] := Max(window["y"], minY)
+                        }
+                        ; Check if taskbar is at left of screen
+                        else if (taskbarRect.right < A_ScreenWidth / 2) {
+                            ; Taskbar at left - adjust left boundary
+                            minX := taskbarRect.right + Config["MinMargin"]
+                            window["x"] := Max(window["x"], minX)
+                        }
+                        ; Check if taskbar is at right of screen
+                        else if (taskbarRect.left > A_ScreenWidth / 2) {
+                            ; Taskbar at right - adjust right boundary
+                            maxX := taskbarRect.left - Config["MinMargin"] - window["width"]
+                            window["x"] := Min(window["x"], maxX)
+                        }
+                    }
+                } else {
+                    ; Use EXISTING window position for manually locked or active windows
+                    ; This ensures user-placed windows stay exactly where the user put them
+                    if (existingWin) {
+                        window["x"] := existingWin["x"]
+                        window["y"] := existingWin["y"]
+                    }
+                }
 
                 ; Create window entry with physics properties
-                WinList.Push(Map(
+                ; CRITICAL: Preserve ManualLock and other critical state from existing window
+                winEntry := Map(
                     "hwnd", window["hwnd"],
                     "x", window["x"], "y", window["y"],
                     "width", window["width"], "height", window["height"],
@@ -880,12 +897,35 @@ GetVisibleWindows(monitor) {
                     "lastMove", existingWin ? existingWin["lastMove"] : 0,
                     "vx", existingWin ? existingWin["vx"] : 0,
                     "vy", existingWin ? existingWin["vy"] : 0,
-                    "targetX", window["x"], "targetY", window["y"],
+                    "targetX", existingWin ? existingWin["targetX"] : window["x"],
+                    "targetY", existingWin ? existingWin["targetY"] : window["y"],
                     "monitor", winMonitor,
                     "isPlugin", window["isPlugin"],
                     "lastSeen", window["lastSeen"],
                     "lastZOrder", existingWin ? existingWin.Get("lastZOrder", -1) : -1  ; Cache z-order state
-                ))
+                )
+                
+                ; Preserve ManualLock and IsManual flags - CRITICAL for user-placed windows
+                if (existingWin) {
+                    if (existingWin.Has("ManualLock"))
+                        winEntry["ManualLock"] := existingWin["ManualLock"]
+                    if (existingWin.Has("IsManual"))
+                        winEntry["IsManual"] := existingWin["IsManual"]
+                    if (existingWin.Has("JustDragged"))
+                        winEntry["JustDragged"] := existingWin["JustDragged"]
+                        
+                    ; CRITICAL: For manually locked or active windows, preserve their exact x/y target positions
+                    ; This prevents physics from moving them away from user placement
+                    if ((isManuallyLocked || isActiveWindow) && existingWin.Has("targetX") && existingWin.Has("targetY")) {
+                        winEntry["targetX"] := existingWin["targetX"]
+                        winEntry["targetY"] := existingWin["targetY"]
+                        ; Also preserve x/y from existing window to keep it exact
+                        winEntry["x"] := existingWin["x"]
+                        winEntry["y"] := existingWin["y"]
+                    }
+                }
+                
+                WinList.Push(winEntry)
 
                 ; Add time-phasing echo for all floating windows
                 if (g["FairyDustEnabled"]) {
@@ -1588,22 +1628,56 @@ ApplyStabilization(win) {
 CalculateWindowForces(win, allWindows) {
     global g, Config
 
+    ; Check if user is actively dragging a window
+    isDragging := GetKeyState("LButton", "P")
+    isDraggedWindow := false
+    
+    if (isDragging) {
+        ; Check if this window is the one being dragged
+        MouseGetPos(,, &hoverHwnd)
+        isDraggedWindow := (win["hwnd"] == hoverHwnd)
+        
+        ; For the dragged window, skip its own physics calculations
+        ; but allow it to apply forces to other windows in the allWindows loop
+        if (isDraggedWindow) {
+            win["vx"] := 0
+            win["vy"] := 0
+            ; Don't return - we need to continue to apply forces from this window to others
+        }
+    }
+
     ; Keep active window and recently moved windows still
-    ; Exception: Allow Electron apps (like Cursor, VS Code) to be affected by physics even when active
+    ; CRITICAL: The active window should NEVER be affected by physics (unless dragging)
     isActiveWindow := (win["hwnd"] == g["ActiveWindow"])
     isRecentlyMoved := (A_TickCount - g["LastUserMove"] < Config["UserMoveTimeout"])
     isCurrentlyFocused := (win["hwnd"] == WinExist("A"))
     isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
-    isElectronWindow := IsElectronApp(win["hwnd"])
 
-    ; Skip protection for Electron apps - they can be pushed even when active
-    if (!isElectronWindow && (isActiveWindow || isRecentlyMoved && isCurrentlyFocused || isManuallyLocked)) {
+    ; CRITICAL: Manually locked windows and the active window should NEVER be affected by physics
+    ; Also protect recently moved windows that are currently focused
+    ; BUT: when dragging, allow the dragged window to calculate forces to push other windows
+    isProtected := (isManuallyLocked || isActiveWindow || (isRecentlyMoved && isCurrentlyFocused)) && !isDraggedWindow
+    if (isProtected) {
         win["vx"] := 0
         win["vy"] := 0
         return
     }
     
-
+    ; Check if window has any actual collisions
+    hasCollision := false
+    for other in allWindows {
+        if (other == win)
+            continue
+        
+        overlapX := Max(0, Min(win["x"] + win["width"], other["x"] + other["width"]) - Max(win["x"], other["x"]))
+        overlapY := Max(0, Min(win["y"] + win["height"], other["y"] + other["height"]) - Max(win["y"], other["y"]))
+        
+        if (overlapX > 5 && overlapY > 5) {
+            hasCollision := true
+            break
+        }
+    }
+    
     ; Predeclare monitor bounds to avoid local variable warning
     mL := 0, mT := 0, mR := A_ScreenWidth, mB := A_ScreenHeight
 
@@ -1625,6 +1699,21 @@ CalculateWindowForces(win, allWindows) {
     monRight := mR - win["width"]
     monTop := mT + Config["MinMargin"]
     monBottom := mB - Config["MinMargin"] - win["height"]
+    
+    ; Check if window is out of bounds
+    isOutOfBounds := (win["x"] < monLeft || win["x"] > monRight || win["y"] < monTop || win["y"] > monBottom)
+    
+    ; If no collision, no out-of-bounds, and velocity is already near zero, keep window still
+    if (!hasCollision && !isOutOfBounds && Abs(win["vx"]) < 0.1 && Abs(win["vy"]) < 0.1) {
+        win["vx"] := 0
+        win["vy"] := 0
+        ; Clear target position so window stays exactly where it is
+        if (win.Has("targetX"))
+            win.Delete("targetX")
+        if (win.Has("targetY"))
+            win.Delete("targetY")
+        return
+    }
 
     prev_vx := win.Has("vx") ? win["vx"] : 0
     prev_vy := win.Has("vy") ? win["vy"] : 0
@@ -1651,11 +1740,11 @@ CalculateWindowForces(win, allWindows) {
         vy := prev_vy * dampingFactor
     }
 
-    ; Space-seeking behavior: move toward empty areas when crowded
+    ; Space-seeking behavior: move toward empty areas when crowded (reduced for less jumpiness)
     spaceForce := CalculateSpaceSeekingForce(win, allWindows)
     if (spaceForce.Count > 0) {
-        vx += spaceForce["vx"] * 0.02  ; Small but persistent force toward empty space
-        vy += spaceForce["vy"] * 0.02
+        vx += spaceForce["vx"] * 0.005  ; Much smaller force to reduce jumpiness
+        vy += spaceForce["vy"] * 0.005
     }
 
     ; Soft edge boundaries (like invisible force fields)
@@ -1678,13 +1767,23 @@ CalculateWindowForces(win, allWindows) {
     }
 
     ; Dynamic inter-window forces (no grid constraints)
+    isDragging := GetKeyState("LButton", "P")
+    
     for other in allWindows {
         if (other == win)
             continue
+        
+        ; Skip maximized and fullscreen windows - they should never be affected
+        try {
+            if (WinGetMinMax("ahk_id " other["hwnd"]) != 0 || IsFullscreenWindow(other["hwnd"]))
+                continue
+        } catch {
+            continue
+        }
             
-        ; Skip active window protection for Electron apps - they can push each other
-        ; Also allow any window to push against active Electron apps
-        if (other["hwnd"] == g["ActiveWindow"] && !IsElectronApp(other["hwnd"])) {
+        ; CRITICAL: Skip interaction with active windows UNLESS we're currently dragging
+        ; When dragging, allow the dragged window to push other windows
+        if (!isDragging && other["hwnd"] == g["ActiveWindow"]) {
             continue
         }
 
@@ -1707,12 +1806,11 @@ CalculateWindowForces(win, allWindows) {
             repulsionForce := Config["RepulsionForce"] * (interactionRange * 1.5 - dist) / (interactionRange * 1.5)
             repulsionForce *= (other.Has("IsManual") ? Config["ManualRepulsionMultiplier"] : 1)
 
-            ; Progressive force scaling - stronger when closer
-            proximityMultiplier := 1 + (1 - dist / (interactionRange * 1.5)) * 2  ; Up to 3x stronger when very close
-            
+            ; Reduced force scaling to prevent jumpiness
+            proximityMultiplier := 1 + (1 - dist / (interactionRange * 1.5)) * 1  ; Reduced from 2x to 1x max
 
-            vx += dx * repulsionForce * proximityMultiplier / dist * 0.6  ; Increased from 0.4
-            vy += dy * repulsionForce * proximityMultiplier / dist * 0.6
+            vx += dx * repulsionForce * proximityMultiplier / dist * 0.3  ; Reduced from 0.6
+            vy += dy * repulsionForce * proximityMultiplier / dist * 0.3
         } else if (dist < interactionRange * 3) {  ; Reduced attraction range for tighter equilibrium
             ; Medium range: gentle attraction for stable clustering
             attractionForce := Config["AttractionForce"] * 0.012 * (dist - interactionRange) / interactionRange  ; Increased from 0.005
@@ -1742,6 +1840,16 @@ CalculateWindowForces(win, allWindows) {
 
     win["vx"] := vx
     win["vy"] := vy
+
+    ; CRITICAL: Do NOT update target position for manually locked windows or active windows
+    ; User placed them there, and they should stay exactly where placed
+    ; The active window should NEVER have its position modified
+    ; Also skip for dragged window
+    isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
+    if (isManuallyLocked || win["hwnd"] == g["ActiveWindow"] || isDraggedWindow) {
+        ; Keep target position exactly where it is - don't modify it
+        return
+    }
 
     ; Calculate target position
     win["targetX"] := win["x"] + win["vx"]
@@ -1773,6 +1881,9 @@ ApplyWindowMovements() {
 
     Critical
 
+    ; Keep physics running during drag to allow dragged window to push other windows
+    ; The dragged window itself will be protected from movement in the loop below
+
     now := A_TickCount
     frameTime := now - lastUpdate
     lastUpdate := now
@@ -1792,9 +1903,30 @@ ApplyWindowMovements() {
     moveBatch := []
     movedAny := false
 
+    ; Check if currently dragging
+    isDragging := GetKeyState("LButton", "P")
+    draggedHwnd := 0
+    if (isDragging) {
+        MouseGetPos(,, &draggedHwnd)
+    }
+    
     for win in g["Windows"] {
-        ; Allow Electron apps to be moved even when they're the active window
-        if (win["hwnd"] == g["ActiveWindow"] && !IsElectronApp(win["hwnd"]))
+        ; Skip maximized and fullscreen windows - they should never be moved
+        try {
+            if (WinGetMinMax("ahk_id " win["hwnd"]) != 0 || IsFullscreenWindow(win["hwnd"]))
+                continue
+        } catch {
+            continue
+        }
+        
+        ; CRITICAL: Never move the active window when not dragging - it should stay exactly where it is
+        ; When dragging, never move the window being dragged
+        if ((win["hwnd"] == g["ActiveWindow"] && !isDragging) || win["hwnd"] == draggedHwnd)
+            continue
+        
+        ; CRITICAL: Never move manually locked windows - user placed them there
+        isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
+        if (isManuallyLocked)
             continue
 
         ; Safely get monitor bounds
@@ -1853,6 +1985,29 @@ ApplyWindowMovements() {
         if (!hwndPos.Has(hwnd))
             continue
 
+        ; Clear smoothing state for windows that were just dragged to prevent lag
+        if (win.Has("JustDragged") && A_TickCount - win["JustDragged"] < 100) {
+            if (smoothPos.Has(hwnd)) {
+                smoothPos.Delete(hwnd)
+            }
+            if (lastPositions.Has(hwnd)) {
+                lastPositions.Delete(hwnd)
+            }
+            win.Delete("JustDragged")
+        }
+
+        ; Skip processing if window is already at its target position
+        ; This prevents unnecessary micro-adjustments for stable windows
+        currentX := hwndPos[hwnd].x
+        currentY := hwndPos[hwnd].y
+        if (Abs(newX - currentX) < 0.5 && Abs(newY - currentY) < 0.5) {
+            ; Clear smoothing state for windows at target to prevent accumulated drift
+            if (smoothPos.Has(hwnd)) {
+                smoothPos.Delete(hwnd)
+            }
+            continue
+        }
+
         if (!smoothPos.Has(hwnd)) {
             ; Initialize smoothPos with current position to prevent jumping
             smoothPos[hwnd] := { x: hwndPos[hwnd].x, y: hwndPos[hwnd].y }
@@ -1892,8 +2047,8 @@ ApplyWindowMovements() {
         if (!lastPositions.Has(hwnd))
             lastPositions[hwnd] := { x: hwndPos[hwnd].x, y: hwndPos[hwnd].y }
 
-        ; Increase threshold to avoid micro-movements
-        if (Abs(smoothPos[hwnd].x - lastPositions[hwnd].x) >= 0.6 || Abs(smoothPos[hwnd].y - lastPositions[hwnd].y) >= 0.6) {
+        ; Increase threshold to avoid micro-movements and reduce jumpiness
+        if (Abs(smoothPos[hwnd].x - lastPositions[hwnd].x) >= 1.5 || Abs(smoothPos[hwnd].y - lastPositions[hwnd].y) >= 1.5) {
             moveBatch.Push({ hwnd: hwnd, x: smoothPos[hwnd].x, y: smoothPos[hwnd].y })
             lastPositions[hwnd].x := smoothPos[hwnd].x
             lastPositions[hwnd].y := smoothPos[hwnd].y
@@ -2102,22 +2257,34 @@ CalculateDynamicLayout() {
     static transitionTime := 300
     static lastFocusCheck := 0
 
+    ; Keep physics calculations running during drag to allow dragged window to push other windows
+    ; The dragged window itself will be protected from movement in CalculateWindowForces and ApplyWindowMovements
+
     ; Update active window detection periodically
     if (A_TickCount - lastFocusCheck > 250) {  ; Check every 250ms
         try {
             focusedWindow := WinExist("A")
-            if (focusedWindow && focusedWindow != g["ActiveWindow"]) {
+            if (focusedWindow) {
                 ; Check if the focused window is one of our managed windows
+                isManagedWindow := false
                 for win in g["Windows"] {
                     if (win["hwnd"] == focusedWindow) {
-                        g["ActiveWindow"] := focusedWindow
-                        g["LastUserMove"] := A_TickCount  ; Reset timeout when focus changes
+                        isManagedWindow := true
                         break
                     }
                 }
+                
+                ; CRITICAL: If this is a managed window, it should IMMEDIATELY become the active window
+                ; The currently active window should NEVER be affected by physics or arrangement
+                if (isManagedWindow && focusedWindow != g["ActiveWindow"]) {
+                    g["ActiveWindow"] := focusedWindow
+                    g["LastUserMove"] := A_TickCount  ; Reset timeout when focus changes
+                }
             }
 
-            ; Clear active window if timeout expired and it's no longer focused
+            ; Clear active window ONLY if timeout expired and it's no longer focused
+            ; CRITICAL: Never clear ActiveWindow until the full UserMoveTimeout has elapsed
+            ; This ensures user-placed windows stay exactly where placed until timeout
             if (g["ActiveWindow"] != 0 &&
                 A_TickCount - g["LastUserMove"] > Config["UserMoveTimeout"] &&
                 focusedWindow != g["ActiveWindow"]) {
@@ -2173,19 +2340,52 @@ CalculateDynamicLayout() {
 
 ; New floating collision system
 ResolveFloatingCollisions(windows) {
-    global Config
+    global Config, g
+    
+    ; Check if currently dragging
+    isDragging := GetKeyState("LButton", "P")
 
     ; More aggressive but gentle collision resolution for overlapping windows
     for i, win1 in windows {
+        ; Skip maximized and fullscreen windows
+        try {
+            if (WinGetMinMax("ahk_id " win1["hwnd"]) != 0 || IsFullscreenWindow(win1["hwnd"]))
+                continue
+        } catch {
+            continue
+        }
+        
+        ; CRITICAL: Skip manually locked windows from collision
+        ; Allow active window to participate in collisions ONLY when dragging
+        isManuallyLocked1 := (win1.Has("ManualLock") && A_TickCount < win1["ManualLock"])
+        isActive1 := (win1["hwnd"] == g["ActiveWindow"])
+        if (isManuallyLocked1 || (isActive1 && !isDragging))
+            continue
+            
         for j, win2 in windows {
             if (i >= j)
+                continue
+
+            ; Skip maximized and fullscreen windows
+            try {
+                if (WinGetMinMax("ahk_id " win2["hwnd"]) != 0 || IsFullscreenWindow(win2["hwnd"]))
+                    continue
+            } catch {
+                continue
+            }
+
+            ; CRITICAL: Skip manually locked or active windows from collision forces
+            ; Allow active window to participate in collisions ONLY when dragging
+            isManuallyLocked2 := (win2.Has("ManualLock") && A_TickCount < win2["ManualLock"])
+            isActive2 := (win2["hwnd"] == g["ActiveWindow"])
+            if (isManuallyLocked2 || (isActive2 && !isDragging))
                 continue
 
             ; Check for overlap with smaller tolerance for quicker separation
             overlapX := Max(0, Min(win1["x"] + win1["width"], win2["x"] + win2["width"]) - Max(win1["x"], win2["x"]))
             overlapY := Max(0, Min(win1["y"] + win1["height"], win2["y"] + win2["height"]) - Max(win1["y"], win2["y"]))
 
-            if (overlapX > 2 && overlapY > 2) {  ; Reduced from 5 for quicker response
+            if (overlapX > 5 && overlapY > 5) {  ; Increased tolerance to reduce jumpiness
                 ; Gentle separation force
                 centerX1 := win1["x"] + win1["width"]/2
                 centerY1 := win1["y"] + win1["height"]/2
@@ -2201,12 +2401,12 @@ ResolveFloatingCollisions(windows) {
                 avgSize := (win1["width"] * win1["height"] + win2["width"] * win2["height"]) / 2
                 overlapRatio := overlapArea / avgSize
 
-                ; Progressive force based on overlap severity
-                separationForce := (overlapX + overlapY) * 0.02 * (1 + overlapRatio * 3)  ; Increased base force and scaling
+                ; Reduced force to prevent jumpiness
+                separationForce := (overlapX + overlapY) * 0.01 * (1 + overlapRatio * 2)  ; Reduced from 0.02 and 3x scaling
 
-                ; Small window bonus for faster separation
+                ; Reduced small window bonus to prevent excessive jumping
                 if (win1["width"] < 300 || win1["height"] < 200 || win2["width"] < 300 || win2["height"] < 200) {
-                    separationForce *= 1.5
+                    separationForce *= 1.2  ; Reduced from 1.5
                 }
 
                 win1["vx"] += dx * separationForce / dist
@@ -2327,10 +2527,9 @@ DragWindow() {
     isDragging := true
     g["ActiveWindow"] := winID
     g["LastUserMove"] := A_TickCount
-
-    ; Pause arrangement/physics timers while dragging
-    SetTimer(CalculateDynamicLayout, 0)
-    SetTimer(ApplyWindowMovements, 0)
+    
+    ; Keep physics running during drag to allow dragged window to push other windows
+    ; The physics will skip the dragged window itself but apply to all others
 
     try {
         WinGetPos(&x, &y, &w, &h, "ahk_id " winID)
@@ -2386,14 +2585,40 @@ DragWindow() {
     catch {
     }
     isDragging := false
-    g["ActiveWindow"] := 0
     DllCall("winmm\timeEndPeriod", "UInt", 1)
 
-    ; Resume arrangement/physics timers after dragging
-    if (g["ArrangementActive"]) {
-        SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
-        SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
+    ; Mark the window as just dragged to prevent smoothing lag
+    for win in g["Windows"] {
+        if (win["hwnd"] == winID) {
+            win["JustDragged"] := A_TickCount
+            
+            ; Force zero velocity and sync final position to ensure window stays exactly where user placed it
+            win["vx"] := 0
+            win["vy"] := 0
+            
+            ; Get the final actual position of the window
+            try {
+                WinGetPos(&finalX, &finalY, &finalW, &finalH, "ahk_id " winID)
+                win["x"] := finalX
+                win["y"] := finalY
+                win["targetX"] := finalX
+                win["targetY"] := finalY
+            }
+            
+            ; Ensure ManualLock is extended to keep window stationary
+            if (!IsElectronApp(winID)) {
+                win["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
+                win["IsManual"] := true
+            }
+            break
+        }
     }
+
+    ; Keep the window as active for longer to ensure it stays where placed
+    ; Don't immediately reset to 0 - let it time out naturally
+    g["LastUserMove"] := A_TickCount
+    
+    ; Physics were kept running during drag, so no need to resume them
 }
 
 ToggleArrangement() {
@@ -3025,6 +3250,12 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
 
 UpdateWindowStates() {
     global g, Config
+    
+    ; CRITICAL: Skip rebuilding window list if user is actively dragging a window
+    ; This prevents interference with user placement
+    if (GetKeyState("LButton", "P"))
+        return
+    
     ; Get current monitor info or virtual desktop bounds
     monitor := Config["SeamlessMonitorFloat"] ? GetVirtualDesktopBounds() : GetCurrentMonitorInfo()
     ; Update window list
@@ -3337,11 +3568,13 @@ DebugActiveWindow() {
 ^!A::ForceAddActiveWindow()       ; Ctrl+Alt+A to force add active window
 ^!I::DebugActiveWindow()          ; Ctrl+Alt+I to debug active window details
  
+; Start timers - but respect active window protection
 SetTimer(UpdateWindowStates, Config["PhysicsTimeStep"])
 SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
 SetTimer(TimePhasing.UpdateEchoes.Bind(TimePhasing), g["TimePhasingConfig"]["EffectUpdateFrequency"])
 UpdateWindowStates()
 
+; Start physics calculations but only AFTER ensuring manual locks are respected
 SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])      ; Only need this once
 
 OnMessage(0x0003, WindowMoveHandler)

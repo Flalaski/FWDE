@@ -3307,29 +3307,46 @@ TaskbarMenu.Add("Exit", (*) => ExitApp())
 
 ShowTaskbarMenu() {
     rect := GetTaskbarRect()
-    TaskbarMenu.Show(rect.left + 10, rect.top + 10)
+    if (rect) {
+        TaskbarMenu.Show(rect.left + 10, rect.top + 10)
+    } else {
+        TaskbarMenu.Show(10, 10)
+    }
 }
 
 GetTaskbarRect() {
     hwnd := WinExist("ahk_class Shell_TrayWnd")
-    if (hwnd) {
-        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-        return { left: x, top: y, right: x + w, bottom: y + h }
+    if (hwnd && WinExist("ahk_id " hwnd)) {
+        try {
+            WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+            return { left: x, top: y, right: x + w, bottom: y + h }
+        } catch {
+            ; fall through
+        }
     }
     hwnd := WinExist("ahk_class RetroBarWnd")
     if (!hwnd)
         hwnd := WinExist("ahk_exe RetroBar.exe")
-    if (hwnd) {
-        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-        return { left: x, top: y, right: x + w, bottom: y + h }
+    if (hwnd && WinExist("ahk_id " hwnd)) {
+        try {
+            WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+            return { left: x, top: y, right: x + w, bottom: y + h }
+        } catch {
+            ; fall through
+        }
     }
     ; Try secondary taskbars (multi-monitor)
     hwnd := WinExist("ahk_class Shell_SecondaryTrayWnd")
-    if (hwnd) {
-        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-        return { left: x, top: y, right: x + w, bottom: y + h }
+    if (hwnd && WinExist("ahk_id " hwnd)) {
+        try {
+            WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+            return { left: x, top: y, right: x + w, bottom: y + h }
+        } catch {
+            ; fall through
+        }
     }
-    return { left: 0, top: A_ScreenHeight - 44, right: A_ScreenWidth, bottom: A_ScreenHeight }
+    ; If we cannot determine taskbar, return 0 to signal absence to callers
+    return 0
 }
 
 ; --- Debug function to show window information ---

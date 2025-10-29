@@ -834,9 +834,11 @@ GetVisibleWindows(monitor) {
                 isManuallyLocked := (existingWin && existingWin.Has("ManualLock") && A_TickCount < existingWin["ManualLock"])
                 ; Check if this window is the active window - CRITICAL: Never move the active window
                 isActiveWindow := (window["hwnd"] == g["ActiveWindow"])
+                ; Check if currently being dragged - CRITICAL: Never move during drag
+                isCurrentlyDragging := (GetKeyState("LButton", "P") && window["hwnd"] == g["ActiveWindow"])
                 
-                ; Only apply position constraints if window is NOT manually locked and NOT active
-                if (!isManuallyLocked && !isActiveWindow) {
+                ; Only apply position constraints if window is NOT manually locked and NOT active and NOT currently being dragged
+                if (!isManuallyLocked && !isActiveWindow && !isCurrentlyDragging) {
                     ; Apply margin constraints based on floating mode
                     if (Config["SeamlessMonitorFloat"]) {
                         ; Use virtual desktop bounds for seamless floating
@@ -2533,6 +2535,9 @@ DragWindow() {
 
     try {
         WinGetPos(&x, &y, &w, &h, "ahk_id " winID)
+        ; CRITICAL: Store original window dimensions to prevent any reshaping
+        origW := w
+        origH := h
         winCenterX := x + w/2
         winCenterY := y + h/2
         monNum := MonitorGetFromPoint(winCenterX, winCenterY)
@@ -2563,10 +2568,38 @@ DragWindow() {
             newX := nx - offsetX
             newY := ny - offsetY
 
-            newX := Max(mL + Config["MinMargin"], Min(newX, mR - w - Config["MinMargin"]))
-            newY := Max(mT + Config["MinMargin"], Min(newY, mB - h - Config["MinMargin"]))
+            ; Update monitor bounds based on current mouse position for seamless multi-monitor dragging
+            ; This allows windows to be dragged freely across all monitors
+            currentMonNum := MonitorGetFromPoint(nx, ny)
+            if (currentMonNum) {
+                try {
+                    MonitorGet currentMonNum, &currML, &currMT, &currMR, &currMB
+                    ; Use current monitor bounds for clamping, using original dimensions
+                    newX := Max(currML + Config["MinMargin"], Min(newX, currMR - origW - Config["MinMargin"]))
+                    newY := Max(currMT + Config["MinMargin"], Min(newY, currMB - origH - Config["MinMargin"]))
+                } catch {
+                    ; Fallback to original monitor bounds
+                    newX := Max(mL + Config["MinMargin"], Min(newX, mR - origW - Config["MinMargin"]))
+                    newY := Max(mT + Config["MinMargin"], Min(newY, mB - origH - Config["MinMargin"]))
+                }
+            } else {
+                ; Fallback to original monitor bounds
+                newX := Max(mL + Config["MinMargin"], Min(newX, mR - origW - Config["MinMargin"]))
+                newY := Max(mT + Config["MinMargin"], Min(newY, mB - origH - Config["MinMargin"]))
+            }
 
-            try WinMove(newX, newY,,, "ahk_id " winID)
+            ; CRITICAL: Explicitly pass original dimensions to prevent any reshaping
+            try WinMove(newX, newY, origW, origH, "ahk_id " winID)
+            
+            ; CRITICAL: Verify window size hasn't changed (safety check)
+            ; This catches any accidental resizing and immediately corrects it
+            try {
+                WinGetPos(,, &currW, &currH, "ahk_id " winID)
+                if (currW != origW || currH != origH) {
+                    ; Window was accidentally resized - restore original size immediately
+                    WinMove(,, origW, origH, "ahk_id " winID)
+                }
+            }
 
             for win in g["Windows"] {
                 if (win["hwnd"] == winID) {
@@ -2575,6 +2608,13 @@ DragWindow() {
                     win["targetX"] := newX
                     win["targetY"] := newY
                     win["lastMove"] := A_TickCount
+                    ; CRITICAL: Zero velocity on every frame during drag to prevent physics interference
+                    win["vx"] := 0
+                    win["vy"] := 0
+                    ; Update monitor tracking based on window position
+                    if (currentMonNum) {
+                        win["monitor"] := currentMonNum
+                    }
                     break
                 }
             }
@@ -2815,20 +2855,10 @@ PackWindowsOptimally(windows, monitor) {
         gridCols := Floor(useableWidth / gridSize)
         gridRows := Floor(useableHeight / gridSize)
 
-        ; Store original height if not already stored
-        if (!win.Has("origHeight"))
-            win["origHeight"] := win["height"]
-
+        ; CRITICAL: NEVER change window dimensions - windows should maintain their original size
+        ; Place windows even if partially off-screen, or skip if they don't fit at all
         bestPos := FindBestPosition(win, placedWindows, monitor, gridSize, gridCols, gridRows)
         if (bestPos.Count > 0) {
-            ; If window would float below the screen, shrink its height
-            if (bestPos["y"] + win["height"] > monitor["Bottom"] - Config["MinMargin"]) {
-                newHeight := Max(80, monitor["Bottom"] - Config["MinMargin"] - bestPos["y"])
-                win["height"] := newHeight
-            } else if (win.Has("origHeight") && win["height"] != win["origHeight"]) {
-                ; Restore original height if space allows
-                win["height"] := win["origHeight"]
-            }
             positions[i] := bestPos
             placedWindows.Push(Map(
                 "x", bestPos["x"],
@@ -3589,9 +3619,13 @@ OnExit(*) {
 
 ; ====== REQUIRED HELPER FUNCTIONS ======
 MoveWindowAPI(hwnd, x, y, w := "", h := "") {
+    ; CRITICAL: Always use SWP_NOSIZE to ensure window size is NEVER changed
+    ; Flags: 0x0010 (SWP_NOACTIVATE) | 0x0004 (SWP_NOZORDER) | 0x0001 (SWP_NOSIZE)
+    ; When SWP_NOSIZE is set, w and h parameters are ignored, so we can pass anything
+    flags := 0x0010 | 0x0004 | 0x0001  ; SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE
     if (w == "" || h == "")
-        WinGetPos(,, &w, &h, "ahk_id " hwnd)
-    return DllCall("SetWindowPos", "Ptr", hwnd, "Ptr", 0, "Int", x, "Int", y, "Int", w, "Int", h, "UInt", 0x0014)
+        w := 0, h := 0  ; Not needed when SWP_NOSIZE is set, but required for function signature
+    return DllCall("SetWindowPos", "Ptr", hwnd, "Ptr", 0, "Int", x, "Int", y, "Int", w, "Int", h, "UInt", flags)
 }
 
 global PartitionGridSize := 400  ; pixels per grid cell (tune for your window sizes)

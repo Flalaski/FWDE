@@ -3712,43 +3712,97 @@ OrderWindowsBySize() {
         }
     }
 
-    ; Set Z-order for DAW plugin windows only: largest plugins at bottom, smallest at top
-    ; This ensures tiny plugin windows are never hidden behind larger ones
-    ; Use gentle reordering to prevent flashing
-    for i, winData in windowAreas {
-        try {
-            ; Final safety check - ensure window is still valid and not maximized
-            if (!SafeWinExist(winData.hwnd) || WinGetMinMax("ahk_id " winData.hwnd) != 0)
-                continue
-                
-            ; Only reorder if the window's z-order actually needs to change
-            newZOrder := (i <= windowAreas.Length // 2) ? 1 : 0  ; 1 for bottom, 0 for top
+    ; Build lookup of plugin HWNDs for quick membership checks
+    pluginSet := Map()
+    for winData in windowAreas {
+        pluginSet[winData.hwnd] := true
+    }
 
-            if (winData.lastZOrder != newZOrder) {
-                ; Use SWP_NOACTIVATE and SWP_NOMOVE to prevent flashing and focus changes
-                ; 0x0010 = SWP_NOACTIVATE, 0x0002 = SWP_NOMOVE, 0x0001 = SWP_NOSIZE
-                flags := 0x0010 | 0x0002 | 0x0001  ; Don't activate, move, or resize
+    ; Capture the current top-to-bottom z-order of plugin windows
+    currentOrder := []
+    try {
+        hwnd := DllCall("user32\GetTopWindow", "Ptr", 0, "Ptr")
+        while (hwnd) {
+            if (pluginSet.Has(hwnd))
+                currentOrder.Push(hwnd)
+            hwnd := DllCall("user32\GetWindow", "Ptr", hwnd, "UInt", 2, "Ptr")  ; GW_HWNDNEXT
+        }
+    } catch {
+        currentOrder := []
+    }
 
-                if (newZOrder == 1) {
-                    ; Larger plugin windows go to bottom (HWND_BOTTOM = 1)
-                    DllCall("SetWindowPos", "Ptr", winData.hwnd, "Ptr", 1, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
-                } else {
-                    ; Smaller plugin windows stay on top (HWND_TOP = 0)
-                    DllCall("SetWindowPos", "Ptr", winData.hwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
-                }
+    ; Desired top-to-bottom order: smallest area (last in array) should be on top
+    desiredTopOrder := []
+    Loop windowAreas.Length {
+        idx := windowAreas.Length - A_Index + 1
+        desiredTopOrder.Push(windowAreas[idx].hwnd)
+    }
 
-                ; Update the stored z-order for this window
-                for win in g["Windows"] {
-                    if (win["hwnd"] == winData.hwnd) {
-                        win["lastZOrder"] := newZOrder
-                        break
-                    }
-                }
+    ; If the current order already matches the desired order, no update is needed
+    if (currentOrder.Length == desiredTopOrder.Length) {
+        zMatch := true
+        Loop currentOrder.Length {
+            if (currentOrder[A_Index] != desiredTopOrder[A_Index]) {
+                zMatch := false
+                break
             }
         }
-        catch {
+        if (zMatch)
+            return
+    }
+
+    ; Filter out invalid handles before attempting to reorder
+    reorderSequence := []
+    for idx, hwnd in desiredTopOrder {
+        try {
+            if (SafeWinExist(hwnd) && WinGetMinMax("ahk_id " hwnd) == 0)
+                reorderSequence.Push(hwnd)
+        } catch {
             continue
         }
+    }
+
+    if (reorderSequence.Length <= 1)
+        return
+
+    ; Defer the z-order updates so Windows processes the batch without flashing
+    flags := 0x0010 | 0x0002 | 0x0001 | 0x0008 | 0x0200 | 0x0100  ; NOACTIVATE | NOMOVE | NOSIZE | NOREDRAW | NOOWNERZORDER | NOCOPYBITS
+    hDwp := DllCall("user32\BeginDeferWindowPos", "Int", reorderSequence.Length, "Ptr")
+    if (!hDwp)
+        return
+
+    insertAfter := 1  ; HWND_BOTTOM
+    success := true
+    for idx, hwnd in reorderSequence {
+        hDwp := DllCall("user32\DeferWindowPos"
+            , "Ptr", hDwp
+            , "Ptr", hwnd
+            , "Ptr", insertAfter
+            , "Int", 0, "Int", 0, "Int", 0, "Int", 0
+            , "UInt", flags
+            , "Ptr")
+        if (!hDwp) {
+            success := false
+            break
+        }
+        insertAfter := hwnd
+    }
+
+    if (!success)
+        return
+
+    if (!DllCall("user32\EndDeferWindowPos", "Ptr", hDwp, "Int"))
+        return
+
+    ; Persist z-order indexes so re-enumeration doesn't trigger unnecessary updates
+    orderLookup := Map()
+    Loop desiredTopOrder.Length {
+        orderLookup[desiredTopOrder[A_Index]] := A_Index
+    }
+
+    for win in g["Windows"] {
+        if (orderLookup.Has(win["hwnd"]))
+            win["lastZOrder"] := orderLookup[win["hwnd"]]
     }
 }
 

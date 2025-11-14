@@ -150,6 +150,7 @@ global g := Map(
 if (g["ArrangementActive"]) {
     SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
     SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
+    SetTimer(RecoverLostWindows, 5000)  ; Periodic check every 5 seconds to recover lost windows
 }
 
 class NoiseAnimator {
@@ -2064,48 +2065,78 @@ ApplyWindowMovements() {
         try MoveWindowAPI(move.hwnd, move.x, move.y)
     }
 
-    ; Z-index ordering: smaller DAW plugin windows on top so they don't get lost
-    ; Only reorder when layout changes significantly, not every frame
-    ; Reduced frequency to prevent flashing
+    ; Z-index ordering: smaller windows on top so they don't get lost
+    ; IMPROVED: More frequent updates to ensure windows never get lost
+    ; Now applies to ALL tracked windows, not just plugins
     static lastZOrderUpdate := 0
     static lastWindowCount := 0
-    static lastPluginCount := 0
-    static lastPluginOrder := []
+    static lastWindowOrder := []
+    static lastActiveWindow := 0
 
-    ; Count DAW plugin windows and track their order
-    pluginCount := 0
-    pluginOrder := []
-    for win in g["Windows"] {
-        if (IsDAWPlugin(win)) {
-            pluginCount++
-            pluginOrder.Push(win["hwnd"])
-        }
-    }
-
-    ; Only update Z-order if plugin count, window count, or plugin order changed, or enough time passed
-    ; Also check for maximized windows to prevent looping issues
-    orderChanged := (pluginOrder != lastPluginOrder)
-    hasMaximizedWindows := false
-    
-    ; Check if any tracked windows are maximized (shouldn't happen, but safety check)
+    ; Track all window HWNDs and their order for change detection
+    currentWindowOrder := []
     for win in g["Windows"] {
         try {
-            if (WinGetMinMax("ahk_id " win["hwnd"]) != 0) {
-                hasMaximizedWindows := true
-                break
-            }
+            if (SafeWinExist(win["hwnd"]))
+                currentWindowOrder.Push(win["hwnd"])
         } catch {
             continue
         }
     }
     
-    if (pluginCount > 1 && !hasMaximizedWindows &&
-        (A_TickCount - lastZOrderUpdate > 5000 || pluginCount != lastPluginCount || g["Windows"].Length != lastWindowCount || orderChanged)) {
+    ; Note: We now include maximized/fullscreen windows in z-order
+    ; They will be placed at the bottom so smaller windows are visible over them
+    ; No need to skip z-order updates when maximized windows are present
+    
+    ; Check if order changed (window count or HWND order)
+    orderChanged := false
+    if (currentWindowOrder.Length != lastWindowOrder.Length) {
+        orderChanged := true
+    } else {
+        Loop Min(currentWindowOrder.Length, lastWindowOrder.Length) {
+            if (currentWindowOrder[A_Index] != lastWindowOrder[A_Index]) {
+                orderChanged := true
+                break
+            }
+        }
+    }
+    
+    ; Check if active window changed
+    activeWindowChanged := (g["ActiveWindow"] != lastActiveWindow)
+    
+    ; CRITICAL: Never update z-order during user interaction - user input takes precedence
+    ; Skip if user is clicking, dragging, or actively interacting
+    isUserInteracting := GetKeyState("LButton", "P") || GetKeyState("RButton", "P") || GetKeyState("MButton", "P")
+    
+    ; Stricter throttling to prevent flashing with many windows:
+    ; - Minimum 8 seconds between updates (increased from 5)
+    ; - Window count changes require at least 2 windows added/removed
+    ; - Order changes only trigger if substantial AND enough time has passed
+    ; - Active window changes only trigger if enough time has passed (to prevent rapid switching)
+    ; - Skip if maximized windows present (safety check)
+    ; - Skip if user is actively interacting
+    timeSinceUpdate := A_TickCount - lastZOrderUpdate
+    windowCountChanged := (g["Windows"].Length != lastWindowCount)
+    windowCountDelta := Abs(g["Windows"].Length - lastWindowCount)
+    
+    ; More strict conditions for updates
+    significantOrderChange := orderChanged && timeSinceUpdate > 4000 && (windowCountDelta >= 2 || timeSinceUpdate > 6000)
+    significantWindowChange := windowCountChanged && windowCountDelta >= 2  ; Require at least 2 windows changed
+    activeWindowChangeAllowed := activeWindowChanged && timeSinceUpdate > 3000  ; Throttle active window changes
+    
+    shouldUpdate := !isUserInteracting && g["Windows"].Length > 1 && (
+        timeSinceUpdate > 8000 ||  ; Every 8 seconds (increased from 5)
+        significantWindowChange ||  ; Window count changed by at least 2
+        significantOrderChange ||  ; Significant order change with time requirement
+        activeWindowChangeAllowed  ; Active window changed but throttled
+    )
+    
+    if (shouldUpdate) {
         OrderWindowsBySize()
         lastZOrderUpdate := A_TickCount
         lastWindowCount := g["Windows"].Length
-        lastPluginCount := pluginCount
-        lastPluginOrder := pluginOrder.Clone()
+        lastWindowOrder := currentWindowOrder.Clone()
+        lastActiveWindow := g["ActiveWindow"]
     }
 
     if (g["FairyDustEnabled"] && movedAny)
@@ -2668,10 +2699,12 @@ ToggleArrangement() {
         UpdateWindowStates()
         SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
         SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
+        SetTimer(RecoverLostWindows, 5000)  ; Enable recovery timer
         ShowTooltip("Window Arrangement: ON")
     } else {
         SetTimer(CalculateDynamicLayout, 0)
         SetTimer(ApplyWindowMovements, 0)
+        SetTimer(RecoverLostWindows, 0)  ; Disable recovery timer
         ShowTooltip("Window Arrangement: OFF")
     }
 }
@@ -3668,30 +3701,78 @@ Clamp(val, min, max) {
 }
 
 ; Z-index ordering: smaller windows on top so they don't get lost behind larger ones
-; Only applies to DAW plugin windows to prevent flashing of regular windows
+; IMPROVED: Now works for ALL tracked windows, not just plugins, to prevent any window from getting lost
 OrderWindowsBySize() {
     global g
 
-    if (g["Windows"].Length <= 1)
+    ; CRITICAL: Never interfere with user interaction
+    ; Skip if user is actively clicking or dragging
+    if (GetKeyState("LButton", "P") || GetKeyState("RButton", "P") || GetKeyState("MButton", "P"))
         return
 
-    ; Create array of DAW plugin windows with their areas, excluding active window
+    if (g["Windows"].Length <= 1)
+        return
+    
+    ; Additional throttling: Prevent rapid consecutive updates
+    ; This helps when there are many windows causing frequent triggers
+    static lastOrderUpdateTime := 0
+    minTimeBetweenUpdates := 2000  ; Minimum 2 seconds between any z-order updates
+    if (A_TickCount - lastOrderUpdateTime < minTimeBetweenUpdates)
+        return
+    lastOrderUpdateTime := A_TickCount
+
+    ; Create array of ALL tracked windows with their areas
+    ; Include ALL windows (including maximized/fullscreen) to ensure smaller ones never get lost
+    ; Maximized/fullscreen windows will be placed at the bottom so smaller windows are visible over them
     windowAreas := []
+    activeWindowHwnd := g["ActiveWindow"]
+    
     for win in g["Windows"] {
-        if (win["hwnd"] != g["ActiveWindow"] && IsDAWPlugin(win)) {
-            ; Double-check that window is not maximized/minimized before processing
+        hwnd := win["hwnd"]
+        
+        ; Skip invalid windows
+        try {
+            if (!SafeWinExist(hwnd))
+                continue
+            
+            ; Skip minimized windows (they shouldn't be in z-order)
+            minMaxState := WinGetMinMax("ahk_id " hwnd)
+            if (minMaxState == -1)  ; Minimized
+                continue
+            
+            ; Check if maximized or fullscreen
+            isMaximized := (minMaxState == 1)
+            isFullscreen := IsFullscreenWindow(hwnd)
+            
+            ; Get window dimensions
             try {
-                if (WinGetMinMax("ahk_id " win["hwnd"]) != 0)
+                WinGetPos(,, &w, &h, "ahk_id " hwnd)
+                if (w <= 0 || h <= 0)
                     continue
             } catch {
                 continue
             }
             
+            ; Use stored dimensions or get fresh ones
+            area := win.Has("width") && win.Has("height") ? win["width"] * win["height"] : w * h
+            
+            ; For maximized/fullscreen windows, assign a very large area value
+            ; This ensures they sort to the bottom (largest area = bottom of z-order)
+            if (isMaximized || isFullscreen) {
+                ; Use a huge area value so they're always considered "largest" and go to bottom
+                area := 999999999  ; Very large number to ensure they're always at bottom
+            }
+            
             windowAreas.Push({
-                hwnd: win["hwnd"],
-                area: win["width"] * win["height"],
+                hwnd: hwnd,
+                area: area,
+                isActive: (hwnd == activeWindowHwnd),
+                isMaximized: isMaximized,
+                isFullscreen: isFullscreen,
                 lastZOrder: win.Has("lastZOrder") ? win["lastZOrder"] : 0
             })
+        } catch {
+            continue
         }
     }
 
@@ -3712,68 +3793,191 @@ OrderWindowsBySize() {
         }
     }
 
-    ; Build lookup of plugin HWNDs for quick membership checks
-    pluginSet := Map()
+    ; Build lookup of tracked HWNDs for quick membership checks
+    trackedSet := Map()
     for winData in windowAreas {
-        pluginSet[winData.hwnd] := true
+        trackedSet[winData.hwnd] := true
     }
 
-    ; Capture the current top-to-bottom z-order of plugin windows
+    ; Capture the current top-to-bottom z-order of tracked windows
+    ; Include all windows (maximized/fullscreen too) for proper ordering
     currentOrder := []
     try {
         hwnd := DllCall("user32\GetTopWindow", "Ptr", 0, "Ptr")
-        while (hwnd) {
-            if (pluginSet.Has(hwnd))
-                currentOrder.Push(hwnd)
+        while (hwnd && currentOrder.Length < trackedSet.Count * 2) {  ; Safety limit
+            if (trackedSet.Has(hwnd)) {
+                ; Verify window is still valid before adding
+                ; Include all windows except minimized ones
+                try {
+                    if (SafeWinExist(hwnd)) {
+                        minMaxState := WinGetMinMax("ahk_id " hwnd)
+                        if (minMaxState != -1)  ; Not minimized
+                            currentOrder.Push(hwnd)
+                    }
+                } catch {
+                    ; Window became invalid, skip it
+                }
+            }
             hwnd := DllCall("user32\GetWindow", "Ptr", hwnd, "UInt", 2, "Ptr")  ; GW_HWNDNEXT
+            if (!hwnd)
+                break
         }
     } catch {
         currentOrder := []
     }
 
-    ; Desired top-to-bottom order: smallest area (last in array) should be on top
-    desiredTopOrder := []
-    Loop windowAreas.Length {
-        idx := windowAreas.Length - A_Index + 1
-        desiredTopOrder.Push(windowAreas[idx].hwnd)
+    ; CRITICAL: User's active window ALWAYS takes precedence - never reorder it
+    ; Separate active window from ordering logic - it will be placed on top separately
+    activeWindowHwnd := g["ActiveWindow"]
+    desiredOrder := []  ; Only non-active windows go here
+    
+    ; Build order for NON-ACTIVE windows only: largest to smallest (so smallest ends up on top)
+    ; Maximized/fullscreen windows (with huge area) will be at the end, going to bottom
+    ; windowAreas is already sorted largest first (maximized/fullscreen at end)
+    for winData in windowAreas {
+        ; Skip the active window - user interaction takes precedence
+        if (winData.hwnd == activeWindowHwnd)
+            continue
+        
+        ; Add all non-active windows to the ordering list
+        ; Maximized/fullscreen windows will be at the end of this list (largest area)
+        desiredOrder.Push(winData.hwnd)
     }
 
     ; If the current order already matches the desired order, no update is needed
-    if (currentOrder.Length == desiredTopOrder.Length) {
+    ; This prevents unnecessary flashing
+    ; Note: We compare only non-active windows since active window is handled separately
+    ; Filter out active window from current order for comparison
+    currentOrderFiltered := []
+    for hwnd in currentOrder {
+        if (hwnd != activeWindowHwnd)
+            currentOrderFiltered.Push(hwnd)
+    }
+    
+    if (currentOrderFiltered.Length == desiredOrder.Length && desiredOrder.Length > 0) {
         zMatch := true
-        Loop currentOrder.Length {
-            if (currentOrder[A_Index] != desiredTopOrder[A_Index]) {
+        Loop Min(currentOrderFiltered.Length, desiredOrder.Length) {
+            if (currentOrderFiltered[A_Index] != desiredOrder[A_Index]) {
                 zMatch := false
                 break
             }
         }
-        if (zMatch)
+        if (zMatch) {
+            ; Order is already correct, but still ensure active window is on top
+            ; Only update active window if it's not already on top (check z-order first)
+            ; Works for all window states (normal, maximized, fullscreen)
+            if (activeWindowHwnd != 0 && SafeWinExist(activeWindowHwnd)) {
+                try {
+                    minMaxState := WinGetMinMax("ahk_id " activeWindowHwnd)
+                    ; Include all windows except minimized
+                    if (minMaxState != -1) {
+                        ; Check if active window is already on top by comparing with first window in current order
+                        ; If it's already first, skip the update to avoid flashing
+                        isAlreadyOnTop := (currentOrder.Length > 0 && currentOrder[1] == activeWindowHwnd)
+                        if (!isAlreadyOnTop) {
+                            flags := 0x0010 | 0x0002 | 0x0001  ; NOACTIVATE | NOMOVE | NOSIZE
+                            DllCall("SetWindowPos", "Ptr", activeWindowHwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
+                        }
+                    }
+                } catch {
+                    ; Ignore errors
+                }
+            }
             return
+        }
+    }
+    
+    ; Additional safety: Don't update if we have very few windows (less likely to have ordering issues)
+    if (desiredOrder.Length <= 1) {
+        ; But still ensure active window is on top if it exists (works for all window states)
+        if (activeWindowHwnd != 0 && SafeWinExist(activeWindowHwnd)) {
+            try {
+                minMaxState := WinGetMinMax("ahk_id " activeWindowHwnd)
+                if (minMaxState != -1) {  ; Not minimized
+                    ; Place active window on top without moving or resizing
+                    flags := 0x0010 | 0x0002 | 0x0001  ; NOACTIVATE | NOMOVE | NOSIZE
+                    DllCall("SetWindowPos", "Ptr", activeWindowHwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
+                }
+            } catch {
+                ; Ignore errors
+            }
+        }
+        return
     }
 
-    ; Filter out invalid handles before attempting to reorder
+    ; Filter out invalid handles before attempting to reorder (NON-ACTIVE windows only)
+    ; Include maximized/fullscreen windows - they need to go to the bottom
     reorderSequence := []
-    for idx, hwnd in desiredTopOrder {
+    for idx, hwnd in desiredOrder {
         try {
-            if (SafeWinExist(hwnd) && WinGetMinMax("ahk_id " hwnd) == 0)
-                reorderSequence.Push(hwnd)
+            ; Double-check this is NOT the active window (safety check)
+            if (hwnd == activeWindowHwnd)
+                continue
+                
+            if (SafeWinExist(hwnd)) {
+                minMaxState := WinGetMinMax("ahk_id " hwnd)
+                ; Include all windows except minimized ones
+                if (minMaxState != -1) {  ; Not minimized
+                    ; Double-check window is still tracked
+                    if (trackedSet.Has(hwnd))
+                        reorderSequence.Push(hwnd)
+                }
+            }
         } catch {
             continue
         }
     }
 
-    if (reorderSequence.Length <= 1)
+    if (reorderSequence.Length <= 1) {
+        ; Still ensure active window is on top (works for all window states)
+        if (activeWindowHwnd != 0 && SafeWinExist(activeWindowHwnd)) {
+            try {
+                minMaxState := WinGetMinMax("ahk_id " activeWindowHwnd)
+                if (minMaxState != -1) {  ; Not minimized
+                    flags := 0x0010 | 0x0002 | 0x0001  ; NOACTIVATE | NOMOVE | NOSIZE
+                    DllCall("SetWindowPos", "Ptr", activeWindowHwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
+                }
+            } catch {
+                ; Ignore errors
+            }
+        }
         return
+    }
 
-    ; Defer the z-order updates so Windows processes the batch without flashing
+    ; CRITICAL: First, ensure active window is on top (if it exists)
+    ; This must happen BEFORE ordering other windows
+    ; Works for all window states (normal, maximized, fullscreen)
+    if (activeWindowHwnd != 0 && SafeWinExist(activeWindowHwnd)) {
+        try {
+            minMaxState := WinGetMinMax("ahk_id " activeWindowHwnd)
+            if (minMaxState != -1) {  ; Not minimized
+                ; Place active window on top - user interaction takes precedence
+                flags := 0x0010 | 0x0002 | 0x0001  ; NOACTIVATE | NOMOVE | NOSIZE
+                DllCall("SetWindowPos", "Ptr", activeWindowHwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
+            }
+        } catch {
+            ; Ignore errors, continue with ordering other windows
+        }
+    }
+
+    ; Now order NON-ACTIVE windows by size (largest to smallest, so smallest ends up just below active window)
     flags := 0x0010 | 0x0002 | 0x0001 | 0x0008 | 0x0200 | 0x0100  ; NOACTIVATE | NOMOVE | NOSIZE | NOREDRAW | NOOWNERZORDER | NOCOPYBITS
     hDwp := DllCall("user32\BeginDeferWindowPos", "Int", reorderSequence.Length, "Ptr")
     if (!hDwp)
         return
 
-    insertAfter := 1  ; HWND_BOTTOM
+    ; Start placing non-active windows below the active window (or at bottom if no active window)
+    insertAfter := (activeWindowHwnd != 0 && SafeWinExist(activeWindowHwnd)) ? activeWindowHwnd : 1  ; HWND_BOTTOM or below active
     success := true
     for idx, hwnd in reorderSequence {
+        ; Verify window is still valid and NOT active before each operation
+        try {
+            if (!SafeWinExist(hwnd) || hwnd == activeWindowHwnd)
+                continue
+        } catch {
+            continue
+        }
+        
         hDwp := DllCall("user32\DeferWindowPos"
             , "Ptr", hDwp
             , "Ptr", hwnd
@@ -3788,16 +3992,23 @@ OrderWindowsBySize() {
         insertAfter := hwnd
     }
 
-    if (!success)
+    if (!success) {
+        ; Clean up on failure
+        try {
+            DllCall("user32\EndDeferWindowPos", "Ptr", hDwp, "Int")
+        } catch {
+            ; Ignore cleanup errors
+        }
         return
+    }
 
     if (!DllCall("user32\EndDeferWindowPos", "Ptr", hDwp, "Int"))
         return
 
     ; Persist z-order indexes so re-enumeration doesn't trigger unnecessary updates
     orderLookup := Map()
-    Loop desiredTopOrder.Length {
-        orderLookup[desiredTopOrder[A_Index]] := A_Index
+    Loop desiredOrder.Length {
+        orderLookup[desiredOrder[A_Index]] := A_Index
     }
 
     for win in g["Windows"] {
@@ -3814,6 +4025,87 @@ IsDAWPlugin(win) {
     }
     catch {
         return false
+    }
+}
+
+; Recovery function: Periodically check if small windows are lost behind larger ones
+; This is a safety net to ensure windows never get permanently lost
+RecoverLostWindows() {
+    global g
+    
+    if (!g["ArrangementActive"] || g["Windows"].Length <= 1)
+        return
+    
+    ; Skip if user is actively interacting
+    if (GetKeyState("LButton", "P") || GetKeyState("RButton", "P"))
+        return
+    
+    ; Find small windows that might be lost
+    smallWindows := []
+    for win in g["Windows"] {
+        try {
+            hwnd := win["hwnd"]
+            if (!SafeWinExist(hwnd))
+                continue
+            
+            ; Skip maximized/minimized/fullscreen windows
+            if (WinGetMinMax("ahk_id " hwnd) != 0 || IsFullscreenWindow(hwnd))
+                continue
+            
+            ; Get window area
+            area := win.Has("width") && win.Has("height") ? win["width"] * win["height"] : 0
+            if (area == 0) {
+                try {
+                    WinGetPos(,, &w, &h, "ahk_id " hwnd)
+                    area := w * h
+                } catch {
+                    continue
+                }
+            }
+            
+            ; Consider windows smaller than 500,000 pixels (about 700x700) as "small"
+            ; These are most likely to get lost
+            if (area > 0 && area < 500000) {
+                ; Check if window is actually visible (not completely behind other windows)
+                try {
+                    ; Get window position
+                    WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+                    
+                    ; Check if any part of the window is visible by checking if it's on top
+                    ; We'll use a simple heuristic: if the window is small and not active,
+                    ; force a z-order update
+                    if (hwnd != g["ActiveWindow"]) {
+                        smallWindows.Push({
+                            hwnd: hwnd,
+                            area: area,
+                            x: x,
+                            y: y,
+                            w: w,
+                            h: h
+                        })
+                    }
+                } catch {
+                    continue
+                }
+            }
+        } catch {
+            continue
+        }
+    }
+    
+    ; If we found small windows, ensure they're properly ordered
+    ; But only if enough time has passed to avoid excessive updates
+    ; With many windows, be even more conservative
+    if (smallWindows.Length > 0) {
+        static lastRecoveryCheck := 0
+        windowCount := g["Windows"].Length
+        ; Increase recovery interval when there are many windows to reduce flashing
+        recoveryInterval := windowCount > 10 ? 15000 : (windowCount > 5 ? 12000 : 10000)  ; 10-15 seconds based on window count
+        
+        if (A_TickCount - lastRecoveryCheck > recoveryInterval) {
+            OrderWindowsBySize()
+            lastRecoveryCheck := A_TickCount
+        }
     }
 }
 

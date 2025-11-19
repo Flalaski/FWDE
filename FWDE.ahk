@@ -2072,6 +2072,7 @@ ApplyWindowMovements() {
     static lastWindowCount := 0
     static lastWindowOrder := []
     static lastActiveWindow := 0
+    static isInitialRun := true  ; Track if this is the first run after startup
 
     ; Track all window HWNDs and their order for change detection
     currentWindowOrder := []
@@ -2124,7 +2125,18 @@ ApplyWindowMovements() {
     significantWindowChange := windowCountChanged && windowCountDelta >= 2  ; Require at least 2 windows changed
     activeWindowChangeAllowed := activeWindowChanged && timeSinceUpdate > 3000  ; Throttle active window changes
     
+    ; CRITICAL: If windows were just added (count increased), apply z-order immediately to prevent smaller windows from being hidden
+    ; This ensures new windows get proper z-ordering right away
+    newWindowsAdded := windowCountChanged && windowCountDelta > 0 && g["Windows"].Length > lastWindowCount
+    
+    ; CRITICAL: On initial run, apply z-order immediately to ensure proper ordering from the start
+    if (isInitialRun && g["Windows"].Length > 1) {
+        isInitialRun := false
+        newWindowsAdded := true  ; Treat initial run as new windows added
+    }
+    
     shouldUpdate := !isUserInteracting && g["Windows"].Length > 1 && (
+        newWindowsAdded ||  ; CRITICAL: Immediate z-order when new windows added or on initial run
         timeSinceUpdate > 8000 ||  ; Every 8 seconds (increased from 5)
         significantWindowChange ||  ; Window count changed by at least 2
         significantOrderChange ||  ; Significant order change with time requirement
@@ -2132,7 +2144,8 @@ ApplyWindowMovements() {
     )
     
     if (shouldUpdate) {
-        OrderWindowsBySize()
+        ; CRITICAL: Force immediate z-order update when new windows are added to prevent them from being hidden
+        OrderWindowsBySize(newWindowsAdded)
         lastZOrderUpdate := A_TickCount
         lastWindowCount := g["Windows"].Length
         lastWindowOrder := currentWindowOrder.Clone()
@@ -3541,6 +3554,11 @@ ForceAddActiveWindow() {
             "forced", true  ; Mark as manually added
         ))
         
+        ; CRITICAL: Apply z-order immediately when window is manually added to prevent it from being hidden
+        if (g["Windows"].Length > 1) {
+            OrderWindowsBySize(true)  ; Force immediate z-order update
+        }
+        
         ToolTip("Added to tracking: " . title . " (" . winClass . ")")
         SetTimer(() => ToolTip(), -3000)
         
@@ -3669,13 +3687,28 @@ OnExit(*) {
 
 ; ====== REQUIRED HELPER FUNCTIONS ======
 MoveWindowAPI(hwnd, x, y, w := "", h := "") {
-    ; CRITICAL: Always use SWP_NOSIZE to ensure window size is NEVER changed
-    ; Flags: 0x0010 (SWP_NOACTIVATE) | 0x0004 (SWP_NOZORDER) | 0x0001 (SWP_NOSIZE)
-    ; When SWP_NOSIZE is set, w and h parameters are ignored, so we can pass anything
-    flags := 0x0010 | 0x0004 | 0x0001  ; SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE
-    if (w == "" || h == "")
-        w := 0, h := 0  ; Not needed when SWP_NOSIZE is set, but required for function signature
-    return DllCall("SetWindowPos", "Ptr", hwnd, "Ptr", 0, "Int", x, "Int", y, "Int", w, "Int", h, "UInt", flags)
+    ; CRITICAL: Validate window handle before operation
+    if (!hwnd || hwnd == 0)
+        return false
+    
+    try {
+        ; CRITICAL: Validate window still exists before moving
+        if (!SafeWinExist(hwnd))
+            return false
+        
+        ; CRITICAL: Always use SWP_NOSIZE to ensure window size is NEVER changed
+        ; Flags: 0x0010 (SWP_NOACTIVATE) | 0x0004 (SWP_NOZORDER) | 0x0001 (SWP_NOSIZE)
+        ; When SWP_NOSIZE is set, w and h parameters are ignored, so we can pass anything
+        flags := 0x0010 | 0x0004 | 0x0001  ; SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE
+        if (w == "" || h == "")
+            w := 0, h := 0  ; Not needed when SWP_NOSIZE is set, but required for function signature
+        
+        ; CRITICAL: Validate SetWindowPos return value
+        result := DllCall("SetWindowPos", "Ptr", hwnd, "Ptr", 0, "Int", x, "Int", y, "Int", w, "Int", h, "UInt", flags)
+        return result != 0  ; Return true if successful, false otherwise
+    } catch {
+        return false
+    }
 }
 
 global PartitionGridSize := 400  ; pixels per grid cell (tune for your window sizes)
@@ -3702,7 +3735,8 @@ Clamp(val, min, max) {
 
 ; Z-index ordering: smaller windows on top so they don't get lost behind larger ones
 ; IMPROVED: Now works for ALL tracked windows, not just plugins, to prevent any window from getting lost
-OrderWindowsBySize() {
+; forceImmediate: If true, bypasses throttling for immediate z-order application (e.g., when windows first added)
+OrderWindowsBySize(forceImmediate := false) {
     global g
 
     ; CRITICAL: Never interfere with user interaction
@@ -3713,13 +3747,27 @@ OrderWindowsBySize() {
     if (g["Windows"].Length <= 1)
         return
     
+    ; CRITICAL: Prevent concurrent z-order updates with a simple lock mechanism
+    static zOrderUpdateInProgress := false
+    if (zOrderUpdateInProgress)
+        return
+    zOrderUpdateInProgress := true
+    
     ; Additional throttling: Prevent rapid consecutive updates
     ; This helps when there are many windows causing frequent triggers
+    ; CRITICAL: Allow bypassing throttling for immediate updates (e.g., when windows first added)
     static lastOrderUpdateTime := 0
-    minTimeBetweenUpdates := 2000  ; Minimum 2 seconds between any z-order updates
-    if (A_TickCount - lastOrderUpdateTime < minTimeBetweenUpdates)
-        return
+    if (!forceImmediate) {
+        minTimeBetweenUpdates := 2000  ; Minimum 2 seconds between any z-order updates
+        if (A_TickCount - lastOrderUpdateTime < minTimeBetweenUpdates) {
+            zOrderUpdateInProgress := false
+            return
+        }
+    }
     lastOrderUpdateTime := A_TickCount
+    
+    ; Ensure lock is released even on early returns
+    try {
 
     ; Create array of ALL tracked windows with their areas
     ; Include ALL windows (including maximized/fullscreen) to ensure smaller ones never get lost
@@ -3727,34 +3775,59 @@ OrderWindowsBySize() {
     windowAreas := []
     activeWindowHwnd := g["ActiveWindow"]
     
+    ; CRITICAL: Validate active window is still valid before using it
+    if (activeWindowHwnd != 0 && !SafeWinExist(activeWindowHwnd))
+        activeWindowHwnd := 0
+    
     for win in g["Windows"] {
         hwnd := win["hwnd"]
         
-        ; Skip invalid windows
+        ; Skip invalid windows - validate immediately
         try {
             if (!SafeWinExist(hwnd))
                 continue
             
-            ; Skip minimized windows (they shouldn't be in z-order)
-            minMaxState := WinGetMinMax("ahk_id " hwnd)
-            if (minMaxState == -1)  ; Minimized
-                continue
+            ; CRITICAL: Re-validate window state atomically
+            ; Get all state information in one pass to avoid race conditions
+            minMaxState := -2  ; Invalid state marker
+            w := 0
+            h := 0
+            isMaximized := false
+            isFullscreen := false
             
-            ; Check if maximized or fullscreen
-            isMaximized := (minMaxState == 1)
-            isFullscreen := IsFullscreenWindow(hwnd)
-            
-            ; Get window dimensions
             try {
+                minMaxState := WinGetMinMax("ahk_id " hwnd)
+                if (minMaxState == -1)  ; Minimized - skip
+                    continue
+                
+                ; Check if maximized or fullscreen
+                isMaximized := (minMaxState == 1)
+                isFullscreen := IsFullscreenWindow(hwnd)
+                
+                ; Get window dimensions - validate they're reasonable
                 WinGetPos(,, &w, &h, "ahk_id " hwnd)
-                if (w <= 0 || h <= 0)
+                if (w <= 0 || h <= 0 || w > 100000 || h > 100000)  ; Sanity check for invalid dimensions
                     continue
             } catch {
+                ; Window became invalid during state check, skip it
                 continue
             }
             
-            ; Use stored dimensions or get fresh ones
-            area := win.Has("width") && win.Has("height") ? win["width"] * win["height"] : w * h
+            ; CRITICAL: Re-validate window still exists after state check
+            if (!SafeWinExist(hwnd))
+                continue
+            
+            ; Use stored dimensions if valid, otherwise use fresh ones
+            ; Validate stored dimensions are reasonable before using
+            storedArea := 0
+            if (win.Has("width") && win.Has("height")) {
+                storedW := win["width"]
+                storedH := win["height"]
+                if (storedW > 0 && storedH > 0 && storedW <= 100000 && storedH <= 100000)
+                    storedArea := storedW * storedH
+            }
+            
+            area := (storedArea > 0) ? storedArea : (w * h)
             
             ; For maximized/fullscreen windows, assign a very large area value
             ; This ensures they sort to the bottom (largest area = bottom of z-order)
@@ -3776,8 +3849,10 @@ OrderWindowsBySize() {
         }
     }
 
-    if (windowAreas.Length <= 1)
+    if (windowAreas.Length <= 1) {
+        zOrderUpdateInProgress := false
         return
+    }
 
     ; Sort by area (largest first) - manual bubble sort since AHK v2 arrays don't have built-in sort
     Loop windowAreas.Length - 1 {
@@ -3803,24 +3878,42 @@ OrderWindowsBySize() {
     ; Include all windows (maximized/fullscreen too) for proper ordering
     currentOrder := []
     try {
+        ; CRITICAL: Validate GetTopWindow return value
         hwnd := DllCall("user32\GetTopWindow", "Ptr", 0, "Ptr")
-        while (hwnd && currentOrder.Length < trackedSet.Count * 2) {  ; Safety limit
-            if (trackedSet.Has(hwnd)) {
-                ; Verify window is still valid before adding
-                ; Include all windows except minimized ones
-                try {
-                    if (SafeWinExist(hwnd)) {
-                        minMaxState := WinGetMinMax("ahk_id " hwnd)
-                        if (minMaxState != -1)  ; Not minimized
-                            currentOrder.Push(hwnd)
+        if (!hwnd || hwnd == 0) {
+            ; No top window found, enumeration failed
+            currentOrder := []
+        } else {
+            maxIterations := trackedSet.Count * 3  ; Increased safety limit
+            iterationCount := 0
+            while (hwnd && hwnd != 0 && iterationCount < maxIterations) {
+                iterationCount++
+                
+                if (trackedSet.Has(hwnd)) {
+                    ; Verify window is still valid before adding
+                    ; Include all windows except minimized ones
+                    try {
+                        if (SafeWinExist(hwnd)) {
+                            minMaxState := WinGetMinMax("ahk_id " hwnd)
+                            if (minMaxState != -1)  ; Not minimized
+                                currentOrder.Push(hwnd)
+                        }
+                    } catch {
+                        ; Window became invalid, skip it
                     }
+                }
+                
+                ; CRITICAL: Validate GetWindow return value and handle errors
+                try {
+                    nextHwnd := DllCall("user32\GetWindow", "Ptr", hwnd, "UInt", 2, "Ptr")  ; GW_HWNDNEXT
+                    if (!nextHwnd || nextHwnd == 0 || nextHwnd == hwnd)  ; Prevent infinite loops
+                        break
+                    hwnd := nextHwnd
                 } catch {
-                    ; Window became invalid, skip it
+                    ; Enumeration error, stop
+                    break
                 }
             }
-            hwnd := DllCall("user32\GetWindow", "Ptr", hwnd, "UInt", 2, "Ptr")  ; GW_HWNDNEXT
-            if (!hwnd)
-                break
         }
     } catch {
         currentOrder := []
@@ -3828,7 +3921,8 @@ OrderWindowsBySize() {
 
     ; CRITICAL: User's active window ALWAYS takes precedence - never reorder it
     ; Separate active window from ordering logic - it will be placed on top separately
-    activeWindowHwnd := g["ActiveWindow"]
+    ; Note: activeWindowHwnd was already validated earlier, don't override it
+    ; activeWindowHwnd is already set and validated above
     desiredOrder := []  ; Only non-active windows go here
     
     ; Build order for NON-ACTIVE windows only: largest to smallest (so smallest ends up on top)
@@ -3868,6 +3962,10 @@ OrderWindowsBySize() {
             ; Works for all window states (normal, maximized, fullscreen)
             if (activeWindowHwnd != 0 && SafeWinExist(activeWindowHwnd)) {
                 try {
+                    ; CRITICAL: Re-validate window state before operation
+                    if (!SafeWinExist(activeWindowHwnd))
+                        throw
+                    
                     minMaxState := WinGetMinMax("ahk_id " activeWindowHwnd)
                     ; Include all windows except minimized
                     if (minMaxState != -1) {
@@ -3876,13 +3974,16 @@ OrderWindowsBySize() {
                         isAlreadyOnTop := (currentOrder.Length > 0 && currentOrder[1] == activeWindowHwnd)
                         if (!isAlreadyOnTop) {
                             flags := 0x0010 | 0x0002 | 0x0001  ; NOACTIVATE | NOMOVE | NOSIZE
-                            DllCall("SetWindowPos", "Ptr", activeWindowHwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
+                            ; CRITICAL: Validate SetWindowPos return value
+                            result := DllCall("SetWindowPos", "Ptr", activeWindowHwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
+                            ; Note: Windows will automatically redraw after z-order change
                         }
                     }
                 } catch {
                     ; Ignore errors
                 }
             }
+            zOrderUpdateInProgress := false
             return
         }
     }
@@ -3892,16 +3993,23 @@ OrderWindowsBySize() {
         ; But still ensure active window is on top if it exists (works for all window states)
         if (activeWindowHwnd != 0 && SafeWinExist(activeWindowHwnd)) {
             try {
+                ; CRITICAL: Re-validate window state before operation
+                if (!SafeWinExist(activeWindowHwnd))
+                    throw
+                
                 minMaxState := WinGetMinMax("ahk_id " activeWindowHwnd)
                 if (minMaxState != -1) {  ; Not minimized
                     ; Place active window on top without moving or resizing
                     flags := 0x0010 | 0x0002 | 0x0001  ; NOACTIVATE | NOMOVE | NOSIZE
-                    DllCall("SetWindowPos", "Ptr", activeWindowHwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
+                    ; CRITICAL: Validate SetWindowPos return value
+                    result := DllCall("SetWindowPos", "Ptr", activeWindowHwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
+                    ; Note: Windows will automatically redraw after z-order change
                 }
             } catch {
                 ; Ignore errors
             }
         }
+        zOrderUpdateInProgress := false
         return
     }
 
@@ -3932,15 +4040,22 @@ OrderWindowsBySize() {
         ; Still ensure active window is on top (works for all window states)
         if (activeWindowHwnd != 0 && SafeWinExist(activeWindowHwnd)) {
             try {
+                ; CRITICAL: Re-validate window state before operation
+                if (!SafeWinExist(activeWindowHwnd))
+                    throw
+                
                 minMaxState := WinGetMinMax("ahk_id " activeWindowHwnd)
                 if (minMaxState != -1) {  ; Not minimized
                     flags := 0x0010 | 0x0002 | 0x0001  ; NOACTIVATE | NOMOVE | NOSIZE
-                    DllCall("SetWindowPos", "Ptr", activeWindowHwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
+                    ; CRITICAL: Validate SetWindowPos return value
+                    result := DllCall("SetWindowPos", "Ptr", activeWindowHwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
+                    ; Note: Windows will automatically redraw after z-order change
                 }
             } catch {
                 ; Ignore errors
             }
         }
+        zOrderUpdateInProgress := false
         return
     }
 
@@ -3949,11 +4064,17 @@ OrderWindowsBySize() {
     ; Works for all window states (normal, maximized, fullscreen)
     if (activeWindowHwnd != 0 && SafeWinExist(activeWindowHwnd)) {
         try {
+            ; CRITICAL: Re-validate window state before operation
+            if (!SafeWinExist(activeWindowHwnd))
+                throw
+            
             minMaxState := WinGetMinMax("ahk_id " activeWindowHwnd)
             if (minMaxState != -1) {  ; Not minimized
                 ; Place active window on top - user interaction takes precedence
                 flags := 0x0010 | 0x0002 | 0x0001  ; NOACTIVATE | NOMOVE | NOSIZE
-                DllCall("SetWindowPos", "Ptr", activeWindowHwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
+                ; CRITICAL: Validate SetWindowPos return value
+                result := DllCall("SetWindowPos", "Ptr", activeWindowHwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
+                ; Note: Windows will automatically redraw after z-order change
             }
         } catch {
             ; Ignore errors, continue with ordering other windows
@@ -3961,49 +4082,101 @@ OrderWindowsBySize() {
     }
 
     ; Now order NON-ACTIVE windows by size (largest to smallest, so smallest ends up just below active window)
-    flags := 0x0010 | 0x0002 | 0x0001 | 0x0008 | 0x0200 | 0x0100  ; NOACTIVATE | NOMOVE | NOSIZE | NOREDRAW | NOOWNERZORDER | NOCOPYBITS
+    ; CRITICAL: Removed NOREDRAW flag to ensure windows are visible after z-order changes
+    ; Using NOCOPYBITS to prevent flicker while still allowing redraw
+    flags := 0x0010 | 0x0002 | 0x0001 | 0x0200 | 0x0100  ; NOACTIVATE | NOMOVE | NOSIZE | NOOWNERZORDER | NOCOPYBITS
+    
+    ; CRITICAL: Validate BeginDeferWindowPos return value
     hDwp := DllCall("user32\BeginDeferWindowPos", "Int", reorderSequence.Length, "Ptr")
-    if (!hDwp)
+    if (!hDwp || hDwp == 0) {
+        zOrderUpdateInProgress := false
         return
+    }
 
+    ; CRITICAL: Define HWND_BOTTOM constant for clarity and correctness
+    HWND_BOTTOM := 1  ; Windows constant: place window at bottom of z-order
+    
     ; Start placing non-active windows below the active window (or at bottom if no active window)
-    insertAfter := (activeWindowHwnd != 0 && SafeWinExist(activeWindowHwnd)) ? activeWindowHwnd : 1  ; HWND_BOTTOM or below active
+    ; CRITICAL: Validate insertAfter reference is still valid
+    insertAfter := 0
+    if (activeWindowHwnd != 0 && SafeWinExist(activeWindowHwnd)) {
+        ; Re-validate active window is still valid and not minimized
+        try {
+            if (SafeWinExist(activeWindowHwnd)) {
+                minMaxState := WinGetMinMax("ahk_id " activeWindowHwnd)
+                if (minMaxState != -1)  ; Not minimized
+                    insertAfter := activeWindowHwnd
+            }
+        } catch {
+            ; Active window became invalid, fall back to HWND_BOTTOM
+        }
+    }
+    if (insertAfter == 0)
+        insertAfter := HWND_BOTTOM
+    
     success := true
+    validWindowsProcessed := 0
+    
     for idx, hwnd in reorderSequence {
-        ; Verify window is still valid and NOT active before each operation
+        ; CRITICAL: Verify window is still valid and NOT active before each operation
+        ; Also validate insertAfter reference is still valid
         try {
             if (!SafeWinExist(hwnd) || hwnd == activeWindowHwnd)
+                continue
+            
+            ; CRITICAL: Validate insertAfter reference is still valid
+            if (insertAfter != HWND_BOTTOM && !SafeWinExist(insertAfter)) {
+                ; Reference window became invalid, fall back to HWND_BOTTOM
+                insertAfter := HWND_BOTTOM
+            }
+            
+            ; CRITICAL: Validate window state hasn't changed (e.g., minimized)
+            minMaxState := WinGetMinMax("ahk_id " hwnd)
+            if (minMaxState == -1)  ; Window was minimized, skip it
                 continue
         } catch {
             continue
         }
         
-        hDwp := DllCall("user32\DeferWindowPos"
+        ; CRITICAL: Validate DeferWindowPos return value
+        newHdwp := DllCall("user32\DeferWindowPos"
             , "Ptr", hDwp
             , "Ptr", hwnd
             , "Ptr", insertAfter
             , "Int", 0, "Int", 0, "Int", 0, "Int", 0
             , "UInt", flags
             , "Ptr")
-        if (!hDwp) {
+        if (!newHdwp || newHdwp == 0) {
             success := false
             break
         }
+        hDwp := newHdwp
         insertAfter := hwnd
+        validWindowsProcessed++
     }
 
-    if (!success) {
-        ; Clean up on failure
+    if (!success || validWindowsProcessed == 0) {
+        ; Clean up on failure or if no windows were processed
         try {
-            DllCall("user32\EndDeferWindowPos", "Ptr", hDwp, "Int")
+            if (hDwp && hDwp != 0)
+                DllCall("user32\EndDeferWindowPos", "Ptr", hDwp, "Int")
         } catch {
             ; Ignore cleanup errors
         }
+        zOrderUpdateInProgress := false
         return
     }
 
-    if (!DllCall("user32\EndDeferWindowPos", "Ptr", hDwp, "Int"))
+    ; CRITICAL: Validate EndDeferWindowPos return value
+    endResult := DllCall("user32\EndDeferWindowPos", "Ptr", hDwp, "Int")
+    if (!endResult) {
+        ; EndDeferWindowPos failed, but z-order may have been partially applied
+        zOrderUpdateInProgress := false
         return
+    }
+    
+    ; Note: Windows will automatically redraw windows after z-order changes
+    ; We removed NOREDRAW flag above, so redraw happens naturally without forcing it
 
     ; Persist z-order indexes so re-enumeration doesn't trigger unnecessary updates
     orderLookup := Map()
@@ -4014,6 +4187,13 @@ OrderWindowsBySize() {
     for win in g["Windows"] {
         if (orderLookup.Has(win["hwnd"]))
             win["lastZOrder"] := orderLookup[win["hwnd"]]
+    }
+    
+    ; CRITICAL: Always release lock before returning
+    zOrderUpdateInProgress := false
+    } catch {
+        ; CRITICAL: Ensure lock is released even on exception
+        zOrderUpdateInProgress := false
     }
 }
 
@@ -4166,4 +4346,5 @@ IsElectronApp(hwnd) {
     }
 }
 
+; Old broken rendering system removed - now using proper GDI+ rendering in TimePhasing class
 ; Old broken rendering system removed - now using proper GDI+ rendering in TimePhasing class

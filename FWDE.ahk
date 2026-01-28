@@ -129,6 +129,7 @@ global g := Map(
     "Windows", [],
     "PhysicsEnabled", true,
     "FairyDustEnabled", true,
+    "SnapInProgress", Map(),  ; Track windows currently being snapped by Windows
     "TimePhasingConfig", Map(
         "MaxEchoesPerWindow", 5,
         "NoiseCloudDensity", 25,
@@ -1653,11 +1654,13 @@ CalculateWindowForces(win, allWindows) {
     isRecentlyMoved := (A_TickCount - g["LastUserMove"] < Config["UserMoveTimeout"])
     isCurrentlyFocused := (win["hwnd"] == WinExist("A"))
     isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
+    isBeingSnapped := g["SnapInProgress"].Has(win["hwnd"]) && A_TickCount < g["SnapInProgress"][win["hwnd"]]
 
     ; CRITICAL: Manually locked windows and the active window should NEVER be affected by physics
     ; Also protect recently moved windows that are currently focused
+    ; Also protect windows being snapped by Windows
     ; BUT: when dragging, allow the dragged window to calculate forces to push other windows
-    isProtected := (isManuallyLocked || isActiveWindow || (isRecentlyMoved && isCurrentlyFocused)) && !isDraggedWindow
+    isProtected := (isManuallyLocked || isActiveWindow || (isRecentlyMoved && isCurrentlyFocused) || isBeingSnapped) && !isDraggedWindow
     if (isProtected) {
         win["vx"] := 0
         win["vy"] := 0
@@ -1928,6 +1931,11 @@ ApplyWindowMovements() {
         ; CRITICAL: Never move manually locked windows - user placed them there
         isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
         if (isManuallyLocked)
+            continue
+        
+        ; CRITICAL: Never move windows currently being snapped by Windows
+        isBeingSnapped := g["SnapInProgress"].Has(win["hwnd"]) && A_TickCount < g["SnapInProgress"][win["hwnd"]]
+        if (isBeingSnapped)
             continue
 
         ; Safely get monitor bounds
@@ -2317,7 +2325,8 @@ ResolveFloatingCollisions(windows) {
         ; Allow active window to participate in collisions ONLY when dragging
         isManuallyLocked1 := (win1.Has("ManualLock") && A_TickCount < win1["ManualLock"])
         isActive1 := (win1["hwnd"] == g["ActiveWindow"])
-        if (isManuallyLocked1 || (isActive1 && !isDragging))
+        isBeingSnapped1 := g["SnapInProgress"].Has(win1["hwnd"]) && A_TickCount < g["SnapInProgress"][win1["hwnd"]]
+        if (isManuallyLocked1 || (isActive1 && !isDragging) || isBeingSnapped1)
             continue
             
         for j, win2 in windows {
@@ -2336,7 +2345,8 @@ ResolveFloatingCollisions(windows) {
             ; Allow active window to participate in collisions ONLY when dragging
             isManuallyLocked2 := (win2.Has("ManualLock") && A_TickCount < win2["ManualLock"])
             isActive2 := (win2["hwnd"] == g["ActiveWindow"])
-            if (isManuallyLocked2 || (isActive2 && !isDragging))
+            isBeingSnapped2 := g["SnapInProgress"].Has(win2["hwnd"]) && A_TickCount < g["SnapInProgress"][win2["hwnd"]]
+            if (isManuallyLocked2 || (isActive2 && !isDragging) || isBeingSnapped2)
                 continue
 
             ; Check for overlap with smaller tolerance for quicker separation
@@ -3150,6 +3160,14 @@ WindowMoveHandler(wParam, lParam, msg, hwnd) {
         return
 
     Critical
+    
+    ; Detect Windows Snap operation (window position changing while dragging)
+    isBeingDragged := GetKeyState("LButton", "P")
+    if (isBeingDragged) {
+        ; Mark this window as potentially being snapped
+        g["SnapInProgress"][hwnd] := A_TickCount + 2000  ; 2 second protection during/after snap
+    }
+    
     g["LastUserMove"] := A_TickCount
     g["ActiveWindow"] := hwnd
 
@@ -3195,6 +3213,10 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
         return
 
     Critical
+    
+    ; Windows Snap often resizes windows - extend protection time
+    g["SnapInProgress"][hwnd] := A_TickCount + 2000  ; 2 second protection during/after snap
+    
     g["LastUserMove"] := A_TickCount
     g["ActiveWindow"] := hwnd
 
@@ -3240,6 +3262,16 @@ UpdateWindowStates() {
     ; CRITICAL: Skip rebuilding window list if user is actively dragging a window
     ; This prevents interference with user placement
     if (GetKeyState("LButton", "P"))
+        return
+    
+    ; CRITICAL: Skip if any window is currently being snapped by Windows
+    ; Clean up expired snap states first
+    for hwnd, expireTime in g["SnapInProgress"].Clone() {
+        if (A_TickCount > expireTime)
+            g["SnapInProgress"].Delete(hwnd)
+    }
+    ; Don't update if snap is still in progress
+    if (g["SnapInProgress"].Count > 0)
         return
     
     ; Get current monitor info or virtual desktop bounds

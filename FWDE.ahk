@@ -1,3 +1,43 @@
+; --- Dropdown/Menu Detection ---
+IsDropdownOrMenuWindow(hwnd) {
+    try {
+        if (!SafeWinExist(hwnd))
+            return false
+        winClass := WinGetClass("ahk_id " hwnd)
+        style := WinGetStyle("ahk_id " hwnd)
+        exStyle := WinGetExStyle("ahk_id " hwnd)
+        title := WinGetTitle("ahk_id " hwnd)
+        ; Common menu/dropdown classes
+        menuClasses := ["#32768", "DV2ControlHost", "DropDown", "ComboLBox", "Menu", "Popup", "ContextMenu"]
+        for pattern in menuClasses {
+            if (winClass ~= "i)" pattern)
+                return true
+        }
+        ; Heuristic: WS_POPUP, not WS_CAPTION, small, no title
+        if ((style & 0x80000000) && !(style & 0x00C00000) && (exStyle & 0x8) && title == "") {
+            WinGetPos(,, &w, &h, "ahk_id " hwnd)
+            if (w < 600 && h < 600)
+                return true
+        }
+        return false
+    }
+    catch as e {
+        return false
+    }
+}
+
+; Returns hwnd of any open dropdown/menu, or 0 if none
+GetOpenDropdownMenuParent() {
+    for hwnd in WinGetList() {
+        if (IsDropdownOrMenuWindow(hwnd)) {
+            ; Try to get owner/parent
+            parent := DllCall("GetWindow", "Ptr", hwnd, "UInt", 4, "Ptr") ; GW_OWNER=4
+            if (parent && SafeWinExist(parent))
+                return parent
+        }
+    }
+    return 0
+}
 #Warn
 #MaxThreadsPerHotkey 255
 #MaxThreads 255
@@ -1629,6 +1669,14 @@ ApplyStabilization(win) {
 CalculateWindowForces(win, allWindows) {
     global g, Config
 
+    ; Suspend physics for parent windows if a dropdown/menu is open
+    menuParent := GetOpenDropdownMenuParent()
+    if (menuParent && win["hwnd"] == menuParent) {
+        win["vx"] := 0
+        win["vy"] := 0
+        return
+    }
+
     ; Check if user is actively dragging a window
     isDragging := GetKeyState("LButton", "P")
     isDraggedWindow := false
@@ -1882,6 +1930,9 @@ ApplyWindowMovements() {
     static lastPositions := Map()
     static smoothPos := Map()
 
+    ; Suspend movement for parent windows if a dropdown/menu is open
+    menuParent := GetOpenDropdownMenuParent()
+
     Critical
 
     ; Keep physics running during drag to allow dragged window to push other windows
@@ -1894,6 +1945,8 @@ ApplyWindowMovements() {
     ; Cache all window positions at the start
     hwndPos := Map()
     for win in g["Windows"] {
+        if (menuParent && win["hwnd"] == menuParent)
+            continue
         hwnd := win["hwnd"]
         try {
             WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
@@ -2222,6 +2275,9 @@ CalculateDynamicLayout() {
     static transitionTime := 300
     static lastFocusCheck := 0
 
+    ; Suspend physics for parent windows if a dropdown/menu is open
+    menuParent := GetOpenDropdownMenuParent()
+
     ; Keep physics calculations running during drag to allow dragged window to push other windows
     ; The dragged window itself will be protected from movement in CalculateWindowForces and ApplyWindowMovements
 
@@ -2262,6 +2318,11 @@ CalculateDynamicLayout() {
     ; Dynamic force adjustment based on system energy
     currentEnergy := 0
     for win in g["Windows"] {
+        if (menuParent && win["hwnd"] == menuParent) {
+            win["vx"] := 0
+            win["vy"] := 0
+            continue
+        }
         CalculateWindowForces(win, g["Windows"]) ; Pass all windows for dynamic interactions
         currentEnergy += win["vx"]**2 + win["vy"]**2
     }

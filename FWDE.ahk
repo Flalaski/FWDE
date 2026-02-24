@@ -187,7 +187,48 @@ global g := Map(
 )
 #Requires AutoHotkey v2.0
 
+; --- High-resolution timer management (prevents "only updates while mouse is held" feel) ---
+; Windows timers are typically ~15.6ms unless the process requests higher resolution.
+; We keep high-res enabled while arrangement is active, and use ref-counting so DragWindow()
+; doesn't accidentally disable it for the whole system when arrangement is still running.
+global g_TimerResolutionRefs := 0
+
+AcquireHighResTimer() {
+    global g_TimerResolutionRefs
+    if (g_TimerResolutionRefs <= 0) {
+        g_TimerResolutionRefs := 0
+        try DllCall("winmm\timeBeginPeriod", "UInt", 1)
+    }
+    g_TimerResolutionRefs += 1
+}
+
+ReleaseHighResTimer() {
+    global g_TimerResolutionRefs
+    if (g_TimerResolutionRefs <= 0)
+        return
+    g_TimerResolutionRefs -= 1
+    if (g_TimerResolutionRefs <= 0) {
+        g_TimerResolutionRefs := 0
+        try DllCall("winmm\timeEndPeriod", "UInt", 1)
+    }
+}
+
+; --- Drag state helper: only treat as "dragging" when a managed window is under the cursor ---
+GetDraggedManagedWindow() {
+    global g
+    if (!GetKeyState("LButton", "P"))
+        return 0
+    MouseGetPos(,, &hoverHwnd)
+    for win in g["Windows"] {
+        if (win["hwnd"] == hoverHwnd)
+            return hoverHwnd
+    }
+    return 0
+}
+
 ; --- Ensure arrangement timers start if ArrangementActive is true ---
+if (g["ArrangementActive"])
+    AcquireHighResTimer()
 SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
 SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
 
@@ -874,51 +915,16 @@ GetVisibleWindows(monitor) {
                 ; Check if this window is the active window - CRITICAL: Never move the active window
                 isActiveWindow := (window["hwnd"] == g["ActiveWindow"])
                 ; Check if currently being dragged - CRITICAL: Never move during drag
-                ; Only protect the window being actively dragged by the user from physics (within 100ms of drag end)
-                isBeingDragged := (window.Has("JustDragged") && A_TickCount - window["JustDragged"] < 100)
+                ; Only protect the window being actively dragged by the user from physics (briefly after drag end)
+                ; NOTE: `window` is a fresh Map built above; drag state lives on `existingWin` (g["Windows"]).
+                isBeingDragged := (existingWin && existingWin.Has("JustDragged") && A_TickCount - existingWin["JustDragged"] < 150)
                 
                 ; Only apply position constraints if window is NOT manually locked and NOT being actively dragged
                 if (!isManuallyLocked && !isBeingDragged) {
-                    ; Apply margin constraints based on floating mode
-                    if (Config["SeamlessMonitorFloat"]) {
-                        ; Use virtual desktop bounds for seamless floating
-                        virtualBounds := GetVirtualDesktopBounds()
-                        window["x"] := Clamp(window["x"], virtualBounds["Left"] + Config["MinMargin"], virtualBounds["Right"] - window["width"] - Config["MinMargin"])
-                        window["y"] := Clamp(window["y"], virtualBounds["Top"] + Config["MinMargin"], virtualBounds["Bottom"] - window["height"] - Config["MinMargin"])
-                    } else {
-                        ; Apply margin constraints for current monitor
-                        window["x"] := Clamp(window["x"], mL + Config["MinMargin"], mR - window["width"] - Config["MinMargin"])
-                        window["y"] := Clamp(window["y"], mT + Config["MinMargin"], mB - window["height"] - Config["MinMargin"])
-                    }
-                    
-                    ; Apply taskbar boundary constraints
-                    taskbarRect := GetTaskbarRect()
-                    if (taskbarRect) {
-                        ; Check if taskbar is at bottom of screen
-                        if (taskbarRect.top > A_ScreenHeight / 2) {
-                            ; Taskbar at bottom - adjust bottom boundary
-                            maxY := taskbarRect.top - Config["MinMargin"] - window["height"]
-                            window["y"] := Min(window["y"], maxY)
-                        }
-                        ; Check if taskbar is at top of screen
-                        else if (taskbarRect.bottom < A_ScreenHeight / 2) {
-                            ; Taskbar at top - adjust top boundary
-                            minY := taskbarRect.bottom + Config["MinMargin"]
-                            window["y"] := Max(window["y"], minY)
-                        }
-                        ; Check if taskbar is at left of screen
-                        else if (taskbarRect.right < A_ScreenWidth / 2) {
-                            ; Taskbar at left - adjust left boundary
-                            minX := taskbarRect.right + Config["MinMargin"]
-                            window["x"] := Max(window["x"], minX)
-                        }
-                        ; Check if taskbar is at right of screen
-                        else if (taskbarRect.left > A_ScreenWidth / 2) {
-                            ; Taskbar at right - adjust right boundary
-                            maxX := taskbarRect.left - Config["MinMargin"] - window["width"]
-                            window["x"] := Min(window["x"], maxX)
-                        }
-                    }
+                    ; IMPORTANT: Do not hard-clamp x/y during state collection.
+                    ; Hard clamping here can create discontinuities (teleports) once ApplyWindowMovements starts
+                    ; steering toward these clamped coordinates, potentially pushing non-overlapping windows into overlap.
+                    ; Bounds are enforced gently later via edge forces + movement smoothing.
                 } else {
                     ; Use EXISTING window position for manually locked or active windows
                     ; This ensures user-placed windows stay exactly where the user put them
@@ -1677,22 +1683,16 @@ CalculateWindowForces(win, allWindows) {
         return
     }
 
-    ; Check if user is actively dragging a window
-    isDragging := GetKeyState("LButton", "P")
-    isDraggedWindow := false
+    ; Check if this specific window is currently being dragged by the user
+    draggedHwnd := GetDraggedManagedWindow()
+    isDraggedWindow := (draggedHwnd != 0 && win["hwnd"] == draggedHwnd)
     
-    if (isDragging) {
-        ; Check if this window is the one being dragged
-        MouseGetPos(,, &hoverHwnd)
-        isDraggedWindow := (win["hwnd"] == hoverHwnd)
-        
+    if (isDraggedWindow) {
         ; For the dragged window, skip its own physics calculations
         ; but allow it to apply forces to other windows in the allWindows loop
-        if (isDraggedWindow) {
-            win["vx"] := 0
-            win["vy"] := 0
-            ; Don't return - we need to continue to apply forces from this window to others
-        }
+        win["vx"] := 0
+        win["vy"] := 0
+        ; Don't return - we need to continue to apply forces from this window to others
     }
 
     ; Keep active window and recently moved windows still
@@ -1818,7 +1818,8 @@ CalculateWindowForces(win, allWindows) {
     }
 
     ; Dynamic inter-window forces (no grid constraints)
-    isDragging := GetKeyState("LButton", "P")
+    draggedHwnd := GetDraggedManagedWindow()
+    isDraggingManaged := (draggedHwnd != 0)
     
     for other in allWindows {
         if (other == win)
@@ -1832,9 +1833,9 @@ CalculateWindowForces(win, allWindows) {
             continue
         }
             
-        ; CRITICAL: Skip interaction with active windows UNLESS we're currently dragging
+        ; CRITICAL: Skip interaction with active windows UNLESS we're currently dragging a managed window
         ; When dragging, allow the dragged window to push other windows
-        if (!isDragging && other["hwnd"] == g["ActiveWindow"]) {
+        if (!isDraggingManaged && other["hwnd"] == g["ActiveWindow"]) {
             continue
         }
 
@@ -1959,12 +1960,9 @@ ApplyWindowMovements() {
     moveBatch := []
     movedAny := false
 
-    ; Check if currently dragging
-    isDragging := GetKeyState("LButton", "P")
-    draggedHwnd := 0
-    if (isDragging) {
-        MouseGetPos(,, &draggedHwnd)
-    }
+    ; Check if currently dragging a managed window
+    draggedHwnd := GetDraggedManagedWindow()
+    isDragging := (draggedHwnd != 0)
     
     for win in g["Windows"] {
         ; Skip maximized and fullscreen windows - they should never be moved
@@ -2061,6 +2059,28 @@ ApplyWindowMovements() {
         ; This prevents unnecessary micro-adjustments for stable windows
         currentX := hwndPos[hwnd].x
         currentY := hwndPos[hwnd].y
+
+        ; --- External move resync (prevents snap-back / sudden rearranging jumps) ---
+        ; If a window was moved by the user/OS/app without our state tracking catching up,
+        ; immediately sync physics state to the real position and clear momentum.
+        ; This keeps the system behaving like a continuous flow instead of teleporting toward stale targets.
+        stateX := win.Has("x") ? win["x"] : currentX
+        stateY := win.Has("y") ? win["y"] : currentY
+        if (Abs(currentX - stateX) > 12 || Abs(currentY - stateY) > 12) {
+            ; If we *didn't* just move it ourselves very recently, treat this as authoritative external movement.
+            if (!lastPositions.Has(hwnd) || Abs(currentX - lastPositions[hwnd].x) > 6 || Abs(currentY - lastPositions[hwnd].y) > 6) {
+                win["x"] := currentX
+                win["y"] := currentY
+                win["targetX"] := currentX
+                win["targetY"] := currentY
+                win["vx"] := 0
+                win["vy"] := 0
+                smoothPos[hwnd] := { x: currentX, y: currentY }
+                lastPositions[hwnd] := { x: currentX, y: currentY }
+                continue
+            }
+        }
+
         if (Abs(newX - currentX) < 0.5 && Abs(newY - currentY) < 0.5) {
             ; Clear smoothing state for windows at target to prevent accumulated drift
             if (smoothPos.Has(hwnd)) {
@@ -2102,8 +2122,11 @@ ApplyWindowMovements() {
         }
 
         ; Final hard clamp (fallback only)
-        smoothPos[hwnd].x := Max(monLeft, Min(smoothPos[hwnd].x, monRight))
-        smoothPos[hwnd].y := Max(monTop, Min(smoothPos[hwnd].y, monBottom))
+        ; Only hard clamp when far off-screen; otherwise let the soft boundary forces resolve smoothly.
+        if (smoothPos[hwnd].x < monLeft - 200 || smoothPos[hwnd].x > monRight + 200)
+            smoothPos[hwnd].x := Max(monLeft, Min(smoothPos[hwnd].x, monRight))
+        if (smoothPos[hwnd].y < monTop - 200 || smoothPos[hwnd].y > monBottom + 200)
+            smoothPos[hwnd].y := Max(monTop, Min(smoothPos[hwnd].y, monBottom))
 
         if (!lastPositions.Has(hwnd))
             lastPositions[hwnd] := { x: hwndPos[hwnd].x, y: hwndPos[hwnd].y }
@@ -2368,8 +2391,9 @@ CalculateDynamicLayout() {
 ResolveFloatingCollisions(windows) {
     global Config, g
     
-    ; Check if currently dragging
-    isDragging := GetKeyState("LButton", "P")
+    ; Check if currently dragging a managed window
+    draggedHwnd := GetDraggedManagedWindow()
+    isDragging := (draggedHwnd != 0)
 
     ; More aggressive but gentle collision resolution for overlapping windows
     for i, win1 in windows {
@@ -2587,7 +2611,7 @@ DragWindow() {
         offsetX := mx - x
         offsetY := my - y
 
-        DllCall("winmm\timeBeginPeriod", "UInt", 1)
+        AcquireHighResTimer()
 
         while GetKeyState("LButton", "P") {
             MouseGetPos(&nx, &ny)
@@ -2651,7 +2675,7 @@ DragWindow() {
     catch {
     }
     isDragging := false
-    DllCall("winmm\timeEndPeriod", "UInt", 1)
+    ReleaseHighResTimer()
 
     ; Mark the window as just dragged to prevent smoothing lag
     for win in g["Windows"] {
@@ -2691,6 +2715,7 @@ ToggleArrangement() {
     global g
     g["ArrangementActive"] := !g["ArrangementActive"]
     if (g["ArrangementActive"]) {
+        AcquireHighResTimer()
         UpdateWindowStates()
         SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
         SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
@@ -2698,6 +2723,7 @@ ToggleArrangement() {
     } else {
         SetTimer(CalculateDynamicLayout, 0)
         SetTimer(ApplyWindowMovements, 0)
+        ReleaseHighResTimer()
         ShowTooltip("Window Arrangement: OFF")
     }
 }
@@ -3321,7 +3347,7 @@ UpdateWindowStates() {
     
     ; CRITICAL: Skip rebuilding window list if user is actively dragging a window
     ; This prevents interference with user placement
-    if (GetKeyState("LButton", "P"))
+    if (GetDraggedManagedWindow() != 0)
         return
     
     ; CRITICAL: Skip if any window is currently being snapped by Windows
@@ -3676,10 +3702,14 @@ OnMessage(0x0003, WindowMoveHandler)
 OnMessage(0x0005, WindowSizeHandler)
 
 OnExit(*) {
+    global g_TimerResolutionRefs
     for hwnd in g["ManualWindows"]
         RemoveManualWindowBorder(hwnd)
     TimePhasing.CleanupEffects()
-    DllCall("winmm\timeEndPeriod", "UInt", 1)
+    while (g_TimerResolutionRefs > 0) {
+        try DllCall("winmm\timeEndPeriod", "UInt", 1)
+        g_TimerResolutionRefs -= 1
+    }
 }
 
 ; ====== REQUIRED HELPER FUNCTIONS ======

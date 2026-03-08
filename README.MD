@@ -1,301 +1,226 @@
 # FWDE - Floating Windows Dynamic Equilibrium
 
-**Advanced Physics-Based Window Management for Windows (AutoHotkey v2)**
+Physics-based window management for Windows using AutoHotkey v2.
 
----
+## What is FWDE?
 
-## 🎯 What is FWDE?
+FWDE automatically arranges floating windows using physics simulation. Windows repel each other to avoid overlap while staying within monitor bounds. Designed for workflows with multiple floating windows (DAW plugins, browser tabs, editor windows, terminals).
 
-FWDE is a sophisticated physics-driven window manager that transforms your desktop into a dynamic, self-organizing workspace. Using real-time physics simulation, it intelligently arranges floating windows (browsers, editors, plugins, dialogs) with natural movement, collision avoidance, and space optimization.
+## Features
 
-Perfect for developers, musicians, designers, and power users who work with multiple floating windows and want intelligent, automated organization.
+### Physics Engine
+- Attraction, repulsion, and damping forces
+- Collision avoidance between windows
+- Edge repulsion to fill screen space
+- Configurable update rates and force parameters
 
----
+### Multi-Monitor Support
+- Per-monitor physics calculations
+- Optional cross-monitor mode (multimonitor expanse)
+- Fullscreen detection to exclude games and media players
+- Virtual desktop bounds for unified workspace
 
-## ✨ Key Features
+### Window Detection
+- Automatic detection by process name, window class, or title patterns
+- Excludes system windows, taskbars, and fullscreen apps
+- Manual force-add for any window
+- Configurable inclusion patterns
 
-### 🧠 **Intelligent Physics Engine**
-- **Real-time simulation** with attraction, repulsion, and damping forces
-- **Multi-window interactions** - windows push and pull each other naturally
-- **Edge-aware positioning** - windows utilize full screen real estate
-- **Collision avoidance** - no overlapping windows
-- **Smooth animations** with configurable update rates
+### Manual Controls
+- Lock individual windows in position
+- Optimize layout on demand
+- Toggle physics and arrangement independently
+- Pause lock during window drag, resume on release
 
-### 🖥️ **Multi-Monitor Support**
-- **Per-monitor detection** - each window's physics calculated for its specific monitor
-- **Seamless cross-monitor floating** - windows can move freely across all screens
-- **Monitor-aware fullscreen detection** - accurate identification of true fullscreen apps
-- **Virtual desktop bounds** - unified workspace across multiple displays
+### Debug Tools
+- Window analysis showing why windows are/aren't managed
+- Pattern matching display
+- Real-time tracking of managed windows
+- Force-add capability for stubborn windows
 
-### 🎛️ **Advanced Window Detection**
-- **Smart filtering** - automatically includes relevant windows (browsers, editors, plugins)
-- **Excludes system windows** - taskbars, desktop, fullscreen apps left untouched
-- **Configurable patterns** - easily add new applications to be managed
-- **Manual override** - force-add any window to the physics system
+## Installation
 
-### 🔧 **Manual Controls**
-- **Window locking** - fix individual windows in place
-- **Space optimization** - instantly arrange windows for maximum efficiency
-- **Physics toggles** - enable/disable physics and visual effects
-- **Real-time configuration** - change settings without restarting
+### Requirements
+- Windows 10/11
+- [AutoHotkey v2](https://autohotkey.com) (latest version)
 
-### 🎨 **Visual Effects**
-- **Time-phasing echoes** - beautiful trailing effects for floating windows
-- **Procedural noise clouds** - dynamic visual feedback for plugin windows
-- **Lock indicators** - clear visual borders for manually locked windows
-- **Smooth transitions** - fluid movement with configurable easing
+### Setup
+1. Download `FWDE.ahk`
+2. Run directly with AutoHotkey v2, or compile to `.exe`
+3. Modify `Config` map at top of file (optional)
 
-### 🐛 **Debug & Diagnostics**
-- **Window analysis** - detailed information about why windows are/aren't managed
-- **Pattern matching** - see which detection rules apply to specific windows
-- **Real-time monitoring** - track which windows are being managed
-- **Force-add capability** - manually include stubborn windows
-
----
-
-## 🚀 Installation
-
-### Prerequisites
-- **Windows 10/11**
-- **[AutoHotkey v2](https://autohotkey.com)** (latest version)
-
-### Quick Setup
-1. **Download** `FWDE.ahk` to your preferred location
-2. **Run** the script directly or compile to `.exe` for standalone use
-3. **Configure** settings in the `Config` map (optional)
-4. **Use hotkeys** to control the system
-
-### Compilation (Optional)
+### Compilation
 ```bash
-# Compile to standalone executable
 autohotkey.exe /in FWDE.ahk
 ```
 
----
+## Usage
 
-## 🎮 Usage
+The system starts automatically when launched. Windows matching detection patterns are managed automatically. Use hotkeys for manual control.
 
-### Getting Started
-1. **Launch FWDE** - the system starts automatically
-2. **Open applications** - browsers, editors, terminals, etc.
-3. **Watch the magic** - windows arrange themselves naturally
-4. **Use hotkeys** for manual control when needed
+- **Automatic**: Eligible windows are detected and managed
+- **Lock window**: `Ctrl+Alt+L` locks active window in place (33 second duration, auto-extends during drag)
+- **Force add**: `Ctrl+Alt+A` manually adds active window to physics
+- **Optimize**: `Ctrl+Alt+O` instantly rearranges all windows
 
-### Window Management
-- **Automatic**: FWDE detects and manages eligible windows automatically
-- **Manual Lock**: Press `Ctrl+Alt+L` on any window to lock it in place
-- **Force Add**: Press `Ctrl+Alt+A` to manually add a window to physics
-- **Optimize**: Press `Ctrl+Alt+O` to instantly optimize all window positions
+## Hotkeys
 
----
+| Shortcut | Action | 
+|----------|--------|
+| `Ctrl+Alt+Space` | Toggle Arrangement (master switch) |
+| `Ctrl+Alt+P` | Toggle Physics |
+| `Ctrl+Alt+M` | Toggle Multimonitor Expanse |
+| `Ctrl+Alt+O` | Optimize Window Positions |
+| `Ctrl+Alt+L` | Lock/Unlock Active Window |
+| `Ctrl+Alt+T` | Show Taskbar Menu |
+| `Ctrl+Alt+D` | Debug Window Info |
+| `Ctrl+Alt+I` | Debug Active Window |
+| `Ctrl+Alt+A` | Force Add Active Window |
 
-## ⌨️ Hotkeys Reference
+## Configuration
 
-| Shortcut | Action | Description |
-|----------|--------|-------------|
-| `Ctrl + Alt + Space` | Toggle Arrangement | Enable/disable the entire physics system |
-| `Ctrl + Alt + P` | Toggle Physics | Enable/disable physics calculations |
-| `Ctrl + Alt + F` | Toggle Visual Effects | Enable/disable time-phasing and visual effects |
-| `Ctrl + Alt + M` | Toggle Multi-Monitor | Switch between single-monitor and seamless multi-monitor mode |
-| `Ctrl + Alt + O` | Optimize Positions | Instantly arrange windows for optimal space usage |
-| `Ctrl + Alt + L` | Lock/Unlock Window | Lock or unlock the currently active window |
-| `Ctrl + Alt + T` | Show Taskbar Menu | Display the context menu from the taskbar |
-| `Ctrl + Alt + D` | Debug Window Info | Show comprehensive window tracking information |
-| `Ctrl + Alt + I` | Debug Active Window | Analyze the currently active window in detail |
-| `Ctrl + Alt + A` | Force Add Window | Manually add the active window to physics tracking |
+Settings are in the `Config` map at the top of `FWDE.ahk`.
 
----
-
-## ⚙️ Configuration
-
-All settings are in the `Config` map at the top of `FWDE.ahk`. Changes take effect immediately without restarting.
-
-### Core Physics Settings
+### Core Physics
 ```ahk
-global Config := Map(
-    "MinMargin", 2,                    ; Minimum distance from screen edges (pixels)
-    "MinGap", 21,                      ; Minimum gap between windows
-    "AttractionForce", 0.00005,        ; Force pulling windows toward center
-    "RepulsionForce", 0.8,             ; Force pushing windows apart
-    "EdgeRepulsionForce", 0.80,        ; Force from screen edges
-    "Damping", 0.001,                  ; Friction/damping coefficient
-    "MaxSpeed", 12.0,                  ; Maximum window velocity
-)
+"MinMargin", 2,                    ; Distance from screen edges (px)
+"MinGap", 21,                      ; Gap between windows
+"AttractionForce", 0.00005,        ; Pull toward center
+"RepulsionForce", 0.8,             ; Push apart from other windows
+"EdgeRepulsionForce", 0.80,        ; Push from screen edges
+"Damping", 0.001,                  ; Friction coefficient
+"MaxSpeed", 12.0,                  ; Max velocity
 ```
 
-### Performance Settings
+### Performance
 ```ahk
-"PhysicsTimeStep", 1,                  ; Physics update frequency (ms)
-"VisualTimeStep", 16,                  ; Visual update frequency (ms) - 60fps
-"UserMoveTimeout", 11111,              ; Pause physics after user interaction (ms)
-"ManualLockDuration", 33333,           ; How long manual locks last (ms)
+"PhysicsTimeStep", 1,              ; Physics update frequency (ms)
+"VisualTimeStep", 16,              ; Visual update frequency (ms) - ~60fps
+"UserMoveTimeout", 11111,          ; Pause after user interaction (ms)
+"ManualLockDuration", 33333,       ; Lock duration (ms, ~33 seconds)
 ```
 
-### Window Detection Settings
+### Window Detection
 ```ahk
-"ForceFloatProcesses", [               ; Processes that should always float
+"ForceFloatProcesses", [           ; Always manage these processes
     "firefox.exe", "chrome.exe", "cursor.exe", "code.exe",
     "notepad++.exe", "devenv.exe", "explorer.exe",
     "winword.exe", "excel.exe", "powerpnt.exe", "outlook.exe"
 ],
-"FloatClassPatterns", [                ; Window classes to include
+"FloatClassPatterns", [            ; Window classes to include
     "MozillaWindowClass", "Chrome_WidgetWin_1", "ApplicationFrameWindow",
     "Code.exe", "Cursor.exe", "Notepad", "Notepad++"
 ],
-"FloatTitlePatterns", [                ; Window titles to include
+"FloatTitlePatterns", [            ; Window titles to include
     "VST.*", "JS:.*", "Plugin", "Command Prompt", "Windows Terminal"
 ]
 ```
 
 ### Advanced Features
 ```ahk
-"SeamlessMonitorFloat", false,         ; Allow windows to float across monitors
-"TooltipDuration", 15000,              ; How long debug tooltips stay visible
-"ResizeDelay", 22,                     ; Delay before applying physics after resize
+"MultimonitorExpanse", false,         ; Allow windows to float across monitors
+"TooltipDuration", 15000,              ; Debug tooltip duration (ms)
+"ResizeDelay", 22,                     ; Delay before physics after resize (ms)
 ```
 
----
+## Debugging
 
-## 🔍 Debugging & Troubleshooting
+### Tools
+- `Ctrl+Alt+D` - Show all tracked/untracked windows with details
+- `Ctrl+Alt+I` - Analyze active window (why managed/not managed)
+- `Ctrl+Alt+A` - Manually add window to physics
 
-### Debug Tools
-- **`Ctrl+Alt+D`** - Shows all tracked vs untracked windows with detailed information
-- **`Ctrl+Alt+I`** - Analyzes the active window and shows why it is/isn't being managed
-- **`Ctrl+Alt+A`** - Manually add any window to the physics system
+### Troubleshooting
 
-### Common Issues
+**Windows not moving**
+1. Check arrangement: `Ctrl+Alt+Space` (must be ON)
+2. Check physics: `Ctrl+Alt+P` (must be ON)
+3. Debug window: `Ctrl+Alt+I` on the window
+4. Force add: `Ctrl+Alt+A` if detection failed
 
-#### Windows Not Moving
-1. **Check arrangement status**: Press `Ctrl+Alt+Space` to ensure it's ON
-2. **Check physics status**: Press `Ctrl+Alt+P` to ensure physics is ON
-3. **Debug window**: Press `Ctrl+Alt+I` on the problematic window
-4. **Force add**: Press `Ctrl+Alt+A` if the window should be managed
+**Too much movement**
+- Increase damping: `"Damping"` to 0.005+
+- Reduce repulsion: `"RepulsionForce"` to 0.3 or less
+- Lock windows: `Ctrl+Alt+L` to fix position
 
-#### Too Much Movement
-- **Increase damping**: Set `"Damping"` to 0.005 or higher
-- **Reduce repulsion**: Lower `"RepulsionForce"` to 0.3 or less
-- **Lock windows**: Use `Ctrl+Alt+L` to lock windows in place
+**Performance issues**
+- Increase timesteps: `"PhysicsTimeStep"` to 5, `"VisualTimeStep"` to 33
+- Lock unnecessary windows: `Ctrl+Alt+L`
 
-#### Performance Issues
-- **Increase timesteps**: Set `"PhysicsTimeStep"` to 5 and `"VisualTimeStep"` to 33
-- **Reduce window count**: Lock unnecessary windows with `Ctrl+Alt+L`
-- **Disable effects**: Press `Ctrl+Alt+F` to turn off visual effects
+**Multi-monitor issues**
+- Toggle mode: `Ctrl+Alt+M` for multimonitor expanse
+- Check detection: `Ctrl+Alt+D` shows monitor assignments
 
-#### Multi-Monitor Problems
-- **Toggle seamless mode**: Press `Ctrl+Alt+M` to switch between modes
-- **Check monitor detection**: Use `Ctrl+Alt+D` to see monitor assignments
-- **Verify window positions**: Ensure windows are on the intended monitors
+**Window not detected**
+- Check patterns: `Ctrl+Alt+I` shows which patterns match
+- Add to `ForceFloatProcesses`: Add process name to config
+- Force add: `Ctrl+Alt+A` for immediate inclusion
 
-#### Windows Not Detected
-- **Check patterns**: Use `Ctrl+Alt+I` to see which patterns match
-- **Add to ForceFloatProcesses**: Add the process name to the config
-- **Force add manually**: Use `Ctrl+Alt+A` for immediate inclusion
+## Use Cases
 
----
+**Music Production**
+- DAW plugin management (VST windows)
+- Multi-monitor plugin layouts
+- Lock main DAW interface, float plugins
 
-## 🎯 Use Cases
+**Software Development**
+- IDE + browser + terminal arrangements
+- Documentation windows without overlap
+- Reference materials accessible
 
-### 🎵 **Music Production**
-- **DAW Plugin Management**: Automatically arranges VST plugins, effects, and instruments
-- **Multi-Monitor Workflow**: Seamless plugin organization across multiple screens
-- **Lock Critical Windows**: Keep your main DAW interface fixed while plugins float
+**Design & Creative Work**
+- Tool palettes from Photoshop, Illustrator, etc.
+- Reference images and color pickers
+- Multi-application workflows
 
-### 💻 **Software Development**
-- **IDE + Browser**: Firefox/Chrome and code editors work together harmoniously
-- **Terminal Management**: Command prompts and terminals arrange themselves
-- **Documentation Windows**: Reference materials stay accessible without overlap
+**Data Analysis**
+- Spreadsheet + browser coordination
+- Multiple data visualization windows
+- PDF + browser + analysis tool layouts
 
-### 🎨 **Design & Creative Work**
-- **Tool Palette Organization**: Photoshop, Illustrator, and other creative tools
-- **Reference Management**: Image viewers, color pickers, and design references
-- **Multi-Application Workflow**: Seamless switching between design applications
+## Technical Details
 
-### 📊 **Data Analysis**
-- **Spreadsheet + Browser**: Excel and web research tools work together
-- **Chart Management**: Multiple data visualization windows organized automatically
-- **Research Workflow**: PDFs, browsers, and analysis tools in harmony
+**Physics Engine**
+- Custom attraction/repulsion force model
+- Velocity integration with damping
+- Per-frame collision detection
+- Boundary enforcement
 
----
+**Window Detection**
+- Multi-pattern matching (process, class, title, style)
+- Fullscreen exclusion via Windows API
+- Min/max state checking
+- Manual override support
 
-## 🏗️ Technical Details
+**Multi-Monitor**
+- Per-monitor physics calculations
+- Optional cross-monitor mode
+- Virtual desktop bounds
+- Monitor-aware positioning
 
-### Architecture
-- **Physics Engine**: Custom implementation with attraction/repulsion forces
-- **Window Detection**: Multi-pattern matching system (process, class, title, style)
-- **Multi-Monitor**: Per-monitor physics calculations with cross-monitor support
-- **Performance**: Adaptive update rates with resource management
+**Performance**
+- Adaptive update rates
+- High-resolution timer for drag operations
+- Resource management (timer acquisition/release)
+- Lock state tracking with expiration
 
-### Window Detection Logic
-1. **Existence Check**: Window must exist and be accessible
-2. **Fullscreen Check**: Excludes true fullscreen applications (games, media players)
-3. **Min/Max Check**: Excludes minimized or maximized windows
-4. **Pattern Matching**: Checks against ForceFloatProcesses, FloatClassPatterns, FloatTitlePatterns
-5. **Style Analysis**: Examines Windows API style flags
-6. **Manual Override**: Allows force-adding any window
+## Recent Changes
 
-### Physics Simulation
-- **Force Calculation**: Attraction toward center, repulsion from other windows and edges
-- **Velocity Integration**: Smooth movement with configurable damping
-- **Collision Detection**: Prevents window overlap with configurable tolerance
-- **Boundary Enforcement**: Keeps windows within monitor bounds
+- Enhanced window detection (fixed fullscreen detection for browsers/editors)
+- Added common applications to default patterns (Firefox, Chrome, Cursor, VS Code, Office)
+- Lock auto-extends during active drag to prevent timeout mid-interaction
+- Lock state awareness: physics knows when lock expires and transitions cleanly
+- Multimonitor expanse mode (renamed from "seamless float")
+- Visual border for locked windows (red, 5px offset)
+- Debug tools for pattern matching and window analysis
+- Performance tuning (increased repulsion, reduced attraction, better edge positioning)
 
----
+## License
 
-## 🔄 Recent Updates
+See `LICENSE` file.
 
-### Enhanced Window Detection
-- **Fixed fullscreen detection** - browsers and editors no longer incorrectly excluded
-- **Added common applications** - Firefox, Chrome, Cursor, VS Code, Office apps
-- **Improved pattern matching** - more accurate detection of relevant windows
-- **Multi-monitor awareness** - per-monitor physics calculations
+## Credits
 
-### Debug & Diagnostic Tools
-- **Real-time window analysis** - see exactly why windows are/aren't managed
-- **Pattern matching display** - understand which rules apply to each window
-- **Force-add capability** - manually include any window in the physics system
-- **Comprehensive monitoring** - track all managed windows at a glance
+Created by Flalaski with AI assistance (Copilot, DeepSeek, Gemini).
 
-### Performance Optimizations
-- **Increased repulsion force** - windows spread out more effectively
-- **Reduced attraction force** - allows better space utilization
-- **Enhanced interaction ranges** - larger gaps between windows
-- **Improved edge positioning** - better use of screen real estate
-
----
-
-## 🤝 Contributing
-
-FWDE is actively developed and welcomes contributions:
-
-- **Bug Reports**: Use the debug tools to identify issues
-- **Feature Requests**: Suggest new capabilities or improvements
-- **Code Contributions**: Submit pull requests for enhancements
-- **Documentation**: Help improve this README and inline comments
-
----
-
-## 📄 License
-
-This project is open source. See the `LICENSE` file for details.
-
----
-
-## 👨‍💻 Credits
-
-**Created by Flalaski** with AI assistance (Copilot, DeepSeek, Gemini)  
-**Streamlined for stability and essential functionality**
-
-Special thanks to the AutoHotkey community for the excellent v2 platform.
-
----
-
-## 🆘 Support
-
-Having issues? Here's how to get help:
-
-1. **Use debug tools** (`Ctrl+Alt+D`, `Ctrl+Alt+I`) to identify the problem
-2. **Check this README** for common solutions
-3. **Review the configuration** - most issues are settings-related
-4. **Test with minimal setup** - disable effects and reduce window count
-
-**Happy floating! 🪟✨**
+AutoHotkey v2 community for the platform.

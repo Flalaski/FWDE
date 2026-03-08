@@ -1,4 +1,4 @@
-; --- Dropdown/Menu Detection ---
+﻿; --- Dropdown/Menu Detection ---
 IsDropdownOrMenuWindow(hwnd) {
     try {
         if (!SafeWinExist(hwnd))
@@ -76,7 +76,7 @@ global Config := Map(
     "ManualLockDuration", 33333,     ; How long manual window locks last (ms) - about 33 seconds
     "ResizeDelay", 22,
     "TooltipDuration", 15000,
-    "SeamlessMonitorFloat", false,   ; Toggle for seamless multi-monitor floating
+    "MultimonitorExpanse", false,   ; Toggle for multi-monitor expanse (seamless floating)
     "FloatStyles",  0x00C00000 | 0x00040000 | 0x00080000 | 0x00020000 | 0x00010000,
     "FloatClassPatterns", [
         "Vst.*",         ; VST plugins
@@ -162,26 +162,13 @@ global Config := Map(
 )
 
 global g := Map(
-    "Monitor", Config["SeamlessMonitorFloat"] ? GetVirtualDesktopBounds() : GetCurrentMonitorInfo(),
+    "Monitor", Config["MultimonitorExpanse"] ? GetVirtualDesktopBounds() : GetCurrentMonitorInfo(),
     "ArrangementActive", true,  ; Arrangement ON by default
     "LastUserMove", 0,
     "ActiveWindow", 0,
     "Windows", [],
     "PhysicsEnabled", true,
-    "FairyDustEnabled", true,
     "SnapInProgress", Map(),  ; Track windows currently being snapped by Windows
-    "TimePhasingConfig", Map(
-        "MaxEchoesPerWindow", 5,
-        "NoiseCloudDensity", 25,
-        "EffectUpdateFrequency", 16,  ; 60fps for effects
-        "EchoLifeRange", [20, 40],
-        "NoiseScale", 0.05,
-        "VisualQuality", "high",  ; "low", "medium", "high"
-        "EnableParticleTrails", true,
-        "TrailLength", 120,
-        "EnableColorShifting", true,
-        "EnableGlowEffects", true
-    ),
     "ManualWindows", Map(),
     "SystemEnergy", 1,
     "InternalMoveDepth", 0,
@@ -331,8 +318,6 @@ class NoiseAnimator {
 ; [REMOVED DUPLICATE] GetVisibleWindows function definition removed to resolve conflict.
 
 ; [REMOVED DUPLICATE] CleanupStaleWindows function definition removed to resolve conflict.
-
-; [REMOVED DUPLICATE] TimePhasing class definition removed to resolve conflict.
 
 SafeWinExist(hwnd) {
     try {
@@ -597,11 +582,11 @@ GetPrimaryMonitorCoordinates() {
 }
 
 GetVirtualDesktopBounds() {
-    ; Get the combined bounds of all monitors for seamless floating
+    ; Get the combined bounds of all monitors for multimonitor expanse
     global Config
 
-    if (!Config["SeamlessMonitorFloat"]) {
-        ; Return current monitor bounds if seamless floating is disabled
+    if (!Config["MultimonitorExpanse"]) {
+        ; Return current monitor bounds if multimonitor expanse is disabled
         return GetCurrentMonitorInfo()
     }
 
@@ -882,12 +867,11 @@ GetVisibleWindows(monitor) {
                 winMonitor := MonitorGetPrimary()
                 MonitorGet winMonitor, &mL, &mT, &mR, &mB
             }
-
             ; Check if window should be included based on floating mode
             includeWindow := false
 
-            if (Config["SeamlessMonitorFloat"]) {
-                ; In seamless mode, include all windows from all monitors
+            if (Config["MultimonitorExpanse"]) {
+                ; In multimonitor expanse mode, include all windows from all monitors
                 includeWindow := true
             } else {
                 ; In traditional mode, only include windows on current monitor or already tracked
@@ -975,11 +959,6 @@ GetVisibleWindows(monitor) {
                 }
                 
                 WinList.Push(winEntry)
-
-                ; Add time-phasing echo for all floating windows
-                if (g["FairyDustEnabled"]) {
-                    TimePhasing.AddEcho(window["hwnd"])
-                }
             }
         }
         catch {
@@ -1008,597 +987,6 @@ CleanupStaleWindows() {
             }
         }
         index--
-    }
-}
-
-class TimePhasing {
-    static echoes := Map()
-    static lastCleanup := 0
-    static noiseClouds := Map() ; Store noise cloud data per hwnd
-    static particleTrails := Map() ; Store particle trails per window
-    static gdiPlusToken := 0
-    static overlayGui := 0
-    static overlayBitmap := 0
-    static overlayGraphics := 0
-    static lastRenderTime := 0
-
-    static InitGdiPlus() {
-        if (this.gdiPlusToken != 0)
-            return true
-            
-        try {
-            ; Initialize GDI+
-            DllCall("gdiplus\GdiplusStartup", "Ptr*", &token, "Ptr", 0, "Ptr", 0)
-            this.gdiPlusToken := token
-            
-            ; Create overlay GUI
-            this.overlayGui := Gui("+ToolWindow -Caption +E0x20 +AlwaysOnTop +LastFound +E0x08000000")
-            this.overlayGui.BackColor := "000000"
-            this.overlayGui.Show("x0 y0 w" A_ScreenWidth " h" A_ScreenHeight " NA")
-            WinSetTransparent(200, this.overlayGui.Hwnd)  ; Semi-transparent to see effects
-            WinSetExStyle("+0x20", this.overlayGui.Hwnd)
-            
-            ; Create bitmap and graphics for drawing
-            DllCall("gdiplus\GdipCreateBitmap", "Int", A_ScreenWidth, "Int", A_ScreenHeight, "Int", 0, "Int", 0x26200A, "Ptr*", &bitmap)
-            this.overlayBitmap := bitmap
-            DllCall("gdiplus\GdipGetImageGraphicsContext", "Ptr", bitmap, "Ptr*", &graphics)
-            this.overlayGraphics := graphics
-            
-            ; Set up graphics for transparency
-            DllCall("gdiplus\GdipSetCompositingMode", "Ptr", graphics, "Int", 1)  ; SourceOver
-            DllCall("gdiplus\GdipSetCompositingQuality", "Ptr", graphics, "Int", 2)  ; HighQuality
-            DllCall("gdiplus\GdipSetSmoothingMode", "Ptr", graphics, "Int", 2)  ; AntiAlias
-            
-            return true
-        }
-        catch {
-            return false
-        }
-    }
-
-    static AddEcho(hwnd) {
-        if (!SafeWinExist(hwnd))
-            return
-
-        ; Initialize GDI+ if needed
-        if (!this.InitGdiPlus())
-            return
-
-        if (!this.echoes.Has(hwnd)) {
-            this.echoes[hwnd] := {
-                phases: [],
-                lastUpdate: 0
-            }
-        }
-
-        ; Use configurable update frequency
-        updateInterval := g["TimePhasingConfig"]["EffectUpdateFrequency"]
-        if (A_TickCount - this.echoes[hwnd].lastUpdate < updateInterval)
-            return
-
-        try {
-            WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-            this.echoes[hwnd].lastUpdate := A_TickCount
-
-            ; Enhanced echo generation with better visual effects
-            phases := []
-            maxEchoes := g["TimePhasingConfig"]["MaxEchoesPerWindow"]
-            phaseCount := Random(2, maxEchoes)
-            
-            ; Create more varied and visually appealing echoes
-            Loop phaseCount {
-                idx := A_Index
-                ; Progressive expansion with smoother curves
-                step := idx - 1
-                baseRadius := Random(15, 30)
-                radius := baseRadius + step * Random(8, 15)
-                
-                ; Better opacity curve for smoother fading
-                baseOpacity := Random(40, 90)
-                opacity := baseOpacity * (1 - step * 0.3)
-                
-                ; Configurable life range
-                lifeRange := g["TimePhasingConfig"]["EchoLifeRange"]
-                life := Random(lifeRange[1], lifeRange[2]) + step * Random(3, 8)
-                
-                ; More natural angle distribution
-                angle := Random(0, 359)
-                offsetX := Round(radius * Cos(angle * 3.14159 / 180))
-                offsetY := Round(radius * Sin(angle * 3.14159 / 180))
-                
-                ; Enhanced phase properties
-                phases.Push({
-                    timeOffset: step * Random(60, 120),
-                    opacity: Max(opacity, 10),
-                    life: life,
-                    offsetX: offsetX,
-                    offsetY: offsetY,
-                    radius: radius,
-                    color: this.GenerateEchoColor(idx),
-                    size: Random(3, 8)
-                })
-            }
-            this.echoes[hwnd].phases := phases
-        }
-        catch {
-            return
-        }
-
-        ; --- Add/Update enhanced noise cloud ---
-        this.GenerateNoiseCloud(hwnd, x, y, w, h)
-        
-        ; --- Add particle trails if enabled ---
-        if (g["TimePhasingConfig"]["EnableParticleTrails"]) {
-            this.GenerateParticleTrail(hwnd, x, y, w, h)
-        }
-    }
-
-    static GenerateEchoColor(index) {
-        ; Generate vibrant, varied colors for echoes
-        colors := [
-            "FF6B6B",  ; Coral
-            "4ECDC4",  ; Teal
-            "45B7D1",  ; Sky Blue
-            "96CEB4",  ; Mint
-            "FFEAA7",  ; Soft Yellow
-            "DDA0DD",  ; Plum
-            "98D8C8",  ; Seafoam
-            "F7DC6F"   ; Light Gold
-        ]
-        return colors[Mod(index - 1, colors.Length) + 1]
-    }
-
-    static GenerateNoiseCloud(hwnd, x, y, w, h) {
-        ; Generate enhanced noise cloud with better distribution
-        density := g["TimePhasingConfig"]["NoiseCloudDensity"]
-        noiseScale := g["TimePhasingConfig"]["NoiseScale"]
-        points := []
-        
-        ; Use Poisson disk sampling for better distribution
-        Loop density {
-            i := A_Index
-            ; Try multiple positions for better coverage
-            attempts := 0
-            while (attempts < 10) {
-                px := x + Random(0, w)
-                py := y + Random(0, h)
-                
-                ; Check minimum distance from other points
-                minDist := 20
-                validPos := true
-                for pt in points {
-                    dist := Sqrt((px - pt.x)**2 + (py - pt.y)**2)
-                    if (dist < minDist) {
-                        validPos := false
-                        break
-                    }
-                }
-                
-                if (validPos) {
-                    ; Enhanced noise calculation
-                    noise := NoiseAnimator.noise(px * noiseScale, py * noiseScale)
-                    alpha := 25 + Round(40 * Abs(noise))
-                    
-                    ; Add color variation based on noise
-                    colorIntensity := Abs(noise)
-                    color := this.GenerateNoiseColor(colorIntensity)
-                    
-                    points.Push({ 
-                        x: px, 
-                        y: py, 
-                        alpha: Max(alpha, 60),  ; Ensure minimum visibility
-                        color: color,
-                        size: Random(4, 8),  ; Larger particles
-                        driftX: Random(-1.0, 1.0),
-                        driftY: Random(-1.0, 1.0)
-                    })
-                    break
-                }
-                attempts++
-            }
-        }
-        
-        this.noiseClouds[hwnd] := {
-            points: points,
-            lastUpdate: A_TickCount
-        }
-    }
-
-    static GenerateNoiseColor(intensity) {
-        ; Generate vibrant colors based on noise intensity
-        if (intensity < 0.3) {
-            return "FF6B6B"  ; Bright coral
-        } else if (intensity < 0.6) {
-            return "4ECDC4"  ; Bright teal
-        } else {
-            return "FFE66D"  ; Bright yellow
-        }
-    }
-
-    static GenerateParticleTrail(hwnd, x, y, w, h) {
-        ; Generate particle trails for enhanced visual effects
-        if (!this.particleTrails.Has(hwnd)) {
-            this.particleTrails[hwnd] := {
-                particles: [],
-                lastUpdate: 0
-            }
-        }
-        
-        trailData := this.particleTrails[hwnd]
-        
-        ; Add new particles to the trail
-        trailLength := g["TimePhasingConfig"]["TrailLength"]
-        if (trailData.particles.Length < trailLength) {
-            particleCount := Random(2, 4)
-            Loop particleCount {
-                particle := {
-                    x: x + Random(0, w),
-                    y: y + Random(0, h),
-                    life: trailLength,
-                    maxLife: trailLength,
-                    size: Random(3, 6),  ; Larger particles
-                    color: this.GenerateTrailColor(),
-                    alpha: 120,  ; More visible
-                    velocityX: Random(-1.5, 1.5),
-                    velocityY: Random(-1.5, 1.5)
-                }
-                trailData.particles.Push(particle)
-            }
-        }
-        
-        ; Update existing particles
-        validParticles := []
-        for particle in trailData.particles {
-            particle.life--
-            if (particle.life > 0) {
-                ; Move particle
-                particle.x += particle.velocityX
-                particle.y += particle.velocityY
-                
-                ; Fade out over time
-                lifeRatio := particle.life / particle.maxLife
-                particle.alpha := Round(80 * lifeRatio)
-                particle.size := Max(1, particle.size * lifeRatio)
-                
-                ; Add subtle color shift
-                if (g["TimePhasingConfig"]["EnableColorShifting"]) {
-                    particle.color := this.ShiftTrailColor(particle.color, lifeRatio)
-                }
-                
-                validParticles.Push(particle)
-            }
-        }
-        
-        trailData.particles := validParticles
-        trailData.lastUpdate := A_TickCount
-    }
-
-    static GenerateTrailColor() {
-        ; Generate colors for particle trails
-        colors := [
-            "FFD700",  ; Gold
-            "FF69B4",  ; Hot Pink
-            "00CED1",  ; Dark Turquoise
-            "FF6347",  ; Tomato
-            "9370DB",  ; Medium Purple
-            "32CD32"   ; Lime Green
-        ]
-        return colors[Random(1, colors.Length)]
-    }
-
-    static ShiftTrailColor(color, lifeRatio) {
-        ; Shift trail color based on life remaining
-        r := Integer("0x" SubStr(color, 1, 2))
-        green := Integer("0x" SubStr(color, 3, 2))
-        b := Integer("0x" SubStr(color, 5, 2))
-        
-        ; Shift toward cooler colors as particle fades
-        shift := (1 - lifeRatio) * 50
-        r := Max(0, Min(255, r - shift * 0.3))
-        green := Max(0, Min(255, green + shift * 0.2))
-        b := Max(0, Min(255, b + shift * 0.4))
-        
-        return Format("{:02X}{:02X}{:02X}", r, green, b)
-    }
-
-    static UpdateEchoes() {
-        ; Debug: Check if we have any effects to render
-        if (this.echoes.Count == 0 && this.noiseClouds.Count == 0 && this.particleTrails.Count == 0) {
-            ; No effects to render, skip
-            return
-        }
-        
-        ; Periodic cleanup to prevent memory leaks
-        if (A_TickCount - this.lastCleanup > 10000) {  ; Cleanup every 10 seconds
-            this.PerformCleanup()
-            this.lastCleanup := A_TickCount
-        }
-
-        ; Update echoes with improved performance
-        for hwnd, data in this.echoes.Clone() {
-            try {
-                if (!SafeWinExist(hwnd)) {
-                this.echoes.Delete(hwnd)
-                if (this.noiseClouds.Has(hwnd))
-                    this.noiseClouds.Delete(hwnd)
-                if (this.particleTrails.Has(hwnd))
-                    this.particleTrails.Delete(hwnd)
-                continue
-                }
-
-                ; Update phase lifetimes and expansion with smoother animation
-                validPhases := []
-                for phase in data.phases {
-                    phase.life--
-                    if (phase.life > 0) {
-                        ; Smoother expansion and fading
-                        expansionRate := 1 + phase.life * 0.008
-                        phase.radius += expansionRate
-                        phase.opacity := Max(phase.opacity - 1.5, 0)
-                        
-                        ; Add subtle color shift over time
-                        phase.color := this.ShiftColorOverTime(phase.color, phase.life)
-                        
-                        validPhases.Push(phase)
-                    }
-                }
-                data.phases := validPhases
-            }
-            catch {
-                this.echoes.Delete(hwnd)
-                continue
-            }
-        }
-
-        ; Update noise clouds with optimized animation
-        for hwnd, cloud in this.noiseClouds.Clone() {
-            if (!SafeWinExist(hwnd)) {
-                this.noiseClouds.Delete(hwnd)
-                continue
-            }
-            
-            ; Animate cloud points with smoother drifting
-            for pt in cloud.points {
-                ; Apply drift with smoothing
-                pt.x += pt.driftX
-                pt.y += pt.driftY
-                
-                ; Keep points within window bounds (approximate)
-                WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " hwnd)
-                pt.x := Max(wx, Min(pt.x, wx + ww))
-                pt.y := Max(wy, Min(pt.y, wy + wh))
-                
-                ; Recalculate alpha with noise (less frequently for performance)
-                if (Random(1, 10) == 1) {  ; Only recalculate 10% of the time
-                    noiseScale := g["TimePhasingConfig"]["NoiseScale"]
-                    noise := NoiseAnimator.noise(pt.x * noiseScale, pt.y * noiseScale)
-                    pt.alpha := 25 + Round(40 * Abs(noise))
-                }
-            }
-            cloud.lastUpdate := A_TickCount
-        }
-        
-        ; Render effects if enough time has passed
-        renderInterval := g["TimePhasingConfig"]["EffectUpdateFrequency"]
-        if (A_TickCount - this.lastRenderTime >= renderInterval) {
-            this.RenderEffects()
-            this.lastRenderTime := A_TickCount
-        }
-    }
-
-    static ShiftColorOverTime(color, life) {
-        ; Subtle color shifting for dynamic effects
-        ; Convert hex to RGB
-        r := Integer("0x" SubStr(color, 1, 2))
-        green := Integer("0x" SubStr(color, 3, 2))
-        b := Integer("0x" SubStr(color, 5, 2))
-        
-        ; Apply subtle shift based on life remaining
-        shift := (20 - life) * 2
-        r := Max(0, Min(255, r + shift))
-        green := Max(0, Min(255, green - shift * 0.5))
-        b := Max(0, Min(255, b + shift * 0.3))
-        
-        ; Convert back to hex
-        return Format("{:02X}{:02X}{:02X}", r, green, b)
-    }
-
-    static PerformCleanup() {
-        ; Clean up expired echoes and noise clouds
-        for hwnd, data in this.echoes.Clone() {
-            if (!SafeWinExist(hwnd) || data.phases.Length == 0) {
-                this.echoes.Delete(hwnd)
-            }
-        }
-        
-        for hwnd, cloud in this.noiseClouds.Clone() {
-            if (!SafeWinExist(hwnd) || A_TickCount - cloud.lastUpdate > 30000) {
-                this.noiseClouds.Delete(hwnd)
-            }
-        }
-        
-        for hwnd, trailData in this.particleTrails.Clone() {
-            if (!SafeWinExist(hwnd) || A_TickCount - trailData.lastUpdate > 30000) {
-                this.particleTrails.Delete(hwnd)
-            }
-        }
-    }
-
-    static GetNoiseCloud(hwnd) {
-        ; Retrieve noise cloud points for rendering
-        return this.noiseClouds.Has(hwnd) ? this.noiseClouds[hwnd].points : []
-    }
-
-    static RenderEffects() {
-        if (!this.overlayGraphics || !this.InitGdiPlus())
-            return
-
-        try {
-            ; Clear the bitmap with transparent background
-            DllCall("gdiplus\GdipGraphicsClear", "Ptr", this.overlayGraphics, "UInt", 0x00000000)
-            
-            ; Debug: Count effects being rendered
-            echoCount := 0
-            cloudCount := 0
-            particleCount := 0
-            
-            ; Render echoes
-            for hwnd, data in this.echoes {
-                if (!SafeWinExist(hwnd))
-                    continue
-                    
-                WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " hwnd)
-                
-                for phase in data.phases {
-                    if (phase.life > 0 && phase.opacity > 0) {
-                        this.DrawEcho(wx, wy, phase)
-                        echoCount++
-                    }
-                }
-            }
-            
-            ; Render noise clouds
-            for hwnd, cloud in this.noiseClouds {
-                if (!SafeWinExist(hwnd))
-                    continue
-                    
-                for pt in cloud.points {
-                    if (pt.alpha > 0) {
-                        this.DrawNoisePoint(pt)
-                        cloudCount++
-                    }
-                }
-            }
-            
-            ; Render particle trails
-            if (g["TimePhasingConfig"]["EnableParticleTrails"]) {
-                for hwnd, trailData in this.particleTrails {
-                    if (!SafeWinExist(hwnd))
-                        continue
-                        
-                    for particle in trailData.particles {
-                        if (particle.life > 0 && particle.alpha > 0) {
-                            this.DrawParticle(particle)
-                            particleCount++
-                        }
-                    }
-                }
-            }
-            
-            ; Present the rendered frame to the GUI
-            ; Update the GUI with the bitmap content
-            if (this.overlayGui && this.overlayBitmap) {
-                ; Get the GUI's device context
-                hdc := DllCall("GetDC", "Ptr", this.overlayGui.Hwnd, "Ptr")
-                if (hdc) {
-                    ; Create a graphics object from the GUI's DC
-                    DllCall("gdiplus\GdipCreateFromHDC", "Ptr", hdc, "Ptr*", &guiGraphics)
-                    if (guiGraphics) {
-                        ; Draw the bitmap to the GUI
-                        DllCall("gdiplus\GdipDrawImage", "Ptr", guiGraphics, "Ptr", this.overlayBitmap, "Int", 0, "Int", 0)
-                        DllCall("gdiplus\GdipDeleteGraphics", "Ptr", guiGraphics)
-                    }
-                    DllCall("ReleaseDC", "Ptr", this.overlayGui.Hwnd, "Ptr", hdc)
-                }
-                this.overlayGui.Show("NA")  ; Show without activating
-            }
-            
-            ; Debug output (remove after testing)
-            if (echoCount > 0 || cloudCount > 0 || particleCount > 0) {
-                ; OutputDebug("Rendered: " echoCount " echoes, " cloudCount " clouds, " particleCount " particles")
-            }
-        }
-        catch {
-            ; Handle rendering errors gracefully
-        }
-    }
-
-    static DrawEcho(windowX, windowY, phase) {
-        ; Draw echo phase using GDI+
-        centerX := windowX + phase.offsetX
-        centerY := windowY + phase.offsetY
-        
-        ; Create brush for the echo
-        color := "0x" phase.color
-        alpha := Round(phase.opacity * 255 / 100)
-        brushColor := (alpha << 24) | color
-        
-        DllCall("gdiplus\GdipCreateSolidFill", "UInt", brushColor, "Ptr*", &brush)
-        DllCall("gdiplus\GdipFillEllipse", "Ptr", this.overlayGraphics, "Ptr", brush, 
-                "Float", centerX - phase.size, "Float", centerY - phase.size, 
-                "Float", phase.size * 2, "Float", phase.size * 2)
-        DllCall("gdiplus\GdipDeleteBrush", "Ptr", brush)
-    }
-
-    static DrawNoisePoint(pt) {
-        ; Draw noise cloud point using GDI+
-        alpha := Round(pt.alpha * 255 / 100)
-        color := Integer("0x" pt.color)
-        brushColor := (alpha << 24) | color
-        
-        DllCall("gdiplus\GdipCreateSolidFill", "UInt", brushColor, "Ptr*", &brush)
-        DllCall("gdiplus\GdipFillEllipse", "Ptr", this.overlayGraphics, "Ptr", brush,
-                "Float", pt.x - pt.size, "Float", pt.y - pt.size,
-                "Float", pt.size * 2, "Float", pt.size * 2)
-        DllCall("gdiplus\GdipDeleteBrush", "Ptr", brush)
-    }
-
-    static DrawParticle(particle) {
-        ; Draw particle with glow effect if enabled
-        alpha := Round(particle.alpha * 255 / 100)
-        color := Integer("0x" particle.color)
-        brushColor := (alpha << 24) | color
-        
-        ; Draw main particle
-        DllCall("gdiplus\GdipCreateSolidFill", "UInt", brushColor, "Ptr*", &brush)
-        DllCall("gdiplus\GdipFillEllipse", "Ptr", this.overlayGraphics, "Ptr", brush,
-                "Float", particle.x - particle.size, "Float", particle.y - particle.size,
-                "Float", particle.size * 2, "Float", particle.size * 2)
-        DllCall("gdiplus\GdipDeleteBrush", "Ptr", brush)
-        
-        ; Add glow effect if enabled
-        if (g["TimePhasingConfig"]["EnableGlowEffects"]) {
-            glowAlpha := Round(alpha * 0.3)
-            glowColor := (glowAlpha << 24) | color
-            glowSize := particle.size * 2
-            
-            DllCall("gdiplus\GdipCreateSolidFill", "UInt", glowColor, "Ptr*", &glowBrush)
-            DllCall("gdiplus\GdipFillEllipse", "Ptr", this.overlayGraphics, "Ptr", glowBrush,
-                    "Float", particle.x - glowSize, "Float", particle.y - glowSize,
-                    "Float", glowSize * 2, "Float", glowSize * 2)
-            DllCall("gdiplus\GdipDeleteBrush", "Ptr", glowBrush)
-        }
-    }
-
-    static CleanupEffects() {
-        ; Enhanced cleanup with proper resource management
-        this.PerformCleanup()
-        
-        ; Clean up GDI+ resources
-        if (this.overlayGraphics) {
-            DllCall("gdiplus\GdipDeleteGraphics", "Ptr", this.overlayGraphics)
-            this.overlayGraphics := 0
-        }
-        
-        if (this.overlayBitmap) {
-            DllCall("gdiplus\GdipDisposeImage", "Ptr", this.overlayBitmap)
-            this.overlayBitmap := 0
-        }
-        
-        if (this.overlayGui) {
-            this.overlayGui.Destroy()
-            this.overlayGui := 0
-        }
-        
-        if (this.gdiPlusToken) {
-            DllCall("gdiplus\GdiplusShutdown", "Ptr", this.gdiPlusToken)
-            this.gdiPlusToken := 0
-        }
-        
-        ; Clear all effect data
-        this.echoes.Clear()
-        this.noiseClouds.Clear()
-        this.particleTrails.Clear()
     }
 }
 
@@ -1703,17 +1091,24 @@ CalculateWindowForces(win, allWindows) {
     isRecentlyMoved := (A_TickCount - g["LastUserMove"] < Config["UserMoveTimeout"])
     isCurrentlyFocused := (win["hwnd"] == WinExist("A"))
     isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
+    wasJustUnlocked := (win.Has("LockLostAt") && (A_TickCount - win["LockLostAt"]) < 100)
     isBeingSnapped := g["SnapInProgress"].Has(win["hwnd"]) && A_TickCount < g["SnapInProgress"][win["hwnd"]]
 
     ; CRITICAL: Manually locked windows and the active window should NEVER be affected by physics
     ; Also protect recently moved windows that are currently focused
     ; Also protect windows being snapped by Windows
+    ; When a lock is just lost (within 100ms), give system time to transition before physics resumes
     ; BUT: when dragging, allow the dragged window to calculate forces to push other windows
-    isProtected := (isManuallyLocked || isActiveWindow || (isRecentlyMoved && isCurrentlyFocused) || isBeingSnapped) && !isDraggedWindow
+    isProtected := (isManuallyLocked || isActiveWindow || (isRecentlyMoved && isCurrentlyFocused) || isBeingSnapped || wasJustUnlocked) && !isDraggedWindow
     if (isProtected) {
         win["vx"] := 0
         win["vy"] := 0
         return
+    }
+    
+    ; Clean up LockLostAt marker after transition period
+    if (wasJustUnlocked) {
+        win.Delete("LockLostAt")
     }
     
     ; Check if window has any actual collisions
@@ -1734,8 +1129,8 @@ CalculateWindowForces(win, allWindows) {
     ; Predeclare monitor bounds to avoid local variable warning
     mL := 0, mT := 0, mR := A_ScreenWidth, mB := A_ScreenHeight
 
-    if (Config["SeamlessMonitorFloat"]) {
-        ; Use virtual desktop bounds for seamless multi-monitor floating
+    if (Config["MultimonitorExpanse"]) {
+        ; Use virtual desktop bounds for multimonitor expanse
         virtualBounds := GetVirtualDesktopBounds()
         mL := virtualBounds["Left"]
         mT := virtualBounds["Top"]
@@ -1960,7 +1355,6 @@ ApplyWindowMovements() {
     }
 
     moveBatch := []
-    movedAny := false
 
     ; Check if currently dragging a managed window
     draggedHwnd := GetDraggedManagedWindow()
@@ -1992,8 +1386,8 @@ ApplyWindowMovements() {
 
         ; Safely get monitor bounds
         try {
-            if (Config["SeamlessMonitorFloat"]) {
-                ; Use virtual desktop bounds for seamless multi-monitor floating
+            if (Config["MultimonitorExpanse"]) {
+                ; Use virtual desktop bounds for multimonitor expanse
                 virtualBounds := GetVirtualDesktopBounds()
                 monLeft := virtualBounds["Left"]
                 monTop := virtualBounds["Top"] + Config["MinMargin"]
@@ -2140,17 +1534,12 @@ ApplyWindowMovements() {
             lastPositions[hwnd].y := smoothPos[hwnd].y
             win["x"] := smoothPos[hwnd].x
             win["y"] := smoothPos[hwnd].y
-            movedAny := true
         }
     }
 
     for move in moveBatch {
         try MoveWindowAPI(move.hwnd, move.x, move.y)
     }
-
-
-    if (g["FairyDustEnabled"] && movedAny)
-        TimePhasing.UpdateEchoes()
 }
 
 ; Calc overlap
@@ -2481,28 +1870,20 @@ AddManualWindowBorder(hwnd) {
         if (g["ManualWindows"].Has(hwnd))
             return
 
-        ; Create GUI with unique name
-        borderGui := Gui("+ToolWindow -Caption +E0x20 +LastFound +AlwaysOnTop +E0x08000000")
-        borderGui.Opt("+Owner" hwnd)  ; Set owner to prevent stealing focus
-        borderGui.BackColor := Config["ManualWindowColor"]
-
-        ; Position border around window
         WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-        borderGui.Show("x" x-2 " y" y-2 " w" w+4 " h" h+4 " NA")
 
-        ; Set transparency
-        WinSetTransparent(Config["ManualWindowAlpha"], borderGui.Hwnd)
-        WinSetTransColor(Config["ManualWindowColor"] " " Config["ManualWindowAlpha"], borderGui.Hwnd)
+        ; Create a single visible red border GUI around the window
+        ; Use solid red (FF0000) with high opacity
+        borderGui := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20000000")
+        borderGui.BackColor := "FF0000"  ; Solid red
+        
+        ; Show border extending 5px outside window on all sides
+        borderGui.Show("x" x-5 " y" y-5 " w" w+10 " h" h+10 " NA")
+        
+        ; Set to near-opaque so it's clearly visible
+        WinSetTransparent(200, borderGui.Hwnd)
 
-        ; Try blur effect (Windows 10/11)
-        try {
-            bbStruct := Buffer(20, 0)
-            NumPut("UInt", 1, bbStruct, 0)  ; dwFlags - DWM_BB_ENABLE
-            NumPut("Int", 1, bbStruct, 4)   ; fEnable
-            DllCall("dwmapi\DwmEnableBlurBehindWindow", "Ptr", borderGui.Hwnd, "Ptr", bbStruct.Ptr)
-        }
-
-        ; Store reference - using Map() instead of object literal
+        ; Store reference
         g["ManualWindows"][hwnd] := Map(
             "gui", borderGui,
             "expire", A_TickCount + Config["ManualLockDuration"]
@@ -2517,7 +1898,10 @@ RemoveManualWindowBorder(hwnd) {
     global g
     try {
         if (g["ManualWindows"].Has(hwnd)) {
-            g["ManualWindows"][hwnd]["gui"].Destroy()
+            data := g["ManualWindows"][hwnd]
+            if (data.Has("gui")) {
+                data["gui"].Destroy()
+            }
             g["ManualWindows"].Delete(hwnd)
         }
     }
@@ -2527,18 +1911,17 @@ UpdateManualBorders() {
     global g, Config
     for hwnd, data in g["ManualWindows"].Clone() {
         try {
-            ; Remove expired borders
+            ; Remove expired locks
             if (A_TickCount > data["expire"]) {
                 RemoveManualWindowBorder(hwnd)
                 continue
             }
 
-            ; Update position
-            if (WinExist("ahk_id " hwnd)) {
+            ; Update border position if window exists
+            if (WinExist("ahk_id " hwnd) && data.Has("gui")) {
                 WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-                data["gui"].Show("x" x-2 " y" y-2 " w" w+4 " h" h+4 " NA")
-            } else {
-                RemoveManualWindowBorder(hwnd)
+                ; Border extends 5px outside the window on all sides
+                data["gui"].Show("x" x-5 " y" y-5 " w" w+10 " h" h+10 " NA")
             }
         }
     }
@@ -2546,16 +1929,20 @@ UpdateManualBorders() {
 
 ClearManualFlags() {
     global g, Config
-    for hwnd, expireTime in g["ManualWindows"].Clone() {
-        if (A_TickCount > expireTime) {
-            RemoveManualWindowBorder(hwnd)
+    for hwnd, data in g["ManualWindows"].Clone() {
+        if (A_TickCount > data["expire"]) {
+            ; LOCK STATE AWARENESS: Record that this window's lock is being disabled
+            ; This allows physics engine to resume normal management
             for win in g["Windows"] {
                 if (win["hwnd"] == hwnd) {
+                    ; Mark that lock was just lost for any dependent systems
+                    win["LockLostAt"] := A_TickCount
                     win.Delete("ManualLock")
                     win.Delete("IsManual")
                     break
                 }
             }
+            RemoveManualWindowBorder(hwnd)
         }
     }
 }
@@ -2595,11 +1982,19 @@ DragWindow() {
         monNum := MonitorGetFromPoint(winCenterX, winCenterY)
         MonitorGet monNum, &mL, &mT, &mR, &mB
 
+        ; Check if this window was already locked before drag
+        wasPreLocked := false
         for win in g["Windows"] {
             if (win["hwnd"] == winID) {
+                ; Check if already has active ManualLock
+                wasPreLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
+                
                 ; Don't auto-lock Electron apps - they update their UI frequently
                 if (!IsElectronApp(winID)) {
-                    win["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
+                    ; Temporarily clear manual lock while dragging
+                    if (wasPreLocked) {
+                        win.Delete("ManualLock")
+                    }
                     win["IsManual"] := true
                     win["vx"] := 0
                     win["vy"] := 0
@@ -2643,6 +2038,25 @@ DragWindow() {
             ; CRITICAL: Explicitly pass original dimensions to prevent any reshaping
             try WinMove(newX, newY, origW, origH, "ahk_id " winID)
             
+            ; AUTO-EXTEND LOCK: Refresh lock timeout during active drag to prevent expiry mid-interaction
+            for win in g["Windows"] {
+                if (win["hwnd"] == winID) {
+                    if (win.Has("ManualLock")) {
+                        win["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
+                    }
+                    break
+                }
+            }
+            
+            ; Update border position during drag if window is locked
+            if (g["ManualWindows"].Has(winID)) {
+                data := g["ManualWindows"][winID]
+                if (data.Has("gui")) {
+                    ; Border extends 5px outside the window on all sides
+                    data["gui"].Show("x" newX-5 " y" newY-5 " w" origW+10 " h" origH+10 " NA")
+                }
+            }
+            
             ; CRITICAL: Verify window size hasn't changed (safety check)
             ; This catches any accidental resizing and immediately corrects it
             try {
@@ -2679,7 +2093,7 @@ DragWindow() {
     isDragging := false
     ReleaseHighResTimer()
 
-    ; Mark the window as just dragged to prevent smoothing lag
+    ; Re-lock the window if it was pre-locked before the drag
     for win in g["Windows"] {
         if (win["hwnd"] == winID) {
             win["JustDragged"] := A_TickCount
@@ -2697,10 +2111,12 @@ DragWindow() {
                 win["targetY"] := finalY
             }
             
-            ; Ensure ManualLock is extended to keep window stationary
-            if (!IsElectronApp(winID)) {
+            ; Re-apply ManualLock if it was pre-locked, OR if set during drag
+            ; This extends the lock timer on the newly positioned window
+            if (wasPreLocked || win.Has("IsManual")) {
                 win["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
                 win["IsManual"] := true
+                AddManualWindowBorder(winID)
             }
             break
         }
@@ -2744,31 +2160,18 @@ TogglePhysics() {
     BuildFWDEMenus()
 }
 
-ToggleTimePhasing() {
-    global g
-    g["FairyDustEnabled"] := !g["FairyDustEnabled"]
-    if (!g["FairyDustEnabled"]) {
-        TimePhasing.CleanupEffects()
-        SetTimer(TimePhasing.UpdateEchoes.Bind(TimePhasing), 0)
-    } else {
-        SetTimer(TimePhasing.UpdateEchoes.Bind(TimePhasing), g["TimePhasingConfig"]["EffectUpdateFrequency"])
-    }
-    ShowTooltip("Time Phasing Effects: " (g["FairyDustEnabled"] ? "ON" : "OFF"))
-    BuildFWDEMenus()
-}
-
-ToggleSeamlessMonitorFloat() {
+ToggleMultimonitorExpanse() {
     global Config, g
-    Config["SeamlessMonitorFloat"] := !Config["SeamlessMonitorFloat"]
+    Config["MultimonitorExpanse"] := !Config["MultimonitorExpanse"]
 
-    if (Config["SeamlessMonitorFloat"]) {
+    if (Config["MultimonitorExpanse"]) {
         ; Update monitor bounds to use virtual desktop
         g["Monitor"] := GetVirtualDesktopBounds()
-        ShowTooltip("Seamless Multi-Monitor Floating: ON - Windows can float across all monitors")
+        ShowTooltip("Multimonitor Expanse: ON - Windows can float across all monitors")
     } else {
         ; Revert to current monitor
         g["Monitor"] := GetCurrentMonitorInfo()
-        ShowTooltip("Seamless Multi-Monitor Floating: OFF - Windows confined to current monitor")
+        ShowTooltip("Multimonitor Expanse: OFF - Windows confined to current monitor")
     }
 
     ; Force update of all window states to apply new boundaries
@@ -3394,7 +2797,7 @@ UpdateWindowStates() {
         return
     
     ; Get current monitor info or virtual desktop bounds
-    monitor := Config["SeamlessMonitorFloat"] ? GetVirtualDesktopBounds() : GetCurrentMonitorInfo()
+    monitor := Config["MultimonitorExpanse"] ? GetVirtualDesktopBounds() : GetCurrentMonitorInfo()
     ; Update window list
     g["Windows"] := GetVisibleWindows(monitor)
     ; Update manual borders and clear expired flags
@@ -3437,8 +2840,7 @@ BuildFWDEMenus() {
 
     arrangementStatus := StatusText(g["ArrangementActive"])
     physicsStatus := StatusText(g["PhysicsEnabled"])
-    timePhasingStatus := StatusText(g["FairyDustEnabled"])
-    seamlessStatus := StatusText(Config["SeamlessMonitorFloat"])
+    expanseStatus := StatusText(Config["MultimonitorExpanse"])
     debugStatus := StatusText(DebugMode)
     windowLockStatus := GetWindowLockStatusText()
 
@@ -3446,17 +2848,16 @@ BuildFWDEMenus() {
     TaskbarMenu.Delete()
     DebugTaskbarMenu.Delete()
 
-    TaskbarMenu.Add("Toggle Arrangement [" arrangementStatus "]", (*) => ToggleArrangement())
-    TaskbarMenu.Add("Optimize Windows", (*) => OptimizeWindowPositions())
-    TaskbarMenu.Add("Toggle Physics [" physicsStatus "]", (*) => TogglePhysics())
-    TaskbarMenu.Add("Toggle Time Phasing [" timePhasingStatus "]", (*) => ToggleTimePhasing())
-    TaskbarMenu.Add("Toggle Seamless Float [" seamlessStatus "]", (*) => ToggleSeamlessMonitorFloat())
-    TaskbarMenu.Add("Toggle Window Lock [" windowLockStatus "]", (*) => ToggleWindowLock())
+    TaskbarMenu.Add("Toggle Arrangement [" arrangementStatus "] (Ctrl+Alt+Space)", (*) => ToggleArrangement())
+    TaskbarMenu.Add("Optimize Windows (Ctrl+Alt+O)", (*) => OptimizeWindowPositions())
+    TaskbarMenu.Add("Toggle Physics [" physicsStatus "] (Ctrl+Alt+P)", (*) => TogglePhysics())
+    TaskbarMenu.Add("Toggle Multimonitor Expanse [" expanseStatus "] (Ctrl+Alt+M)", (*) => ToggleMultimonitorExpanse())
+    TaskbarMenu.Add("Toggle Window Lock [" windowLockStatus "] (Ctrl+Alt+L)", (*) => ToggleWindowLock())
 
     DebugTaskbarMenu.Add("Toggle Debug Mode [" debugStatus "]", (*) => ToggleDebugMode())
-    DebugTaskbarMenu.Add("Debug Window Info", (*) => DebugWindowInfo())
-    DebugTaskbarMenu.Add("Debug Active Window", (*) => DebugActiveWindow())
-    DebugTaskbarMenu.Add("Force Add Active Window", (*) => ForceAddActiveWindow())
+    DebugTaskbarMenu.Add("Debug Window Info (Ctrl+Alt+D)", (*) => DebugWindowInfo())
+    DebugTaskbarMenu.Add("Debug Active Window (Ctrl+Alt+I)", (*) => DebugActiveWindow())
+    DebugTaskbarMenu.Add("Force Add Active Window (Ctrl+Alt+A)", (*) => ForceAddActiveWindow())
 
     TaskbarMenu.Add("Debug", DebugTaskbarMenu)
     TaskbarMenu.Add()
@@ -3468,17 +2869,16 @@ BuildFWDEMenus() {
 
     A_TrayMenu.Add("Show FWDE Menu", (*) => ShowTaskbarMenu())
     A_TrayMenu.Add()
-    A_TrayMenu.Add("Toggle Arrangement [" arrangementStatus "]", (*) => ToggleArrangement())
-    A_TrayMenu.Add("Optimize Windows", (*) => OptimizeWindowPositions())
-    A_TrayMenu.Add("Toggle Physics [" physicsStatus "]", (*) => TogglePhysics())
-    A_TrayMenu.Add("Toggle Time Phasing [" timePhasingStatus "]", (*) => ToggleTimePhasing())
-    A_TrayMenu.Add("Toggle Seamless Float [" seamlessStatus "]", (*) => ToggleSeamlessMonitorFloat())
-    A_TrayMenu.Add("Toggle Window Lock [" windowLockStatus "]", (*) => ToggleWindowLock())
+    A_TrayMenu.Add("Toggle Arrangement [" arrangementStatus "] (Ctrl+Alt+Space)", (*) => ToggleArrangement())
+    A_TrayMenu.Add("Optimize Windows (Ctrl+Alt+O)", (*) => OptimizeWindowPositions())
+    A_TrayMenu.Add("Toggle Physics [" physicsStatus "] (Ctrl+Alt+P)", (*) => TogglePhysics())
+    A_TrayMenu.Add("Toggle Multimonitor Expanse [" expanseStatus "] (Ctrl+Alt+M)", (*) => ToggleMultimonitorExpanse())
+    A_TrayMenu.Add("Toggle Window Lock [" windowLockStatus "] (Ctrl+Alt+L)", (*) => ToggleWindowLock())
 
     DebugTrayMenu.Add("Toggle Debug Mode [" debugStatus "]", (*) => ToggleDebugMode())
-    DebugTrayMenu.Add("Debug Window Info", (*) => DebugWindowInfo())
-    DebugTrayMenu.Add("Debug Active Window", (*) => DebugActiveWindow())
-    DebugTrayMenu.Add("Force Add Active Window", (*) => ForceAddActiveWindow())
+    DebugTrayMenu.Add("Debug Window Info (Ctrl+Alt+D)", (*) => DebugWindowInfo())
+    DebugTrayMenu.Add("Debug Active Window (Ctrl+Alt+I)", (*) => DebugActiveWindow())
+    DebugTrayMenu.Add("Force Add Active Window (Ctrl+Alt+A)", (*) => ForceAddActiveWindow())
 
     A_TrayMenu.Add("Debug", DebugTrayMenu)
     A_TrayMenu.Add()
@@ -3621,13 +3021,13 @@ DebugWindowInfo() {
     
     debugMsg .= "--- TRACKED WINDOWS ---`n"
     for win in trackedWindows {
-        debugMsg .= "✓ " . win["title"] . " (" . win["class"] . ") [" . win["process"] . "]`n"
+        debugMsg .= "вњ“ " . win["title"] . " (" . win["class"] . ") [" . win["process"] . "]`n"
         debugMsg .= "  Size: " . win["width"] . "x" . win["height"] . " at " . win["x"] . "," . win["y"] . "`n"
     }
     
     debugMsg .= "`n--- UNTRACKED FLOATING WINDOWS ---`n"
     for win in untrackedWindows {
-        debugMsg .= "✗ " . win["title"] . " (" . win["class"] . ") [" . win["process"] . "]`n"
+        debugMsg .= "вњ— " . win["title"] . " (" . win["class"] . ") [" . win["process"] . "]`n"
         debugMsg .= "  Size: " . win["width"] . "x" . win["height"] . " at " . win["x"] . "," . win["y"] . "`n"
         debugMsg .= "  Plugin: " . (win["isPlugin"] ? "YES" : "NO") . " | Floating: " . (win["isFloating"] ? "YES" : "NO") . "`n"
     }
@@ -3798,8 +3198,7 @@ DebugActiveWindow() {
 
 ^!Space::ToggleArrangement()      ; Ctrl+Alt+Space to toggle
 ^!P::TogglePhysics()              ; Ctrl+Alt+P for physics
-^!F::ToggleTimePhasing()          ; Ctrl+Alt+F for time phasing effects
-^!M::ToggleSeamlessMonitorFloat() ; Ctrl+Alt+M for seamless multi-monitor floating
+^!M::ToggleMultimonitorExpanse() ; Ctrl+Alt+M for multimonitor expanse
 ^!O::OptimizeWindowPositions()    ; Ctrl+Alt+O to optimize
 ^!L::ToggleWindowLock()           ; Ctrl+Alt+L to lock/unlock active window
 ^!D::DebugWindowInfo()            ; Ctrl+Alt+D to debug window information
@@ -3809,7 +3208,6 @@ DebugActiveWindow() {
 ; Start timers - but respect active window protection
 SetTimer(UpdateWindowStates, Config["PhysicsTimeStep"])
 SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
-SetTimer(TimePhasing.UpdateEchoes.Bind(TimePhasing), g["TimePhasingConfig"]["EffectUpdateFrequency"])
 UpdateWindowStates()
 
 ; Start physics calculations but only AFTER ensuring manual locks are respected
@@ -3822,7 +3220,6 @@ OnExit(*) {
     global g_TimerResolutionRefs
     for hwnd in g["ManualWindows"]
         RemoveManualWindowBorder(hwnd)
-    TimePhasing.CleanupEffects()
     while (g_TimerResolutionRefs > 0) {
         try DllCall("winmm\timeEndPeriod", "UInt", 1)
         g_TimerResolutionRefs -= 1
@@ -3957,5 +3354,4 @@ IsElectronApp(hwnd) {
     }
 }
 
-; Old broken rendering system removed - now using proper GDI+ rendering in TimePhasing class
-; Old broken rendering system removed - now using proper GDI+ rendering in TimePhasing class
+; Time phasing visual effects removed to prioritize physics performance.

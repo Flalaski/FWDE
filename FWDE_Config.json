@@ -19,7 +19,7 @@
     "RepulsionForce": 0.36899999999999999,
     "ScreenshotCheckInterval": 250,
     "ScreenshotPauseDuration": 5000,
-    "SeamlessMonitorFloat": 0,
+    "MultimonitorExpanse": 0,
     "Smoothing": 0.5,
     "UserMoveTimeout": 11111,
     "VisualTimeStep": 2,

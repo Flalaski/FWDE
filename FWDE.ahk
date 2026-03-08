@@ -68,6 +68,9 @@ global g_PhysicsBuffer := Buffer(4096)
 global Config := Map(
     "MinMargin", 2,  ; Reduced to allow windows closer to screen edges
     "MinGap", 21,
+    "SeedDiagonalStep", 14,      ; Base diagonal step used to de-stack similar windows
+    "SeedDiagonalMaxSteps", 4,   ; Maximum number of diagonal steps to try per seed
+    "SeedJitterRange", 5,        ; Small per-window variance so same-size windows don't line up
     "ManualGapBonus", 369,
     "AttractionForce", 0.00005,   ; Reduced to allow more spreading
     "RepulsionForce", 0.8,       ; Increased to push windows further apart
@@ -645,10 +648,42 @@ FindNonOverlappingPosition(window, otherWindows, monitor) {
         }
     }
 
-    ; Fallback: slight offset from original position, but clamp to visible area
-    fallbackX := Clamp(window["x"] + 20, monitor["Left"] + Config["MinMargin"], monitor["Right"] - window["width"] - Config["MinMargin"])
-    fallbackY := Clamp(window["y"] + 20, monitor["Top"] + Config["MinMargin"], monitor["Bottom"] - window["height"] - Config["MinMargin"])
+    ; Fallback: use seeded diagonal offsets so same-size windows don't bury each other.
+    seedOffset := GetSeededDiagonalOffset(window)
+    fallbackX := Clamp(window["x"] + seedOffset["dx"], monitor["Left"] + Config["MinMargin"], monitor["Right"] - window["width"] - Config["MinMargin"])
+    fallbackY := Clamp(window["y"] + seedOffset["dy"], monitor["Top"] + Config["MinMargin"], monitor["Bottom"] - window["height"] - Config["MinMargin"])
     return Map("x", fallbackX, "y", fallbackY)
+}
+
+GetWindowPlacementSeed(window) {
+    hwndPart := (window.Has("hwnd") && IsInteger(window["hwnd"])) ? Integer(window["hwnd"]) : 0
+    widthPart := window.Has("width") ? Integer(window["width"]) : 0
+    heightPart := window.Has("height") ? Integer(window["height"]) : 0
+    return Abs(hwndPart + widthPart * 37 + heightPart * 53)
+}
+
+GetSeededDiagonalOffset(window) {
+    global Config
+
+    seed := GetWindowPlacementSeed(window)
+    directionIndex := Mod(seed, 4) + 1
+    directions := [[-1, -1], [1, -1], [-1, 1], [1, 1]]
+    direction := directions[directionIndex]
+
+    maxSteps := Max(1, Config["SeedDiagonalMaxSteps"])
+    baseStep := Max(1, Config["SeedDiagonalStep"])
+    jitterRange := Max(0, Config["SeedJitterRange"])
+    stepCount := Mod(seed // 4, maxSteps) + 1
+    jitter := (jitterRange > 0) ? (Mod(seed // 17, jitterRange * 2 + 1) - jitterRange) : 0
+    magnitude := baseStep * stepCount + jitter
+
+    return Map("dx", direction[1] * magnitude, "dy", direction[2] * magnitude)
+}
+
+GetSeededPairDirection(win1, win2) {
+    seed := Abs(Integer(win1["hwnd"]) * 31 + Integer(win2["hwnd"]) * 17)
+    directions := [[-1, -1], [1, -1], [-1, 1], [1, 1]]
+    return directions[Mod(seed, 4) + 1]
 }
 
 IsOverlapping(window, otherWindows) {
@@ -1259,6 +1294,14 @@ CalculateWindowForces(win, allWindows) {
         otherY := other["y"] + other["height"]/2
         dx := wx - otherX
         dy := wy - otherY
+
+        ; Break perfect overlaps with a tiny seeded diagonal direction.
+        if (Abs(dx) < 0.5 && Abs(dy) < 0.5) {
+            dir := GetSeededPairDirection(win, other)
+            dx := dir[1]
+            dy := dir[2]
+        }
+
         dist := Max(Sqrt(dx*dx + dy*dy), 1)
 
         ; Dynamic interaction range based on window sizes
@@ -1862,6 +1905,14 @@ ResolveFloatingCollisions(windows) {
 
                 dx := centerX1 - centerX2
                 dy := centerY1 - centerY2
+
+                ; If centers are identical, use a deterministic diagonal split.
+                if (Abs(dx) < 0.5 && Abs(dy) < 0.5) {
+                    dir := GetSeededPairDirection(win1, win2)
+                    dx := dir[1]
+                    dy := dir[2]
+                }
+
                 dist := Max(Sqrt(dx*dx + dy*dy), 1)
 
                 ; Stronger separation for small windows or high overlap
@@ -2524,6 +2575,47 @@ GeneratePositionCandidates(window, placedWindows, monitor, strategy) {
     arr := []
     for _, v in unique
         arr.Push(v)
+
+    ; Rotate candidate order by a per-window seed so identical windows don't
+    ; always pick the same first available slot.
+    if (arr.Length > 1) {
+        seed := GetWindowPlacementSeed(window)
+        startIdx := Mod(seed, arr.Length) + 1
+        rotated := []
+        Loop arr.Length {
+            idx := Mod(startIdx + A_Index - 2, arr.Length) + 1
+            rotated.Push(arr[idx])
+        }
+        arr := rotated
+    }
+
+    ; Add subtle diagonal variants first to improve de-stacking for same-size windows.
+    if (arr.Length > 0 && Config["SeedDiagonalStep"] > 0) {
+        offset := GetSeededDiagonalOffset(window)
+        seededArr := []
+        seededKeys := Map()
+        maxSeeded := Min(arr.Length, 24)
+        Loop maxSeeded {
+            pos := arr[A_Index]
+            sx := Clamp(pos["x"] + offset["dx"], useableLeft, useableRight)
+            sy := Clamp(pos["y"] + offset["dy"], useableTop, useableBottom)
+            key := sx "," sy
+            if (!seededKeys.Has(key) && !unique.Has(key)) {
+                seededKeys[key] := true
+                seededArr.Push(Map("x", sx, "y", sy))
+            }
+        }
+
+        if (seededArr.Length > 0) {
+            merged := []
+            for pos in seededArr
+                merged.Push(pos)
+            for pos in arr
+                merged.Push(pos)
+            return merged
+        }
+    }
+
     return arr
 }
 

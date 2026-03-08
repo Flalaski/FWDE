@@ -41,8 +41,8 @@ FWDE automatically arranges floating windows using physics simulation. Windows r
 ## Installation
 
 ### Requirements
-- Windows 10/11
-- [AutoHotkey v2](https://autohotkey.com) (latest version)
+- Windows 7/8.1/10/11
+- [AutoHotkey v2](https://autohotkey.com) (only for building script manually, FWDE.exe in Releases is the app on its own)
 
 ### Setup
 1. Download `FWDE.ahk`

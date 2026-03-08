@@ -2867,8 +2867,6 @@ BuildFWDEMenus() {
     A_TrayMenu.Delete()
     DebugTrayMenu.Delete()
 
-    A_TrayMenu.Add("Show FWDE Menu", (*) => ShowTaskbarMenu())
-    A_TrayMenu.Add()
     A_TrayMenu.Add("Toggle Arrangement [" arrangementStatus "] (Ctrl+Alt+Space)", (*) => ToggleArrangement())
     A_TrayMenu.Add("Optimize Windows (Ctrl+Alt+O)", (*) => OptimizeWindowPositions())
     A_TrayMenu.Add("Toggle Physics [" physicsStatus "] (Ctrl+Alt+P)", (*) => TogglePhysics())
@@ -2883,7 +2881,6 @@ BuildFWDEMenus() {
     A_TrayMenu.Add("Debug", DebugTrayMenu)
     A_TrayMenu.Add()
     A_TrayMenu.Add("Exit", (*) => ExitApp())
-    A_TrayMenu.Default := "Show FWDE Menu"
 }
 
 BuildFWDEMenus()

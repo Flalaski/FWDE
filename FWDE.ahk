@@ -183,7 +183,9 @@ global g := Map(
         "EnableGlowEffects", true
     ),
     "ManualWindows", Map(),
-    "SystemEnergy", 1
+    "SystemEnergy", 1,
+    "InternalMoveDepth", 0,
+    "LastInternalMoveTick", 0
 )
 #Requires AutoHotkey v2.0
 
@@ -2726,6 +2728,7 @@ ToggleArrangement() {
         ReleaseHighResTimer()
         ShowTooltip("Window Arrangement: OFF")
     }
+    BuildFWDEMenus()
 }
 
 TogglePhysics() {
@@ -2738,6 +2741,7 @@ TogglePhysics() {
         SetTimer(CalculateDynamicLayout, 0)
         ShowTooltip("Physics Engine: OFF")
     }
+    BuildFWDEMenus()
 }
 
 ToggleTimePhasing() {
@@ -2750,6 +2754,7 @@ ToggleTimePhasing() {
         SetTimer(TimePhasing.UpdateEchoes.Bind(TimePhasing), g["TimePhasingConfig"]["EffectUpdateFrequency"])
     }
     ShowTooltip("Time Phasing Effects: " (g["FairyDustEnabled"] ? "ON" : "OFF"))
+    BuildFWDEMenus()
 }
 
 ToggleSeamlessMonitorFloat() {
@@ -2770,10 +2775,12 @@ ToggleSeamlessMonitorFloat() {
     if (g["ArrangementActive"]) {
         UpdateWindowStates()
     }
+    BuildFWDEMenus()
 }
 
 ToggleWindowLock() {
     global g, Config
+    menuNeedsRefresh := true
     try {
         focusedWindow := WinExist("A")
         if (!focusedWindow) {
@@ -2819,6 +2826,8 @@ ToggleWindowLock() {
     catch {
         ShowTooltip("Error: Could not lock/unlock window")
     }
+    if (menuNeedsRefresh)
+        BuildFWDEMenus()
 }
 
 OptimizeWindowPositions() {
@@ -3242,6 +3251,23 @@ CalculateDensityAtPoint(testX, testY, allWindows, excludeHwnd := 0) {
 
 WindowMoveHandler(wParam, lParam, msg, hwnd) {
     global g, Config
+
+    ; Ignore move messages produced by our own physics/apply pipeline
+    if ((g.Has("InternalMoveDepth") && g["InternalMoveDepth"] > 0) ||
+        (g.Has("LastInternalMoveTick") && A_TickCount - g["LastInternalMoveTick"] < 60))
+        return
+
+    ; Only react to windows we actively manage
+    targetWin := 0
+    for win in g["Windows"] {
+        if (win["hwnd"] == hwnd) {
+            targetWin := win
+            break
+        }
+    }
+    if (!targetWin)
+        return
+
     if (!g["ArrangementActive"] || (A_TickCount - g["LastUserMove"] < Config["ResizeDelay"]))
         return
 
@@ -3271,20 +3297,15 @@ WindowMoveHandler(wParam, lParam, msg, hwnd) {
         winCenterY := y + h/2
         monNum := MonitorGetFromPoint(winCenterX, winCenterY)
 
-        for win in g["Windows"] {
-            if (win["hwnd"] == hwnd) {
-                ; Don't auto-lock Electron apps - they update their UI frequently
-                if (!IsElectronApp(hwnd)) {
-                    win["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
-                    win["IsManual"] := true
-                    win["vx"] := 0
-                    win["vy"] := 0
-                    AddManualWindowBorder(hwnd)
-                }
-                win["monitor"] := monNum
-                break
-            }
+        ; Don't auto-lock Electron apps - they update their UI frequently
+        if (!IsElectronApp(hwnd)) {
+            targetWin["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
+            targetWin["IsManual"] := true
+            targetWin["vx"] := 0
+            targetWin["vy"] := 0
+            AddManualWindowBorder(hwnd)
         }
+        targetWin["monitor"] := monNum
     }
     catch {
         return
@@ -3295,6 +3316,23 @@ WindowMoveHandler(wParam, lParam, msg, hwnd) {
 
 WindowSizeHandler(wParam, lParam, msg, hwnd) {
     global g, Config
+
+    ; Ignore size messages produced by our own physics/apply pipeline
+    if ((g.Has("InternalMoveDepth") && g["InternalMoveDepth"] > 0) ||
+        (g.Has("LastInternalMoveTick") && A_TickCount - g["LastInternalMoveTick"] < 60))
+        return
+
+    ; Only react to windows we actively manage
+    targetWin := 0
+    for win in g["Windows"] {
+        if (win["hwnd"] == hwnd) {
+            targetWin := win
+            break
+        }
+    }
+    if (!targetWin)
+        return
+
     if (!g["ArrangementActive"] || (A_TickCount - g["LastUserMove"] < Config["ResizeDelay"]))
         return
 
@@ -3320,20 +3358,15 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
         winCenterY := y + h/2
         monNum := MonitorGetFromPoint(winCenterX, winCenterY)
 
-        for win in g["Windows"] {
-            if (win["hwnd"] == hwnd) {
-                ; Don't auto-lock Electron apps - they update their UI frequently
-                if (!IsElectronApp(hwnd)) {
-                    win["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
-                    win["IsManual"] := true
-                    win["vx"] := 0
-                    win["vy"] := 0
-                    AddManualWindowBorder(hwnd)
-                }
-                win["monitor"] := monNum
-                break
-            }
+        ; Don't auto-lock Electron apps - they update their UI frequently
+        if (!IsElectronApp(hwnd)) {
+            targetWin["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
+            targetWin["IsManual"] := true
+            targetWin["vx"] := 0
+            targetWin["vy"] := 0
+            AddManualWindowBorder(hwnd)
         }
+        targetWin["monitor"] := monNum
     }
     catch {
         return
@@ -3372,14 +3405,91 @@ UpdateWindowStates() {
 ; --- Improved Taskbar Detection and Context Menu ---
 
 global TaskbarMenu := Menu()
-TaskbarMenu.Add("Toggle Arrangement", (*) => ToggleArrangement())
-TaskbarMenu.Add("Optimize Windows", (*) => OptimizeWindowPositions())
-TaskbarMenu.Add("Toggle Physics", (*) => TogglePhysics())
-TaskbarMenu.Add("Toggle Time Phasing", (*) => ToggleTimePhasing())
-TaskbarMenu.Add("Toggle Seamless Float", (*) => ToggleSeamlessMonitorFloat())
-TaskbarMenu.Add("Exit", (*) => ExitApp())
+global DebugTaskbarMenu := Menu()
+global DebugTrayMenu := Menu()
+
+StatusText(isEnabled) {
+    return isEnabled ? "enabled" : "disabled"
+}
+
+GetWindowLockStatusText() {
+    global g
+    try {
+        hwnd := WinExist("A")
+        if (!hwnd)
+            return "n/a"
+
+        for win in g["Windows"] {
+            if (win["hwnd"] == hwnd) {
+                isLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
+                return isLocked ? "enabled" : "disabled"
+            }
+        }
+        return "n/a"
+    }
+    catch {
+        return "n/a"
+    }
+}
+
+BuildFWDEMenus() {
+    global TaskbarMenu, DebugTaskbarMenu, DebugTrayMenu, g, Config, DebugMode
+
+    arrangementStatus := StatusText(g["ArrangementActive"])
+    physicsStatus := StatusText(g["PhysicsEnabled"])
+    timePhasingStatus := StatusText(g["FairyDustEnabled"])
+    seamlessStatus := StatusText(Config["SeamlessMonitorFloat"])
+    debugStatus := StatusText(DebugMode)
+    windowLockStatus := GetWindowLockStatusText()
+
+    ; Rebuild custom FWDE popup menu
+    TaskbarMenu.Delete()
+    DebugTaskbarMenu.Delete()
+
+    TaskbarMenu.Add("Toggle Arrangement [" arrangementStatus "]", (*) => ToggleArrangement())
+    TaskbarMenu.Add("Optimize Windows", (*) => OptimizeWindowPositions())
+    TaskbarMenu.Add("Toggle Physics [" physicsStatus "]", (*) => TogglePhysics())
+    TaskbarMenu.Add("Toggle Time Phasing [" timePhasingStatus "]", (*) => ToggleTimePhasing())
+    TaskbarMenu.Add("Toggle Seamless Float [" seamlessStatus "]", (*) => ToggleSeamlessMonitorFloat())
+    TaskbarMenu.Add("Toggle Window Lock [" windowLockStatus "]", (*) => ToggleWindowLock())
+
+    DebugTaskbarMenu.Add("Toggle Debug Mode [" debugStatus "]", (*) => ToggleDebugMode())
+    DebugTaskbarMenu.Add("Debug Window Info", (*) => DebugWindowInfo())
+    DebugTaskbarMenu.Add("Debug Active Window", (*) => DebugActiveWindow())
+    DebugTaskbarMenu.Add("Force Add Active Window", (*) => ForceAddActiveWindow())
+
+    TaskbarMenu.Add("Debug", DebugTaskbarMenu)
+    TaskbarMenu.Add()
+    TaskbarMenu.Add("Exit", (*) => ExitApp())
+
+    ; Rebuild actual AutoHotkey tray icon menu (right-click tray icon)
+    A_TrayMenu.Delete()
+    DebugTrayMenu.Delete()
+
+    A_TrayMenu.Add("Show FWDE Menu", (*) => ShowTaskbarMenu())
+    A_TrayMenu.Add()
+    A_TrayMenu.Add("Toggle Arrangement [" arrangementStatus "]", (*) => ToggleArrangement())
+    A_TrayMenu.Add("Optimize Windows", (*) => OptimizeWindowPositions())
+    A_TrayMenu.Add("Toggle Physics [" physicsStatus "]", (*) => TogglePhysics())
+    A_TrayMenu.Add("Toggle Time Phasing [" timePhasingStatus "]", (*) => ToggleTimePhasing())
+    A_TrayMenu.Add("Toggle Seamless Float [" seamlessStatus "]", (*) => ToggleSeamlessMonitorFloat())
+    A_TrayMenu.Add("Toggle Window Lock [" windowLockStatus "]", (*) => ToggleWindowLock())
+
+    DebugTrayMenu.Add("Toggle Debug Mode [" debugStatus "]", (*) => ToggleDebugMode())
+    DebugTrayMenu.Add("Debug Window Info", (*) => DebugWindowInfo())
+    DebugTrayMenu.Add("Debug Active Window", (*) => DebugActiveWindow())
+    DebugTrayMenu.Add("Force Add Active Window", (*) => ForceAddActiveWindow())
+
+    A_TrayMenu.Add("Debug", DebugTrayMenu)
+    A_TrayMenu.Add()
+    A_TrayMenu.Add("Exit", (*) => ExitApp())
+    A_TrayMenu.Default := "Show FWDE Menu"
+}
+
+BuildFWDEMenus()
 
 ShowTaskbarMenu() {
+    BuildFWDEMenus()
     rect := GetTaskbarRect()
     if (rect) {
         TaskbarMenu.Show(rect.left + 10, rect.top + 10)
@@ -3424,6 +3534,13 @@ GetTaskbarRect() {
 }
 
 ; --- Debug function to show window information ---
+ToggleDebugMode() {
+    global DebugMode
+    DebugMode := !DebugMode
+    ShowTooltip("Debug Mode: " (DebugMode ? "ON" : "OFF"))
+    BuildFWDEMenus()
+}
+
 DebugWindowInfo() {
     global g, Config
     
@@ -3714,6 +3831,8 @@ OnExit(*) {
 
 ; ====== REQUIRED HELPER FUNCTIONS ======
 MoveWindowAPI(hwnd, x, y, w := "", h := "") {
+    global g
+
     ; CRITICAL: Validate window handle before operation
     if (!hwnd || hwnd == 0)
         return false
@@ -3730,8 +3849,16 @@ MoveWindowAPI(hwnd, x, y, w := "", h := "") {
         if (w == "" || h == "")
             w := 0, h := 0  ; Not needed when SWP_NOSIZE is set, but required for function signature
         
-        ; CRITICAL: Validate SetWindowPos return value
-        result := DllCall("SetWindowPos", "Ptr", hwnd, "Ptr", 0, "Int", x, "Int", y, "Int", w, "Int", h, "UInt", flags)
+        ; Mark internal scripted movement so WM_MOVE/WM_SIZE handlers can ignore it
+        g["InternalMoveDepth"] += 1
+        try {
+            ; CRITICAL: Validate SetWindowPos return value
+            result := DllCall("SetWindowPos", "Ptr", hwnd, "Ptr", 0, "Int", x, "Int", y, "Int", w, "Int", h, "UInt", flags)
+        }
+        finally {
+            g["LastInternalMoveTick"] := A_TickCount
+            g["InternalMoveDepth"] := Max(0, g["InternalMoveDepth"] - 1)
+        }
         return result != 0  ; Return true if successful, false otherwise
     } catch {
         return false

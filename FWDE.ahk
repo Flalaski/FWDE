@@ -1151,8 +1151,32 @@ CalculateWindowForces(win, allWindows) {
     ; Check if window is out of bounds
     isOutOfBounds := (win["x"] < monLeft || win["x"] > monRight || win["y"] < monTop || win["y"] > monBottom)
     
-    ; If no collision, no out-of-bounds, and velocity is already near zero, keep window still
-    if (!hasCollision && !isOutOfBounds && Abs(win["vx"]) < 0.1 && Abs(win["vy"]) < 0.1) {
+    ; Check if nearby windows are close enough to exert force even without direct overlap.
+    ; This prevents the physics loop from appearing "asleep" until the mouse drag injects motion.
+    wx := win["x"] + win["width"]/2
+    wy := win["y"] + win["height"]/2
+    hasNearbyInfluence := false
+    for other in allWindows {
+        if (other == win)
+            continue
+
+        otherX := other["x"] + other["width"]/2
+        otherY := other["y"] + other["height"]/2
+        dxProbe := wx - otherX
+        dyProbe := wy - otherY
+        distProbe := Max(Sqrt(dxProbe*dxProbe + dyProbe*dyProbe), 1)
+
+        probeRange := Sqrt(win["width"] * win["height"] + other["width"] * other["height"]) / 2.5
+        probeRange *= Max(1, 200 / Min(win["width"], win["height"]))
+
+        if (distProbe < probeRange * 3) {
+            hasNearbyInfluence := true
+            break
+        }
+    }
+
+    ; Only sleep physics for truly isolated windows that are already settled.
+    if (!hasCollision && !isOutOfBounds && !hasNearbyInfluence && Abs(win["vx"]) < 0.1 && Abs(win["vy"]) < 0.1) {
         win["vx"] := 0
         win["vy"] := 0
         ; Clear target position so window stays exactly where it is
@@ -1165,9 +1189,6 @@ CalculateWindowForces(win, allWindows) {
 
     prev_vx := win.Has("vx") ? win["vx"] : 0
     prev_vy := win.Has("vy") ? win["vy"] : 0
-
-    wx := win["x"] + win["width"]/2
-    wy := win["y"] + win["height"]/2
 
     ; Very weak gravitational pull toward center (space-like)
     dx := (mL + mR)/2 - wx
@@ -1230,11 +1251,8 @@ CalculateWindowForces(win, allWindows) {
             continue
         }
             
-        ; CRITICAL: Skip interaction with active windows UNLESS we're currently dragging a managed window
-        ; When dragging, allow the dragged window to push other windows
-        if (!isDraggingManaged && other["hwnd"] == g["ActiveWindow"]) {
-            continue
-        }
+        ; Keep active windows as force sources so neighboring windows still react,
+        ; while the active window itself remains protected elsewhere.
 
         ; Calculate distance between window centers
         otherX := other["x"] + other["width"]/2
@@ -1699,9 +1717,9 @@ CalculateDynamicLayout() {
     if (A_TickCount - lastFocusCheck > 250) {  ; Check every 250ms
         try {
             focusedWindow := WinExist("A")
+            isManagedWindow := false
             if (focusedWindow) {
                 ; Check if the focused window is one of our managed windows
-                isManagedWindow := false
                 for win in g["Windows"] {
                     if (win["hwnd"] == focusedWindow) {
                         isManagedWindow := true
@@ -1715,6 +1733,12 @@ CalculateDynamicLayout() {
                     g["ActiveWindow"] := focusedWindow
                     g["LastUserMove"] := A_TickCount  ; Reset timeout when focus changes
                 }
+            }
+
+            ; If focus moved to desktop/non-managed UI, clear stale active protection.
+            ; Manual locks remain independent and continue to protect intentionally placed windows.
+            if (!isManagedWindow && g["ActiveWindow"] != 0 && GetDraggedManagedWindow() == 0) {
+                g["ActiveWindow"] := 0
             }
 
             ; Clear active window ONLY if timeout expired and it's no longer focused
@@ -1786,7 +1810,8 @@ ResolveFloatingCollisions(windows) {
     draggedHwnd := GetDraggedManagedWindow()
     isDragging := (draggedHwnd != 0)
 
-    ; More aggressive but gentle collision resolution for overlapping windows
+    ; More aggressive but gentle collision resolution for overlapping windows.
+    ; Protected windows (manual lock / active / snap) remain fixed, but still push others.
     for i, win1 in windows {
         ; Skip maximized and fullscreen windows
         try {
@@ -1796,13 +1821,11 @@ ResolveFloatingCollisions(windows) {
             continue
         }
         
-        ; CRITICAL: Skip manually locked windows from collision
-        ; Allow active window to participate in collisions ONLY when dragging
+        ; Protected windows should not be moved directly.
         isManuallyLocked1 := (win1.Has("ManualLock") && A_TickCount < win1["ManualLock"])
         isActive1 := (win1["hwnd"] == g["ActiveWindow"])
         isBeingSnapped1 := g["SnapInProgress"].Has(win1["hwnd"]) && A_TickCount < g["SnapInProgress"][win1["hwnd"]]
-        if (isManuallyLocked1 || (isActive1 && !isDragging) || isBeingSnapped1)
-            continue
+        isProtected1 := (isManuallyLocked1 || (isActive1 && !isDragging) || isBeingSnapped1)
             
         for j, win2 in windows {
             if (i >= j)
@@ -1816,12 +1839,14 @@ ResolveFloatingCollisions(windows) {
                 continue
             }
 
-            ; CRITICAL: Skip manually locked or active windows from collision forces
-            ; Allow active window to participate in collisions ONLY when dragging
+            ; Protected windows should not be moved directly.
             isManuallyLocked2 := (win2.Has("ManualLock") && A_TickCount < win2["ManualLock"])
             isActive2 := (win2["hwnd"] == g["ActiveWindow"])
             isBeingSnapped2 := g["SnapInProgress"].Has(win2["hwnd"]) && A_TickCount < g["SnapInProgress"][win2["hwnd"]]
-            if (isManuallyLocked2 || (isActive2 && !isDragging) || isBeingSnapped2)
+            isProtected2 := (isManuallyLocked2 || (isActive2 && !isDragging) || isBeingSnapped2)
+
+            ; No need to process if both windows are protected.
+            if (isProtected1 && isProtected2)
                 continue
 
             ; Check for overlap with smaller tolerance for quicker separation
@@ -1852,10 +1877,14 @@ ResolveFloatingCollisions(windows) {
                     separationForce *= 1.2  ; Reduced from 1.5
                 }
 
-                win1["vx"] += dx * separationForce / dist
-                win1["vy"] += dy * separationForce / dist
-                win2["vx"] -= dx * separationForce / dist
-                win2["vy"] -= dy * separationForce / dist
+                if (!isProtected1) {
+                    win1["vx"] += dx * separationForce / dist
+                    win1["vy"] += dy * separationForce / dist
+                }
+                if (!isProtected2) {
+                    win2["vx"] -= dx * separationForce / dist
+                    win2["vy"] -= dy * separationForce / dist
+                }
             }
         }
     }

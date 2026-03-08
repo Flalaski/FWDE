@@ -2,9 +2,11 @@
 
 Physics-based window management for Windows using AutoHotkey v2.
 
-## What is FWDE?
+## What is FWDE? ("Fweddie")
 
 FWDE automatically arranges floating windows using physics simulation. Windows repel each other to avoid overlap while staying within monitor bounds. Designed for workflows with multiple floating windows (DAW plugins, browser tabs, editor windows, terminals).
+
+## DOWNLOAD FWDE.exe: https://github.com/Flalaski/FWDE/releases
 
 ## Features
 

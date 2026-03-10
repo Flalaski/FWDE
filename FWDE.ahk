@@ -75,10 +75,21 @@ global Config := Map(
     "AttractionForce", 0.00005,   ; Reduced to allow more spreading
     "RepulsionForce", 0.8,       ; Increased to push windows further apart
     "EdgeRepulsionForce", 0.80,
+    "CollisionOverlapThreshold", 2,   ; Treat tiny edge overlaps as real collisions
+    "RepulsionRangeMultiplier", 1.7,  ; Wider near-field repulsion envelope
+    "RepulsionImpulseScale", 0.42,    ; Stronger per-step push for overlap release
+    "SmallWindowReferenceDim", 320,   ; Windows smaller than this get extra push
+    "MaxSmallWindowRepulsionBoost", 1.6,
+    "PairSeparationBase", 0.013,      ; Base overlap separation force
+    "PairSeparationOverlapScale", 2.6,
+    "PairSmallWindowBoost", 1.45,
+    "SmallWindowThresholdW", 360,
+    "SmallWindowThresholdH", 240,
     "UserMoveTimeout", 11111,        ; How long to keep focused window still after interaction (ms)
     "ManualLockDuration", 33333,     ; How long manual window locks last (ms) - about 33 seconds
     "ResizeDelay", 22,
     "TooltipDuration", 15000,
+    "ParameterHelpTooltipDuration", 2200,
     "MultimonitorExpanse", false,   ; Toggle for multi-monitor expanse (seamless floating)
     "FloatStyles",  0x00C00000 | 0x00040000 | 0x00080000 | 0x00020000 | 0x00010000,
     "FloatClassPatterns", [
@@ -163,6 +174,17 @@ global Config := Map(
     "PhysicsUpdateInterval", 1000,
     "ManualRepulsionMultiplier", 1.0
 )
+
+global DefaultConfig := CloneMapDeep(Config)
+global ParamSettingsGui := 0
+global ParamControlRefs := Map()
+global ParamSpecs := []
+global UserConfigPath := A_ScriptDir "\\FWDE_Config.json"
+global ParamSliderHwndToPath := Map()
+global ParamSliderDblClickHooked := false
+global ParamHoverControlToPath := Map()
+global ParamHoverHooked := false
+global ParamHoverLastPath := ""
 
 global g := Map(
     "Monitor", Config["MultimonitorExpanse"] ? GetVirtualDesktopBounds() : GetCurrentMonitorInfo(),
@@ -1155,7 +1177,7 @@ CalculateWindowForces(win, allWindows) {
         overlapX := Max(0, Min(win["x"] + win["width"], other["x"] + other["width"]) - Max(win["x"], other["x"]))
         overlapY := Max(0, Min(win["y"] + win["height"], other["y"] + other["height"]) - Max(win["y"], other["y"]))
         
-        if (overlapX > 5 && overlapY > 5) {
+        if (overlapX > Config["CollisionOverlapThreshold"] && overlapY > Config["CollisionOverlapThreshold"]) {
             hasCollision := true
             break
         }
@@ -1311,16 +1333,24 @@ CalculateWindowForces(win, allWindows) {
         sizeBonus := Max(1, 200 / Min(win["width"], win["height"]))  ; Boost for small windows
         interactionRange *= sizeBonus
 
-        if (dist < interactionRange * 1.5) {  ; Further expanded repulsion zone for wider gaps
+        repulsionRange := interactionRange * Config["RepulsionRangeMultiplier"]
+
+        ; Small windows should separate more decisively to keep visible edges.
+        minDimPair := Min(win["width"], win["height"], other["width"], other["height"])
+        smallWindowBoost := Config["SmallWindowReferenceDim"] / Max(minDimPair, 1)
+        smallWindowBoost := Min(Max(1.0, smallWindowBoost), Config["MaxSmallWindowRepulsionBoost"])
+
+        if (dist < repulsionRange) {
             ; Close range: much stronger repulsion to prevent prolonged overlap
-            repulsionForce := Config["RepulsionForce"] * (interactionRange * 1.5 - dist) / (interactionRange * 1.5)
+            repulsionForce := Config["RepulsionForce"] * (repulsionRange - dist) / repulsionRange
             repulsionForce *= (other.Has("IsManual") ? Config["ManualRepulsionMultiplier"] : 1)
+            repulsionForce *= smallWindowBoost
 
             ; Reduced force scaling to prevent jumpiness
-            proximityMultiplier := 1 + (1 - dist / (interactionRange * 1.5)) * 1  ; Reduced from 2x to 1x max
+            proximityMultiplier := 1 + (1 - dist / repulsionRange) * 1  ; Reduced from 2x to 1x max
 
-            vx += dx * repulsionForce * proximityMultiplier / dist * 0.3  ; Reduced from 0.6
-            vy += dy * repulsionForce * proximityMultiplier / dist * 0.3
+            vx += dx * repulsionForce * proximityMultiplier / dist * Config["RepulsionImpulseScale"]
+            vy += dy * repulsionForce * proximityMultiplier / dist * Config["RepulsionImpulseScale"]
         } else if (dist < interactionRange * 3) {  ; Reduced attraction range for tighter equilibrium
             ; Medium range: gentle attraction for stable clustering
             attractionForce := Config["AttractionForce"] * 0.012 * (dist - interactionRange) / interactionRange  ; Increased from 0.005
@@ -1896,7 +1926,7 @@ ResolveFloatingCollisions(windows) {
             overlapX := Max(0, Min(win1["x"] + win1["width"], win2["x"] + win2["width"]) - Max(win1["x"], win2["x"]))
             overlapY := Max(0, Min(win1["y"] + win1["height"], win2["y"] + win2["height"]) - Max(win1["y"], win2["y"]))
 
-            if (overlapX > 5 && overlapY > 5) {  ; Increased tolerance to reduce jumpiness
+            if (overlapX > Config["CollisionOverlapThreshold"] && overlapY > Config["CollisionOverlapThreshold"]) {
                 ; Gentle separation force
                 centerX1 := win1["x"] + win1["width"]/2
                 centerY1 := win1["y"] + win1["height"]/2
@@ -1920,12 +1950,12 @@ ResolveFloatingCollisions(windows) {
                 avgSize := (win1["width"] * win1["height"] + win2["width"] * win2["height"]) / 2
                 overlapRatio := overlapArea / avgSize
 
-                ; Reduced force to prevent jumpiness
-                separationForce := (overlapX + overlapY) * 0.01 * (1 + overlapRatio * 2)  ; Reduced from 0.02 and 3x scaling
+                ; Stronger pair separation to converge faster after overlap.
+                separationForce := (overlapX + overlapY) * Config["PairSeparationBase"] * (1 + overlapRatio * Config["PairSeparationOverlapScale"])
 
                 ; Reduced small window bonus to prevent excessive jumping
-                if (win1["width"] < 300 || win1["height"] < 200 || win2["width"] < 300 || win2["height"] < 200) {
-                    separationForce *= 1.2  ; Reduced from 1.5
+                if (win1["width"] < Config["SmallWindowThresholdW"] || win1["height"] < Config["SmallWindowThresholdH"] || win2["width"] < Config["SmallWindowThresholdW"] || win2["height"] < Config["SmallWindowThresholdH"]) {
+                    separationForce *= Config["PairSmallWindowBoost"]
                 }
 
                 if (!isProtected1) {
@@ -2965,46 +2995,673 @@ BuildFWDEMenus() {
     debugStatus := StatusText(DebugMode)
     windowLockStatus := GetWindowLockStatusText()
 
+    ; Status emoji/symbols
+    onSymbol := "🟢"
+    offSymbol := "🔴"
+    arrIcon := (g["ArrangementActive"] ? onSymbol : offSymbol)
+    physIcon := (g["PhysicsEnabled"] ? onSymbol : offSymbol)
+    expIcon := (Config["MultimonitorExpanse"] ? onSymbol : offSymbol)
+    lockIcon := (windowLockStatus = "enabled" ? "🔒" : (windowLockStatus = "disabled" ? "🔓" : "◯"))
+
     ; Rebuild custom FWDE popup menu
     TaskbarMenu.Delete()
     DebugTaskbarMenu.Delete()
 
-    TaskbarMenu.Add("Toggle Arrangement [" arrangementStatus "] (Ctrl+Alt+Space)", (*) => ToggleArrangement())
-    TaskbarMenu.Add("Optimize Windows (Ctrl+Alt+O)", (*) => OptimizeWindowPositions())
-    TaskbarMenu.Add("Toggle Physics [" physicsStatus "] (Ctrl+Alt+P)", (*) => TogglePhysics())
-    TaskbarMenu.Add("Toggle Multimonitor Expanse [" expanseStatus "] (Ctrl+Alt+M)", (*) => ToggleMultimonitorExpanse())
-    TaskbarMenu.Add("Toggle Window Lock [" windowLockStatus "] (Ctrl+Alt+L)", (*) => ToggleWindowLock())
-
-    DebugTaskbarMenu.Add("Toggle Debug Mode [" debugStatus "]", (*) => ToggleDebugMode())
-    DebugTaskbarMenu.Add("Debug Window Info (Ctrl+Alt+D)", (*) => DebugWindowInfo())
-    DebugTaskbarMenu.Add("Debug Active Window (Ctrl+Alt+I)", (*) => DebugActiveWindow())
-    DebugTaskbarMenu.Add("Force Add Active Window (Ctrl+Alt+A)", (*) => ForceAddActiveWindow())
-
-    TaskbarMenu.Add("Debug", DebugTaskbarMenu)
+    ; Main controls group
+    TaskbarMenu.Add(arrIcon " Toggle Arrangement [" arrangementStatus "] (Ctrl+Alt+Space)", (*) => ToggleArrangement())
+    TaskbarMenu.Add("▶ Optimize Windows (Ctrl+Alt+O)", (*) => OptimizeWindowPositions())
+    TaskbarMenu.Add(physIcon " Toggle Physics [" physicsStatus "] (Ctrl+Alt+P)", (*) => TogglePhysics())
+    TaskbarMenu.Add(expIcon " Toggle Multimonitor Expanse [" expanseStatus "] (Ctrl+Alt+M)", (*) => ToggleMultimonitorExpanse())
+    TaskbarMenu.Add(lockIcon " Toggle Window Lock [" windowLockStatus "] (Ctrl+Alt+L)", (*) => ToggleWindowLock())
     TaskbarMenu.Add()
-    TaskbarMenu.Add("Exit", (*) => ExitApp())
+    ; Settings group - Parameter Settings stands out
+    TaskbarMenu.Add("⚙️ Parameter Settings", (*) => ShowParameterSettingsWindow())
+    TaskbarMenu.Add("💾 Save Settings", SaveUserParameterSettings)
+    TaskbarMenu.Add("📂 Load Settings", LoadUserParameterSettings)
+
+    debugIcon := (DebugMode ? onSymbol : offSymbol)
+    DebugTaskbarMenu.Add(debugIcon " Toggle Debug Mode [" debugStatus "]", (*) => ToggleDebugMode())
+    DebugTaskbarMenu.Add("🔍 Debug Window Info (Ctrl+Alt+D)", (*) => DebugWindowInfo())
+    DebugTaskbarMenu.Add("🔍 Debug Active Window (Ctrl+Alt+I)", (*) => DebugActiveWindow())
+    DebugTaskbarMenu.Add("➕ Force Add Active Window (Ctrl+Alt+A)", (*) => ForceAddActiveWindow())
+
+    TaskbarMenu.Add("🔧 Debug", DebugTaskbarMenu)
+    TaskbarMenu.Add()
+    TaskbarMenu.Add("❌ Exit", (*) => ExitApp())
 
     ; Rebuild actual AutoHotkey tray icon menu (right-click tray icon)
     A_TrayMenu.Delete()
     DebugTrayMenu.Delete()
 
-    A_TrayMenu.Add("Toggle Arrangement [" arrangementStatus "] (Ctrl+Alt+Space)", (*) => ToggleArrangement())
-    A_TrayMenu.Add("Optimize Windows (Ctrl+Alt+O)", (*) => OptimizeWindowPositions())
-    A_TrayMenu.Add("Toggle Physics [" physicsStatus "] (Ctrl+Alt+P)", (*) => TogglePhysics())
-    A_TrayMenu.Add("Toggle Multimonitor Expanse [" expanseStatus "] (Ctrl+Alt+M)", (*) => ToggleMultimonitorExpanse())
-    A_TrayMenu.Add("Toggle Window Lock [" windowLockStatus "] (Ctrl+Alt+L)", (*) => ToggleWindowLock())
-
-    DebugTrayMenu.Add("Toggle Debug Mode [" debugStatus "]", (*) => ToggleDebugMode())
-    DebugTrayMenu.Add("Debug Window Info (Ctrl+Alt+D)", (*) => DebugWindowInfo())
-    DebugTrayMenu.Add("Debug Active Window (Ctrl+Alt+I)", (*) => DebugActiveWindow())
-    DebugTrayMenu.Add("Force Add Active Window (Ctrl+Alt+A)", (*) => ForceAddActiveWindow())
-
-    A_TrayMenu.Add("Debug", DebugTrayMenu)
+    ; Main controls group
+    A_TrayMenu.Add(arrIcon " Toggle Arrangement [" arrangementStatus "] (Ctrl+Alt+Space)", (*) => ToggleArrangement())
+    A_TrayMenu.Add("▶ Optimize Windows (Ctrl+Alt+O)", (*) => OptimizeWindowPositions())
+    A_TrayMenu.Add(physIcon " Toggle Physics [" physicsStatus "] (Ctrl+Alt+P)", (*) => TogglePhysics())
+    A_TrayMenu.Add(expIcon " Toggle Multimonitor Expanse [" expanseStatus "] (Ctrl+Alt+M)", (*) => ToggleMultimonitorExpanse())
+    A_TrayMenu.Add(lockIcon " Toggle Window Lock [" windowLockStatus "] (Ctrl+Alt+L)", (*) => ToggleWindowLock())
     A_TrayMenu.Add()
-    A_TrayMenu.Add("Exit", (*) => ExitApp())
+    ; Settings group
+    A_TrayMenu.Add("⚙️ Parameter Settings", (*) => ShowParameterSettingsWindow())
+    A_TrayMenu.Add("💾 Save Settings", SaveUserParameterSettings)
+    A_TrayMenu.Add("📂 Load Settings", LoadUserParameterSettings)
+
+    DebugTrayMenu.Add(debugIcon " Toggle Debug Mode [" debugStatus "]", (*) => ToggleDebugMode())
+    DebugTrayMenu.Add("🔍 Debug Window Info (Ctrl+Alt+D)", (*) => DebugWindowInfo())
+    DebugTrayMenu.Add("🔍 Debug Active Window (Ctrl+Alt+I)", (*) => DebugActiveWindow())
+    DebugTrayMenu.Add("➕ Force Add Active Window (Ctrl+Alt+A)", (*) => ForceAddActiveWindow())
+
+    A_TrayMenu.Add("🔧 Debug", DebugTrayMenu)
+    A_TrayMenu.Add()
+    A_TrayMenu.Add("❌ Exit", (*) => ExitApp())
+}
+
+CloneMapDeep(value) {
+    if (Type(value) = "Map") {
+        copy := Map()
+        for k, v in value {
+            copy[k] := CloneMapDeep(v)
+        }
+        return copy
+    }
+    if (Type(value) = "Array") {
+        copy := []
+        for _, v in value {
+            copy.Push(CloneMapDeep(v))
+        }
+        return copy
+    }
+    return value
+}
+
+GetMapValueByPath(mapRef, path) {
+    keys := StrSplit(path, ".")
+    cur := mapRef
+    for _, key in keys {
+        if (Type(cur) != "Map" || !cur.Has(key))
+            return ""
+        cur := cur[key]
+    }
+    return cur
+}
+
+SetMapValueByPath(&mapRef, path, value) {
+    keys := StrSplit(path, ".")
+    cur := mapRef
+    last := keys.Length
+    Loop last - 1 {
+        key := keys[A_Index]
+        if (!cur.Has(key) || Type(cur[key]) != "Map")
+            cur[key] := Map()
+        cur := cur[key]
+    }
+    cur[keys[last]] := value
+}
+
+GetDecimalPlaces(value) {
+    txt := Format("{:.6f}", value)
+    txt := RTrim(txt, "0")
+    if (SubStr(txt, -1) = ".")
+        return 0
+    dotPos := InStr(txt, ".")
+    if (!dotPos)
+        return 0
+    return StrLen(txt) - dotPos
+}
+
+ShouldTreatAsBoolean(path) {
+    static boolPaths := Map(
+        "MultimonitorExpanse", true
+    )
+    return boolPaths.Has(path)
+}
+
+ShouldSkipParameterPath(path) {
+    static skipPaths := Map(
+        "FloatStyles", true
+    )
+    return skipPaths.Has(path)
+}
+
+BuildNumericParamSpec(path, defaultValue) {
+    absVal := Abs(defaultValue)
+    isInt := (Round(defaultValue) = defaultValue)
+
+    if (isInt) {
+        decimals := 0
+        scale := 1
+        if (defaultValue >= 0) {
+            maxVal := Max(10, Ceil(defaultValue * 2.5))
+            minVal := 0
+        } else {
+            span := Max(10, Ceil(absVal * 2.5))
+            minVal := -span
+            maxVal := span
+        }
+    } else {
+        decimals := Max(2, Min(6, GetDecimalPlaces(defaultValue) + 1))
+        scale := 10 ** decimals
+
+        if (defaultValue >= 0) {
+            maxVal := Max(defaultValue + 0.05, defaultValue * 2.5)
+            minVal := 0
+        } else {
+            span := Max(absVal + 0.05, absVal * 2.5)
+            minVal := -span
+            maxVal := span
+        }
+    }
+
+    label := StrReplace(path, ".", " - ")
+    spec := Map(
+        "path", path,
+        "label", label,
+        "type", "number",
+        "default", defaultValue,
+        "decimals", decimals,
+        "scale", scale,
+        "min", Round(minVal * scale),
+        "max", Round(maxVal * scale)
+    )
+    return ApplyNumericSpecOverrides(spec)
+}
+
+ApplyNumericSpecOverrides(spec) {
+    static overrides := Map(
+        "AttractionForce", Map("min", 0.0, "max", 0.002, "decimals", 6),
+        "RepulsionForce", Map("min", 0.05, "max", 5.0, "decimals", 3),
+        "EdgeRepulsionForce", Map("min", 0.05, "max", 5.0, "decimals", 3),
+        "RepulsionRangeMultiplier", Map("min", 0.5, "max", 4.0, "decimals", 3),
+        "RepulsionImpulseScale", Map("min", 0.05, "max", 2.5, "decimals", 3),
+        "PairSeparationBase", Map("min", 0.001, "max", 0.08, "decimals", 4),
+        "PairSeparationOverlapScale", Map("min", 0.1, "max", 8.0, "decimals", 3),
+        "PairSmallWindowBoost", Map("min", 1.0, "max", 3.0, "decimals", 3),
+        "MaxSmallWindowRepulsionBoost", Map("min", 1.0, "max", 4.0, "decimals", 3),
+        "SmallWindowReferenceDim", Map("min", 80, "max", 1200, "decimals", 0),
+        "CollisionOverlapThreshold", Map("min", 0, "max", 20, "decimals", 0),
+        "SmallWindowThresholdW", Map("min", 80, "max", 1200, "decimals", 0),
+        "SmallWindowThresholdH", Map("min", 60, "max", 900, "decimals", 0),
+        "Damping", Map("min", 0.0001, "max", 1.0, "decimals", 4),
+        "MaxSpeed", Map("min", 1.0, "max", 60.0, "decimals", 2),
+        "PhysicsTimeStep", Map("min", 1, "max", 33, "decimals", 0),
+        "VisualTimeStep", Map("min", 1, "max", 100, "decimals", 0),
+        "Smoothing", Map("min", 0.0, "max", 0.999, "decimals", 3),
+        "ParameterHelpTooltipDuration", Map("min", 300, "max", 10000, "decimals", 0),
+        "ManualRepulsionMultiplier", Map("min", 0.1, "max", 6.0, "decimals", 3),
+        "Stabilization.MinSpeedThreshold", Map("min", 0.0, "max", 2.0, "decimals", 3),
+        "Stabilization.EnergyThreshold", Map("min", 0.0, "max", 2.0, "decimals", 3),
+        "Stabilization.DampingBoost", Map("min", 0.0, "max", 1.0, "decimals", 3),
+        "Stabilization.OverlapTolerance", Map("min", 0, "max", 50, "decimals", 0)
+    )
+
+    path := spec["path"]
+    if (!overrides.Has(path)) {
+        if (spec["max"] <= spec["min"])
+            spec["max"] := spec["min"] + 1
+        return spec
+    }
+
+    ov := overrides[path]
+
+    if (ov.Has("decimals")) {
+        spec["decimals"] := ov["decimals"]
+        spec["scale"] := 10 ** spec["decimals"]
+    }
+    if (ov.Has("min"))
+        spec["min"] := Round(ov["min"] * spec["scale"])
+    if (ov.Has("max"))
+        spec["max"] := Round(ov["max"] * spec["scale"])
+
+    if (spec["max"] <= spec["min"])
+        spec["max"] := spec["min"] + 1
+
+    return spec
+}
+
+CollectParameterSpecsRecursive(mapRef, prefix := "") {
+    specs := []
+    for key, val in mapRef {
+        path := (prefix = "") ? key : (prefix "." key)
+        if (ShouldSkipParameterPath(path))
+            continue
+
+        if (Type(val) = "Map") {
+            nested := CollectParameterSpecsRecursive(val, path)
+            for _, spec in nested
+                specs.Push(spec)
+            continue
+        }
+
+        if !(val is Number)
+            continue
+
+        if (ShouldTreatAsBoolean(path)) {
+            specs.Push(Map(
+                "path", path,
+                "label", StrReplace(path, ".", " - "),
+                "type", "bool",
+                "default", !!val
+            ))
+        } else {
+            specs.Push(BuildNumericParamSpec(path, val))
+        }
+    }
+    return specs
+}
+
+EnsureParameterSpecs() {
+    global ParamSpecs, DefaultConfig
+    if (ParamSpecs.Length > 0)
+        return
+    ParamSpecs := CollectParameterSpecsRecursive(DefaultConfig)
+}
+
+FormatParamDisplay(spec, value) {
+    if (spec["type"] = "bool")
+        return value ? "On" : "Off"
+    if (spec["decimals"] <= 0)
+        return Format("{:.0f}", value)
+    return Format("{:." spec["decimals"] "f}", value)
+}
+
+NormalizeSliderFromConfig(spec, value) {
+    return Round(value * spec["scale"])
+}
+
+NormalizeConfigFromSlider(spec, sliderValue) {
+    numericValue := sliderValue / spec["scale"]
+    if (spec["decimals"] <= 0)
+        return Round(numericValue)
+    return Round(numericValue, spec["decimals"])
+}
+
+GetSliderDefaultMarkerX(sliderX, sliderWidth, spec) {
+    defaultSliderVal := NormalizeSliderFromConfig(spec, spec["default"])
+    defaultSliderVal := Min(Max(defaultSliderVal, spec["min"]), spec["max"])
+    span := Max(spec["max"] - spec["min"], 1)
+    ratio := (defaultSliderVal - spec["min"]) / span
+    return sliderX + Round(ratio * sliderWidth)
+}
+
+EscapeJsonString(value) {
+    text := value ""
+    text := StrReplace(text, "\\", "\\\\")
+    text := StrReplace(text, '"', '\\"')
+    text := StrReplace(text, "`r", "\\r")
+    text := StrReplace(text, "`n", "\\n")
+    text := StrReplace(text, "`t", "\\t")
+    return text
+}
+
+ToJsonScalar(value) {
+    if (value is Number)
+        return value
+    if (Type(value) = "String")
+        return '"' EscapeJsonString(value) '"'
+    return value ? "true" : "false"
+}
+
+EscapeRegexLiteral(text) {
+    return RegExReplace(text, "([\\.\^\$\|\(\)\[\]\{\}\*\+\?\\-])", "\\$1")
+}
+
+ParseJsonScalar(text) {
+    s := Trim(text)
+    if (s = "true")
+        return true
+    if (s = "false")
+        return false
+    if (SubStr(s, 1, 1) = '"' && SubStr(s, -1) = '"') {
+        inner := SubStr(s, 2, StrLen(s) - 2)
+        inner := StrReplace(inner, "\\\\", "\\")
+        inner := StrReplace(inner, "\\n", "`n")
+        inner := StrReplace(inner, "\\r", "`r")
+        inner := StrReplace(inner, "\\t", "`t")
+        return inner
+    }
+    return s + 0
+}
+
+LoadUserParameterSettings(*) {
+    global UserConfigPath, ParamSpecs, Config
+
+    EnsureParameterSpecs()
+    if (!FileExist(UserConfigPath))
+        return
+
+    try raw := FileRead(UserConfigPath, "UTF-8")
+    catch {
+        ShowTooltip("Failed to read settings file")
+        return
+    }
+
+    changes := 0
+    for _, spec in ParamSpecs {
+        path := spec["path"]
+        keyPattern := EscapeRegexLiteral(path)
+        if (!RegExMatch(raw, '"' keyPattern '"\s*:\s*(true|false|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)', &m))
+            continue
+
+        value := ParseJsonScalar(m[1])
+        if (spec["type"] = "bool")
+            value := !!value
+
+        SetMapValueByPath(&Config, path, value)
+        changes += 1
+    }
+
+    if (changes > 0) {
+        SyncRuntimeFromConfig()
+        if (Type(ParamSettingsGui) = "Gui")
+            UpdateParameterControlsFromConfig()
+        ShowTooltip("Settings loaded")
+    }
+}
+
+SaveUserParameterSettings(*) {
+    global UserConfigPath, ParamSpecs, Config
+
+    EnsureParameterSpecs()
+
+    lines := ["{", '  "_metadata": {', '    "application": "FWDE",', '    "saved": "' A_Now '",', '    "format": "flat-path-v1"', "  },"]
+
+    total := ParamSpecs.Length
+    for idx, spec in ParamSpecs {
+        path := spec["path"]
+        value := GetMapValueByPath(Config, path)
+        jsonValue := ToJsonScalar(value)
+        trailing := (idx < total) ? "," : ""
+        lines.Push('  "' EscapeJsonString(path) '": ' jsonValue trailing)
+    }
+    lines.Push("}")
+
+    payload := ""
+    for i, line in lines {
+        payload .= line (i < lines.Length ? "`n" : "")
+    }
+
+    try {
+        FileDelete(UserConfigPath)
+    } catch {
+    }
+
+    try {
+        FileAppend(payload, UserConfigPath, "UTF-8")
+        ShowTooltip("Settings saved")
+    } catch {
+        ShowTooltip("Failed to save settings")
+    }
+}
+
+SyncRuntimeFromConfig() {
+    global Config, g
+
+    if (Config["MultimonitorExpanse"]) {
+        g["Monitor"] := GetVirtualDesktopBounds()
+    } else {
+        g["Monitor"] := GetCurrentMonitorInfo()
+    }
+
+    if (g["ArrangementActive"]) {
+        SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
+        SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
+    } else if (g["PhysicsEnabled"]) {
+        SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
+    }
+
+    BuildFWDEMenus()
+}
+
+UpdateParameterControlsFromConfig() {
+    global ParamControlRefs, Config
+
+    for path, refs in ParamControlRefs {
+        spec := refs["spec"]
+        value := GetMapValueByPath(Config, path)
+
+        if (spec["type"] = "bool") {
+            refs["input"].Value := value ? 1 : 0
+            refs["valueText"].Text := FormatParamDisplay(spec, value)
+        } else {
+            sliderVal := NormalizeSliderFromConfig(spec, value)
+            sliderVal := Min(Max(sliderVal, spec["min"]), spec["max"])
+            refs["input"].Value := sliderVal
+            refs["valueText"].Text := FormatParamDisplay(spec, NormalizeConfigFromSlider(spec, sliderVal))
+        }
+    }
+}
+
+ApplySingleParameterDefault(path, *) {
+    global Config, DefaultConfig
+    defaultValue := GetMapValueByPath(DefaultConfig, path)
+    SetMapValueByPath(&Config, path, defaultValue)
+    SyncRuntimeFromConfig()
+    UpdateParameterControlsFromConfig()
+}
+
+ApplyAllParameterDefaults(*) {
+    global Config, DefaultConfig
+    Config := CloneMapDeep(DefaultConfig)
+    SyncRuntimeFromConfig()
+    UpdateParameterControlsFromConfig()
+    ShowTooltip("All parameters restored to defaults")
+}
+
+OnParameterSliderChange(path, ctrl, *) {
+    global Config, ParamControlRefs
+    refs := ParamControlRefs[path]
+    spec := refs["spec"]
+    newValue := NormalizeConfigFromSlider(spec, ctrl.Value)
+    SetMapValueByPath(&Config, path, newValue)
+    refs["valueText"].Text := FormatParamDisplay(spec, newValue)
+    SyncRuntimeFromConfig()
+}
+
+OnParameterCheckboxChange(path, ctrl, *) {
+    global Config, ParamControlRefs
+    newValue := (ctrl.Value = 1)
+    SetMapValueByPath(&Config, path, newValue)
+    ParamControlRefs[path]["valueText"].Text := FormatParamDisplay(ParamControlRefs[path]["spec"], newValue)
+    SyncRuntimeFromConfig()
+}
+
+OnParameterSliderDoubleClick(wParam, lParam, msg, hwnd) {
+    global ParamSliderHwndToPath
+    if (!ParamSliderHwndToPath.Has(hwnd))
+        return
+    ApplySingleParameterDefault(ParamSliderHwndToPath[hwnd])
+}
+
+HideParameterHoverTooltip(*) {
+    global ParamHoverLastPath
+    ToolTip(,,, 19)
+    ParamHoverLastPath := ""
+}
+
+RegisterParameterHoverControl(ctrl, path) {
+    global ParamHoverControlToPath
+    if (Type(ctrl) = "Gui.Control")
+        ParamHoverControlToPath[ctrl.Hwnd] := path
+}
+
+GetParameterDescription(path) {
+    static descriptions := Map(
+        "AttractionForce", "Center-seeking pull that prevents windows drifting too far away.",
+        "RepulsionForce", "Base push strength when windows get close.",
+        "EdgeRepulsionForce", "How strongly windows are pushed away from monitor edges.",
+        "RepulsionRangeMultiplier", "How far out repulsion starts acting between windows.",
+        "RepulsionImpulseScale", "Per-step push intensity during close interactions.",
+        "PairSeparationBase", "Base collision-separation strength when windows overlap.",
+        "PairSeparationOverlapScale", "Extra separation scaling for deeper overlaps.",
+        "PairSmallWindowBoost", "Additional overlap-separation boost for small windows.",
+        "CollisionOverlapThreshold", "Minimum overlap before overlap handling engages.",
+        "SmallWindowReferenceDim", "Reference size used to classify/boost small windows.",
+        "MaxSmallWindowRepulsionBoost", "Cap on extra repulsion boost for small windows.",
+        "SmallWindowThresholdW", "Width threshold used for small-window behavior.",
+        "SmallWindowThresholdH", "Height threshold used for small-window behavior.",
+        "MinMargin", "Minimum margin to keep windows away from monitor boundaries.",
+        "MinGap", "Preferred spacing target used by layout placement routines.",
+        "ManualGapBonus", "Extra spacing preference around manually managed windows.",
+        "ManualRepulsionMultiplier", "Extra push when interacting with manually moved windows.",
+        "ManualLockDuration", "How long a manually moved window stays physics-locked (ms).",
+        "UserMoveTimeout", "Cooldown before focused windows rejoin normal physics (ms).",
+        "ResizeDelay", "Delay before resize/move events trigger state refresh (ms).",
+        "TooltipDuration", "Duration for the standard status tooltip messages (ms).",
+        "ParameterHelpTooltipDuration", "How long parameter hover-help tooltips stay visible (ms).",
+        "Damping", "Velocity damping; higher values reduce motion faster.",
+        "MaxSpeed", "Maximum velocity cap for floating windows.",
+        "PhysicsTimeStep", "Physics tick interval (ms). Lower means more frequent updates.",
+        "VisualTimeStep", "Movement apply/render interval (ms). Lower is smoother.",
+        "Smoothing", "Motion smoothing blend factor.",
+        "AnimationDuration", "General animation time used by transitions.",
+        "PhysicsUpdateInterval", "Background physics maintenance interval (ms).",
+        "NoiseScale", "Spatial scale for procedural drift/noise effects.",
+        "NoiseInfluence", "Strength of procedural drift/noise effects.",
+        "MultimonitorExpanse", "Allow windows to float across all monitors instead of current monitor only.",
+        "Stabilization.MinSpeedThreshold", "Speed threshold where stronger settling behavior starts.",
+        "Stabilization.EnergyThreshold", "Energy threshold used to detect calm vs chaotic state.",
+        "Stabilization.DampingBoost", "Extra damping added while system is settling.",
+        "Stabilization.OverlapTolerance", "Allowed overlap before stabilization treats windows as colliding."
+    )
+    return descriptions.Has(path) ? descriptions[path] : "Runtime tuning parameter for FWDE window behavior."
+}
+
+ShowParameterHoverTooltip(path) {
+    global Config, ParamControlRefs
+    if (!ParamControlRefs.Has(path))
+        return
+
+    refs := ParamControlRefs[path]
+    spec := refs["spec"]
+    currentValue := GetMapValueByPath(Config, path)
+    defaultValue := spec["default"]
+    text := spec["label"] "`n" GetParameterDescription(path)
+
+    if (spec["type"] = "bool") {
+        text .= "`nCurrent: " FormatParamDisplay(spec, currentValue) "   Default: " FormatParamDisplay(spec, defaultValue)
+    } else {
+        minVal := NormalizeConfigFromSlider(spec, spec["min"])
+        maxVal := NormalizeConfigFromSlider(spec, spec["max"])
+        text .= "`nCurrent: " FormatParamDisplay(spec, currentValue) "   Default: " FormatParamDisplay(spec, defaultValue)
+        text .= "`nRange: " FormatParamDisplay(spec, minVal) " to " FormatParamDisplay(spec, maxVal)
+        text .= "`nHint: Double-click slider to reset this parameter"
+    }
+
+    MouseGetPos(&mx, &my)
+    ToolTip(text, mx + 14, my + 16, 19)
+    SetTimer(HideParameterHoverTooltip, -Max(300, Round(Config["ParameterHelpTooltipDuration"])))
+}
+
+OnParameterHoverMouseMove(wParam, lParam, msg, hwnd) {
+    global ParamHoverControlToPath, ParamHoverLastPath
+
+    if (!ParamHoverControlToPath.Has(hwnd)) {
+        if (ParamHoverLastPath != "")
+            HideParameterHoverTooltip()
+        return
+    }
+
+    path := ParamHoverControlToPath[hwnd]
+    if (path = ParamHoverLastPath)
+        return
+
+    ParamHoverLastPath := path
+    ShowParameterHoverTooltip(path)
+}
+
+ShowParameterSettingsWindow(*) {
+    global ParamSettingsGui, ParamControlRefs, ParamSpecs, Config, ParamSliderHwndToPath, ParamSliderDblClickHooked, ParamHoverControlToPath, ParamHoverHooked
+
+    EnsureParameterSpecs()
+
+    if (Type(ParamSettingsGui) = "Gui") {
+        UpdateParameterControlsFromConfig()
+        ParamSettingsGui.Show()
+        return
+    }
+
+    settingsGui := Gui("+AlwaysOnTop +Resize", "FWDE Parameter Settings")
+    settingsGui.SetFont("s9", "Segoe UI")
+
+    ParamControlRefs := Map()
+    ParamSliderHwndToPath := Map()
+    ParamHoverControlToPath := Map()
+    if (!ParamSliderDblClickHooked) {
+        OnMessage(0x203, OnParameterSliderDoubleClick)
+        ParamSliderDblClickHooked := true
+    }
+    if (!ParamHoverHooked) {
+        OnMessage(0x200, OnParameterHoverMouseMove)
+        ParamHoverHooked := true
+    }
+
+    total := ParamSpecs.Length
+    leftCount := Ceil(total / 2)
+    rowHeight := 28
+    xCol1 := 12
+    xCol2 := 512
+
+    settingsGui.AddText("x12 y2 w760 c006400", "Changes apply instantly while you move sliders or toggles. Hover any parameter for details.")
+
+    for idx, spec in ParamSpecs {
+        col := (idx <= leftCount) ? 1 : 2
+        row := (col = 1) ? idx : (idx - leftCount)
+        y := 20 + (row - 1) * rowHeight
+        x := (col = 1) ? xCol1 : xCol2
+
+        labelCtrl := settingsGui.AddText("x" x " y" y+5 " w190", spec["label"])
+        RegisterParameterHoverControl(labelCtrl, spec["path"])
+
+        if (spec["type"] = "bool") {
+            input := settingsGui.AddCheckbox("x" x+195 " y" y " w62", "On")
+            valueText := settingsGui.AddText("x" x+262 " y" y+5 " w58 Right", "")
+            defBtn := settingsGui.AddButton("x" x+326 " y" y-1 " w72 h22", "Default")
+
+            input.OnEvent("Click", OnParameterCheckboxChange.Bind(spec["path"]))
+            defBtn.OnEvent("Click", ApplySingleParameterDefault.Bind(spec["path"]))
+        } else {
+            rangeOpt := "Range" spec["min"] "-" spec["max"]
+            sliderX := x + 195
+            sliderW := 160
+            input := settingsGui.AddSlider("x" sliderX " y" y " w" sliderW " " rangeOpt " ToolTip", 0)
+            valueText := settingsGui.AddText("x" x+362 " y" y+5 " w40 Right", "")
+            defBtn := settingsGui.AddButton("x" x+408 " y" y-1 " w72 h22", "Default")
+
+            markerX := GetSliderDefaultMarkerX(sliderX, sliderW, spec)
+            ; Draw a stable default tick below the slider to avoid repaint artifacts on the track itself.
+            settingsGui.AddProgress("x" markerX " y" y+22 " w2 h5 cCC0000 BackgroundCC0000", 100)
+
+            input.OnEvent("Change", OnParameterSliderChange.Bind(spec["path"]))
+            defBtn.OnEvent("Click", ApplySingleParameterDefault.Bind(spec["path"]))
+            ParamSliderHwndToPath[input.Hwnd] := spec["path"]
+        }
+
+        RegisterParameterHoverControl(input, spec["path"])
+        RegisterParameterHoverControl(valueText, spec["path"])
+        RegisterParameterHoverControl(defBtn, spec["path"])
+
+        ParamControlRefs[spec["path"]] := Map(
+            "spec", spec,
+            "input", input,
+            "valueText", valueText
+        )
+    }
+
+    footerY := 34 + Ceil(total / 2) * rowHeight
+    settingsGui.AddButton("x12 y" footerY " w120 h28", "Save Settings").OnEvent("Click", SaveUserParameterSettings)
+    settingsGui.AddButton("x138 y" footerY " w120 h28", "Load Settings").OnEvent("Click", LoadUserParameterSettings)
+    settingsGui.AddButton("x264 y" footerY " w150 h28", "Restore All Defaults").OnEvent("Click", ApplyAllParameterDefaults)
+    settingsGui.AddButton("x420 y" footerY " w170 h28", "Re-read Current Values").OnEvent("Click", (*) => UpdateParameterControlsFromConfig())
+    settingsGui.AddButton("x596 y" footerY " w90 h28", "Close").OnEvent("Click", (*) => settingsGui.Hide())
+
+    settingsGui.OnEvent("Close", (*) => settingsGui.Hide())
+    ParamSettingsGui := settingsGui
+
+    UpdateParameterControlsFromConfig()
+    settingsGui.Show("w1008 h" footerY + 72)
 }
 
 BuildFWDEMenus()
+LoadUserParameterSettings()
 
 ShowTaskbarMenu() {
     BuildFWDEMenus()

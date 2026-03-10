@@ -2,6 +2,10 @@
 
 Physics-based window management for Windows using AutoHotkey v2.
 
+## Watch FWDE in REAPER
+
+[Watch the demo video](FWDE%20in%20Reaper.mp4)
+
 ## What is FWDE? ("Fweddie")
 
 FWDE automatically arranges floating windows using physics simulation. Windows repel each other to avoid overlap while staying within monitor bounds. Designed for workflows with multiple floating windows (DAW plugins, browser tabs, editor windows, terminals).

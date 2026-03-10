@@ -17,7 +17,7 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={userappdata}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-LicenseFile=README.rtf
+LicenseFile=License.rtf
 UninstallDisplayIcon={app}\{#MyAppExeName}
 PrivilegesRequired=lowest
 OutputDir=installer_output
@@ -46,7 +46,7 @@ Source: "{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 ; Keep existing config during update so user settings are preserved.
 Source: "FWDE_Config.json"; DestDir: "{app}"; Flags: onlyifdoesntexist
 Source: "README.MD"; DestDir: "{app}"; Flags: ignoreversion
-Source: "README.rtf"; DestDir: "{app}"; Flags: ignoreversion
+Source: "License.rtf"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "FWDEdesktop.png"; DestDir: "{app}"; Flags: ignoreversion
 

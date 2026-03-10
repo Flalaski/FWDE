@@ -1,0 +1,221 @@
+{\rtf1\ansi\deff0\nouicompat
+{\fonttbl{\f0\fswiss\fcharset0 Arial;}{\f1\fmodern\fcharset0 Courier New;}}
+{\colortbl ;\red0\green0\blue255;}
+\viewkind4\uc1\pard\sa200\sl276\slmult1
+
+\f0\fs32\b FWDE - Floating Windows Dynamic Equilibrium\b0\fs22\par
+\par
+Physics-based window management for Windows using AutoHotkey v2.\par
+\par
+
+\fs28\b What is FWDE? ("Fweddie")\b0\fs22\par
+\par
+FWDE automatically arranges floating windows using physics simulation. Windows repel each other to avoid overlap while staying within monitor bounds. Designed for workflows with multiple floating windows (DAW plugins, browser tabs, editor windows, terminals).\par
+\par
+
+\fs24\b DOWNLOAD FWDE.exe:\b0  \cf1\ul https://github.com/Flalaski/FWDE/releases\cf0\ulnone\par
+\par
+
+\fs28\b Features\b0\fs22\par
+\par
+
+\fs24\b Physics Engine\b0\par
+\bullet  Attraction, repulsion, and damping forces\par
+\bullet  Collision avoidance between windows\par
+\bullet  Edge repulsion to fill screen space\par
+\bullet  Configurable update rates and force parameters\par
+\par
+
+\fs24\b Multi-Monitor Support\b0\par
+\bullet  Per-monitor physics calculations\par
+\bullet  Optional cross-monitor mode (multimonitor expanse)\par
+\bullet  Fullscreen detection to exclude games and media players\par
+\bullet  Virtual desktop bounds for unified workspace\par
+\par
+
+\fs24\b Window Detection\b0\par
+\bullet  Automatic detection by process name, window class, or title patterns\par
+\bullet  Excludes system windows, taskbars, and fullscreen apps\par
+\bullet  Manual force-add for any window\par
+\bullet  Configurable inclusion patterns\par
+\par
+
+\fs24\b Manual Controls\b0\par
+\bullet  Lock individual windows in position\par
+\bullet  Optimize layout on demand\par
+\bullet  Toggle physics and arrangement independently\par
+\bullet  Pause lock during window drag, resume on release\par
+\par
+
+\fs24\b Debug Tools\b0\par
+\bullet  Window analysis showing why windows are/aren't managed\par
+\bullet  Pattern matching display\par
+\bullet  Real-time tracking of managed windows\par
+\bullet  Force-add capability for stubborn windows\par
+\par
+
+\fs28\b Installation\b0\fs22\par
+\par
+
+\fs24\b Requirements\b0\par
+\bullet  Windows 7/8.1/10/11\par
+\bullet  AutoHotkey v2 (only for building script manually, FWDE.exe in Releases is the app on its own)\par
+\par
+
+\fs24\b Setup\b0\par
+1. Download \f1 FWDE.ahk\f0\par
+2. Run directly with AutoHotkey v2, or compile to \f1 .exe\f0\par
+3. Modify \f1 Config\f0  map at top of file (optional)\par
+\par
+
+\fs24\b Compilation\b0\par
+\f1 autohotkey.exe /in FWDE.ahk\f0\par
+\par
+
+\fs28\b Usage\b0\fs22\par
+\par
+The system starts automatically when launched. Windows matching detection patterns are managed automatically. Use hotkeys for manual control.\par
+\par
+\bullet  \b Automatic\b0 : Eligible windows are detected and managed\par
+\bullet  \b Lock window\b0 : \f1 Ctrl+Alt+L\f0  locks active window in place (33 second duration, auto-extends during drag)\par
+\bullet  \b Force add\b0 : \f1 Ctrl+Alt+A\f0  manually adds active window to physics\par
+\bullet  \b Optimize\b0 : \f1 Ctrl+Alt+O\f0  instantly rearranges all windows\par
+\par
+
+\fs28\b Hotkeys\b0\fs22\par
+\par
+\trowd\trgaph108\trleft-108\cellx4500\cellx9000
+\b Shortcut\b0\intbl\cell\b Action\b0\intbl\cell\row
+\f1 Ctrl+Alt+Space\f0\intbl\cell Toggle Arrangement (master switch)\intbl\cell\row
+\f1 Ctrl+Alt+P\f0\intbl\cell Toggle Physics\intbl\cell\row
+\f1 Ctrl+Alt+M\f0\intbl\cell Toggle Multimonitor Expanse\intbl\cell\row
+\f1 Ctrl+Alt+O\f0\intbl\cell Optimize Window Positions\intbl\cell\row
+\f1 Ctrl+Alt+L\f0\intbl\cell Lock/Unlock Active Window\intbl\cell\row
+\f1 Ctrl+Alt+T\f0\intbl\cell Show Taskbar Menu\intbl\cell\row
+\f1 Ctrl+Alt+D\f0\intbl\cell Debug Window Info\intbl\cell\row
+\f1 Ctrl+Alt+I\f0\intbl\cell Debug Active Window\intbl\cell\row
+\f1 Ctrl+Alt+A\f0\intbl\cell Force Add Active Window\intbl\cell\row
+\pard\sa200\sl276\slmult1\par
+
+\fs28\b Configuration\b0\fs22\par
+\par
+Settings are in the \f1 Config\f0  map at the top of \f1 FWDE.ahk\f0 .\par
+\par
+
+\fs24\b Core Physics\b0\par
+\f1 "MinMargin", 2,                    ; Distance from screen edges (px)\par
+"MinGap", 21,                      ; Gap between windows\par
+"AttractionForce", 0.00005,        ; Pull toward center\par
+"RepulsionForce", 0.8,             ; Push apart from other windows\par
+"EdgeRepulsionForce", 0.80,        ; Push from screen edges\par
+"Damping", 0.001,                  ; Friction coefficient\par
+"MaxSpeed", 12.0,                  ; Max velocity\f0\par
+\par
+
+\fs24\b Performance\b0\par
+\f1 "PhysicsTimeStep", 1,              ; Physics update frequency (ms)\par
+"VisualTimeStep", 16,              ; Visual update frequency (ms) - ~60fps\par
+"UserMoveTimeout", 11111,          ; Pause after user interaction (ms)\par
+"ManualLockDuration", 33333,       ; Lock duration (ms, ~33 seconds)\f0\par
+\par
+
+\fs24\b Window Detection\b0\par
+\f1 "ForceFloatProcesses", [           ; Always manage these processes\par
+    "firefox.exe", "chrome.exe", "cursor.exe", "code.exe",\par
+    "notepad++.exe", "devenv.exe", "explorer.exe",\par
+    "winword.exe", "excel.exe", "powerpnt.exe", "outlook.exe"\par
+],\par
+"FloatClassPatterns", [            ; Window classes to include\par
+    "MozillaWindowClass", "Chrome_WidgetWin_1", "ApplicationFrameWindow",\par
+    "Code.exe", "Cursor.exe", "Notepad", "Notepad++"\par
+],\par
+"FloatTitlePatterns", [            ; Window titles to include\par
+    "VST.*", "JS:.*", "Plugin", "Command Prompt", "Windows Terminal"\par
+]\f0\par
+\par
+
+\fs24\b Advanced Features\b0\par
+\f1 "MultimonitorExpanse", false,         ; Allow windows to float across monitors\par
+"TooltipDuration", 15000,              ; Debug tooltip duration (ms)\par
+"ResizeDelay", 22,                     ; Delay before physics after resize (ms)\f0\par
+\par
+
+\fs28\b Debugging\b0\fs22\par
+\par
+
+\fs24\b Tools\b0\par
+\bullet  \f1 Ctrl+Alt+D\f0  - Show all tracked/untracked windows with details\par
+\bullet  \f1 Ctrl+Alt+I\f0  - Analyze active window (why managed/not managed)\par
+\bullet  \f1 Ctrl+Alt+A\f0  - Manually add window to physics\par
+\par
+
+\fs24\b Troubleshooting\b0\par
+\par
+\b Windows not moving\b0\par
+1. Check arrangement: \f1 Ctrl+Alt+Space\f0  (must be ON)\par
+2. Check physics: \f1 Ctrl+Alt+P\f0  (must be ON)\par
+3. Debug window: \f1 Ctrl+Alt+I\f0  on the window\par
+4. Force add: \f1 Ctrl+Alt+A\f0  if detection failed\par
+\par
+\b Too much movement\b0\par
+\bullet  Increase damping: \f1 "Damping"\f0  to 0.005+\par
+\bullet  Reduce repulsion: \f1 "RepulsionForce"\f0  to 0.3 or less\par
+\bullet  Lock windows: \f1 Ctrl+Alt+L\f0  to fix position\par
+\par
+\b Performance issues\b0\par
+\bullet  Increase timesteps: \f1 "PhysicsTimeStep"\f0  to 5, \f1 "VisualTimeStep"\f0  to 33\par
+\bullet  Lock unnecessary windows: \f1 Ctrl+Alt+L\f0\par
+\par
+\b Multi-monitor issues\b0\par
+\bullet  Toggle mode: \f1 Ctrl+Alt+M\f0  for multimonitor expanse\par
+\bullet  Check detection: \f1 Ctrl+Alt+D\f0  shows monitor assignments\par
+\par
+\b Window not detected\b0\par
+\bullet  Check patterns: \f1 Ctrl+Alt+I\f0  shows which patterns match\par
+\bullet  Add to \f1 ForceFloatProcesses\f0 : Add process name to config\par
+\bullet  Force add: \f1 Ctrl+Alt+A\f0  for immediate inclusion\par
+\par
+
+\fs28\b Use Cases\b0\fs22\par
+\par
+\b Music Production\b0\par
+\bullet  DAW plugin management (VST windows)\par
+\bullet  Multi-monitor plugin layouts\par
+\bullet  Lock main DAW interface, float plugins\par
+\par
+\b Software Development\b0\par
+\bullet  IDE + browser + terminal arrangements\par
+\bullet  Multi-monitor plugin layouts\par
+\bullet  Reference materials accessible\par
+\par
+\b Design & Creative Work\b0\par
+\bullet  Tool palettes from Photoshop, Illustrator, etc.\par
+\bullet  Reference images and color pickers\par
+\bullet  Multi-application workflows\par
+\par
+\b Data Analysis\b0\par
+\bullet  Spreadsheet + browser coordination\par
+\bullet  Multiple data visualization windows\par
+\bullet  PDF + browser + analysis tool layouts\par
+\par
+
+\fs28\b Technical Details\b0\fs22\par
+\par
+\b Physics Engine\b0\par
+\bullet  Custom attraction/repulsion force model\par
+\bullet  Velocity integration with damping\par
+\bullet  Per-frame collision detection\par
+\bullet  Boundary enforcement\par
+\par
+\b Window Detection\b0\par
+\bullet  Multi-pattern matching (process, class, title, style)\par
+\bullet  Fullscreen exclusion via Windows API\par
+\bullet  Min/max state checking\par
+\bullet  Manual override support\par
+\par
+\b Multi-Monitor\b0\par
+\bullet  Per-monitor physics calculations\par
+\bullet  Optional cross-monitor mode\par
+\bullet  Virtual desktop bounds\par
+\par
+}

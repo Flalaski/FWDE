@@ -8,7 +8,11 @@ Physics-based window management for Windows using AutoHotkey v2.
 
 FWDE automatically arranges floating windows using physics simulation. Windows repel each other to avoid overlap while staying within monitor bounds. Designed for workflows with multiple floating windows (DAW plugins, browser tabs, editor windows, terminals).
 
-## DOWNLOAD FWDE.exe: https://github.com/Flalaski/FWDE/releases
+## Download
+
+Get the latest installer from Releases:
+
+`https://github.com/Flalaski/FWDE/releases`
 
 ## Features
 
@@ -45,18 +49,38 @@ FWDE automatically arranges floating windows using physics simulation. Windows r
 ## Installation
 
 ### Requirements
-- Windows 7/8.1/10/11
-- [AutoHotkey v2](https://autohotkey.com) (only for building script manually, FWDE.exe in Releases is the app on its own)
+- Windows 10/11 (x64)
+- Windows 7 tested ok
 
-### Setup
-1. Download `FWDE.ahk`
-2. Run directly with AutoHotkey v2, or compile to `.exe`
-3. Modify `Config` map at top of file (optional)
+### Recommended: Installer (no AutoHotkey required)
+1. Download `FWDE_Setup_<version>.exe` from Releases.
+2. Run the installer and follow the setup wizard.
+3. Optional during install:
+- Create desktop shortcut
+- Run FWDE when you sign in
 
-### Compilation
-```bash
-autohotkey.exe /in FWDE.ahk
-```
+FWDE installs per-user (no admin rights needed) to:
+
+`%AppData%\FWDE`
+
+Update behavior:
+- Existing `FWDE_Config.json` is preserved during upgrades.
+
+Uninstall behavior:
+- Uninstall from Windows Installed Apps / Add or remove programs.
+- You will be prompted whether to remove user data (config and layouts).
+
+### Manual: Script workflow (advanced)
+Use this only if you want to run/edit the source script directly.
+
+Requirements:
+- Windows 10/11
+- [AutoHotkey v2](https://autohotkey.com)
+
+Steps:
+1. Download or clone this repository.
+2. Run `FWDE.ahk` with AutoHotkey v2.
+3. Edit `FWDE_Config.json` for your settings.
 
 ## Usage
 

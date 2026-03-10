@@ -2,9 +2,7 @@
 
 Physics-based window management for Windows using AutoHotkey v2.
 
-## Watch FWDE in REAPER
 
-[Watch the demo video](FWDE%20in%20Reaper.mp4)
 
 ## What is FWDE? ("Fweddie")
 

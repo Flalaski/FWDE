@@ -35,8 +35,8 @@ SetupLogging=yes
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "startup"; Description: "Run {#MyAppName} when I sign in"; GroupDescription: "Startup"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: exclusive
+Name: "startup"; Description: "Run {#MyAppName} when I sign in"; GroupDescription: "Startup"; Flags: exclusive
 
 [Dirs]
 Name: "{app}\Layouts"

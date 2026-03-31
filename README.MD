@@ -2,7 +2,7 @@
 
 Physics-based window management for Windows using AutoHotkey v2.
 
-
+Read my Blog Post about it to see Video of it working!: https://flalaski.com/index.php/2026/03/19/fwde-floating-windows-dynamic-equilibrium/
 
 ## What is FWDE? ("Fweddie")
 

@@ -66,11 +66,11 @@ global g_PhysicsBuffer := Buffer(4096)
 ; When enabled, windows are no longer confined to the current monitor boundaries
 
 global Config := Map(
-    "MinMargin", 2,  ; Reduced to allow windows closer to screen edges
-    "MinGap", 21,
-    "SeedDiagonalStep", 14,      ; Base diagonal step used to de-stack similar windows
-    "SeedDiagonalMaxSteps", 4,   ; Maximum number of diagonal steps to try per seed
-    "SeedJitterRange", 5,        ; Small per-window variance so same-size windows don't line up
+    "MinMargin", 1,  ; Reduced to allow windows closer to screen edges
+    "MinGap", 2,
+    "SeedDiagonalStep", 32,      ; Base diagonal step used to de-stack similar windows
+    "SeedDiagonalMaxSteps", 7,   ; Maximum number of diagonal steps to try per seed
+    "SeedJitterRange", 13,        ; Small per-window variance so same-size windows don't line up
     "ManualGapBonus", 369,
     "AttractionForce", 0.00005,   ; Reduced to allow more spreading
     "RepulsionForce", 0.8,       ; Increased to push windows further apart
@@ -83,12 +83,12 @@ global Config := Map(
     "PairSeparationBase", 0.013,      ; Base overlap separation force
     "PairSeparationOverlapScale", 2.6,
     "PairSmallWindowBoost", 1.45,
-    "SmallWindowThresholdW", 360,
-    "SmallWindowThresholdH", 240,
-    "UserMoveTimeout", 11111,        ; How long to keep focused window still after interaction (ms)
+    "SmallWindowThresholdW", 442,
+    "SmallWindowThresholdH", 414,
+    "UserMoveTimeout", 209,        ; How long to keep focused window still after interaction (ms)
     "ManualLockDuration", 33333,     ; How long manual window locks last (ms) - about 33 seconds
     "ResizeDelay", 22,
-    "TooltipDuration", 15000,
+    "TooltipDuration", 6767,
     "ParameterHelpTooltipDuration", 2200,
     "MultimonitorExpanse", false,   ; Toggle for multi-monitor expanse (seamless floating)
     "FloatStyles",  0x00C00000 | 0x00040000 | 0x00080000 | 0x00020000 | 0x00010000,
@@ -168,8 +168,8 @@ global Config := Map(
     ),
     "ManualWindowColor", "FF5555",
     "ManualWindowAlpha", 222,
-    "NoiseScale", 888,
-    "NoiseInfluence", 100,
+    "NoiseScale", 2220,
+    "NoiseInfluence", 201,
     "AnimationDuration", 32,    ; Higher = longer animations (try 16-32)
     "PhysicsUpdateInterval", 1000,
     "ManualRepulsionMultiplier", 1.0

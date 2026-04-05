@@ -353,6 +353,48 @@ SafeWinExist(hwnd) {
     }
 }
 
+SafeMonitorGet(monNum, &mL, &mT, &mR, &mB) {
+    ; Always initialize bounds so callers never read unset locals.
+    mL := 0
+    mT := 0
+    mR := A_ScreenWidth
+    mB := A_ScreenHeight
+
+    resolvedMon := monNum
+    if (!resolvedMon)
+        resolvedMon := MonitorGetPrimary()
+
+    try {
+        MonitorGet resolvedMon, &tmpL, &tmpT, &tmpR, &tmpB
+        if (IsSet(tmpL) && IsSet(tmpT) && IsSet(tmpR) && IsSet(tmpB)) {
+            mL := tmpL
+            mT := tmpT
+            mR := tmpR
+            mB := tmpB
+            return resolvedMon
+        }
+    }
+    catch {
+    }
+
+    ; Retry on primary monitor if the requested monitor disappeared.
+    try {
+        resolvedMon := MonitorGetPrimary()
+        MonitorGet resolvedMon, &tmpL, &tmpT, &tmpR, &tmpB
+        if (IsSet(tmpL) && IsSet(tmpT) && IsSet(tmpR) && IsSet(tmpB)) {
+            mL := tmpL
+            mT := tmpT
+            mR := tmpR
+            mB := tmpB
+            return resolvedMon
+        }
+    }
+    catch {
+    }
+
+    return 0
+}
+
 IsFullscreenWindow(hwnd) {
     try {
         if (!SafeWinExist(hwnd))
@@ -371,17 +413,8 @@ IsFullscreenWindow(hwnd) {
             ; Fallback to primary monitor
             monNum := MonitorGetPrimary()
         }
-        
-        try {
-            MonitorGet monNum, &mL, &mT, &mR, &mB
-        }
-        catch {
-            ; Fallback to screen dimensions
-            mL := 0
-            mT := 0
-            mR := A_ScreenWidth
-            mB := A_ScreenHeight
-        }
+
+        SafeMonitorGet(monNum, &mL, &mT, &mR, &mB)
 
         ; Check window properties
         winClass := WinGetClass("ahk_id " hwnd)
@@ -916,14 +949,9 @@ GetVisibleWindows(monitor) {
 
             ; Determine which monitor the window is on
             winMonitor := MonitorGetFromPoint(winCenterX, winCenterY)
-            try {
-                MonitorGet winMonitor, &mL, &mT, &mR, &mB
-            }
-            catch {
-                ; Fallback to primary monitor if detection fails
-                winMonitor := MonitorGetPrimary()
-                MonitorGet winMonitor, &mL, &mT, &mR, &mB
-            }
+            resolvedMon := SafeMonitorGet(winMonitor, &mL, &mT, &mR, &mB)
+            if (resolvedMon)
+                winMonitor := resolvedMon
             ; Check if window should be included based on floating mode
             includeWindow := false
 
@@ -1183,9 +1211,6 @@ CalculateWindowForces(win, allWindows) {
         }
     }
     
-    ; Predeclare monitor bounds to avoid local variable warning
-    mL := 0, mT := 0, mR := A_ScreenWidth, mB := A_ScreenHeight
-
     if (Config["MultimonitorExpanse"]) {
         ; Use virtual desktop bounds for multimonitor expanse
         virtualBounds := GetVirtualDesktopBounds()
@@ -1195,9 +1220,7 @@ CalculateWindowForces(win, allWindows) {
         mB := virtualBounds["Bottom"]
     } else {
         ; Use current monitor bounds for traditional single-monitor floating
-        try {
-            MonitorGet win["monitor"], &mL, &mT, &mR, &mB
-        }
+        SafeMonitorGet(win["monitor"], &mL, &mT, &mR, &mB)
     }
 
     monLeft := mL
@@ -1486,7 +1509,7 @@ ApplyWindowMovements() {
                 monBottom := virtualBounds["Bottom"] - Config["MinMargin"] - win["height"]
             } else {
                 ; Use current monitor bounds for traditional single-monitor floating
-                MonitorGet win["monitor"], &mL, &mT, &mR, &mB
+                SafeMonitorGet(win["monitor"], &mL, &mT, &mR, &mB)
                 monLeft := mL
                 monRight := mR - win["width"]
                 monTop := mT + Config["MinMargin"]
@@ -1667,15 +1690,7 @@ ResolveCollisions(positions) {
             i := A_Index
             pos1 := positions[i]
 
-            try {
-                MonitorGet pos1["monitor"], &mL, &mT, &mR, &mB
-            }
-            catch {
-                mL := 0
-                mT := 0
-                mR := A_ScreenWidth
-                mB := A_ScreenHeight
-            }
+            SafeMonitorGet(pos1["monitor"], &mL, &mT, &mR, &mB)
 
             newX := Max(mL + Config["MinMargin"],
                        Min(pos1["x"], mR - pos1["width"] - Config["MinMargin"]))
@@ -1752,7 +1767,7 @@ ResolveCollisions(positions) {
         for pos in positions {
             if (IsOverlapping(pos, otherWindows)) {
                 try {
-                    MonitorGet pos["monitor"], &mL, &mT, &mR, &mB
+                    SafeMonitorGet(pos["monitor"], &mL, &mT, &mR, &mB)
                     monitor := Map(
                         "Left", mL, "Right", mR,
                         "Top", mT, "Bottom", mB,
@@ -2090,7 +2105,9 @@ DragWindow() {
         winCenterX := x + w/2
         winCenterY := y + h/2
         monNum := MonitorGetFromPoint(winCenterX, winCenterY)
-        MonitorGet monNum, &mL, &mT, &mR, &mB
+        resolvedMon := SafeMonitorGet(monNum, &mL, &mT, &mR, &mB)
+        if (resolvedMon)
+            monNum := resolvedMon
 
         ; Check if this window was already locked before drag
         wasPreLocked := false
@@ -2688,11 +2705,7 @@ CalculateSpaceSeekingForce(win, allWindows) {
         return Map()  ; Not enough windows to need space seeking
 
     ; Get current monitor bounds
-    try {
-        MonitorGet win["monitor"], &mL, &mT, &mR, &mB
-    } catch {
-        return Map()
-    }
+    SafeMonitorGet(win["monitor"], &mL, &mT, &mR, &mB)
 
     winCenterX := win["x"] + win["width"]/2
     winCenterY := win["y"] + win["height"]/2
@@ -3027,6 +3040,7 @@ BuildFWDEMenus() {
 
     TaskbarMenu.Add("🔧 Debug", DebugTaskbarMenu)
     TaskbarMenu.Add()
+    TaskbarMenu.Add("🔄 Restart FWDE", (*) => RestartFWDE())
     TaskbarMenu.Add("❌ Exit", (*) => ExitApp())
 
     ; Rebuild actual AutoHotkey tray icon menu (right-click tray icon)
@@ -3052,7 +3066,13 @@ BuildFWDEMenus() {
 
     A_TrayMenu.Add("🔧 Debug", DebugTrayMenu)
     A_TrayMenu.Add()
+    A_TrayMenu.Add("🔄 Restart FWDE", (*) => RestartFWDE())
     A_TrayMenu.Add("❌ Exit", (*) => ExitApp())
+}
+
+RestartFWDE() {
+    ; Reload restarts the current script process in AutoHotkey v2.
+    Reload()
 }
 
 CloneMapDeep(value) {
@@ -3728,11 +3748,7 @@ DebugWindowInfo() {
     CoordMode "Mouse", "Screen"
     MouseGetPos(&mx, &my)
     activeMonitor := MonitorGetFromPoint(mx, my)
-    try {
-        MonitorGet activeMonitor, &mL, &mT, &mR, &mB
-    } catch {
-        mL := 0, mT := 0, mR := A_ScreenWidth, mB := A_ScreenHeight
-    }
+    SafeMonitorGet(activeMonitor, &mL, &mT, &mR, &mB)
     
     ; Check all windows
     for hwnd in WinGetList() {

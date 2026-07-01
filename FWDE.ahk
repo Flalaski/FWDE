@@ -3290,8 +3290,10 @@ NormalizeSliderFromConfig(spec, value) {
 NormalizeConfigFromSlider(spec, sliderValue) {
     numericValue := sliderValue / spec["scale"]
     if (spec["decimals"] <= 0)
-        return Round(numericValue)
-    return Round(numericValue, spec["decimals"])
+        return Round(numericValue)  ; integer return - safe
+    ; Round(N, Places>0) returns a STRING in AHK v2, which would break JSON save/load.
+    ; Explicitly convert back to Float so Config always stores a proper number.
+    return Float(Round(numericValue, spec["decimals"]))
 }
 
 GetSliderDefaultMarkerX(sliderX, sliderWidth, spec) {
@@ -3313,10 +3315,16 @@ EscapeJsonString(value) {
 }
 
 ToJsonScalar(value) {
+    ; Numbers: use %.10g format for clean, precise, parseable output (no trailing noise digits).
     if (value is Number)
-        return value
-    if (Type(value) = "String")
+        return Format("{:.10g}", value + 0)
+    if (Type(value) = "String") {
+        ; Numeric strings can end up in Config when Round(N,Places) is called.
+        ; Serialize them as bare numbers so the load regex matches them correctly.
+        if (IsNumber(value))
+            return Format("{:.10g}", Float(value))
         return '"' EscapeJsonString(value) '"'
+    }
     return value ? "true" : "false"
 }
 
@@ -3336,6 +3344,10 @@ ParseJsonScalar(text) {
         inner := StrReplace(inner, "\\n", "`n")
         inner := StrReplace(inner, "\\r", "`r")
         inner := StrReplace(inner, "\\t", "`t")
+        ; If the quoted value is actually a number (e.g. "60.00" from the Round() string bug),
+        ; return it as a proper number so Config is not polluted with strings.
+        if (IsNumber(inner))
+            return Float(inner)
         return inner
     }
     return s + 0
@@ -3358,7 +3370,8 @@ LoadUserParameterSettings(*) {
     for _, spec in ParamSpecs {
         path := spec["path"]
         keyPattern := EscapeRegexLiteral(path)
-        if (!RegExMatch(raw, '"' keyPattern '"\s*:\s*(true|false|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)', &m))
+        ; Also match quoted numbers like "60.00" – left by older saves where Round() returned a string.
+        if (!RegExMatch(raw, '"' keyPattern '"\s*:\s*(true|false|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|"[^"]*")', &m))
             continue
 
         value := ParseJsonScalar(m[1])
@@ -3399,16 +3412,16 @@ SaveUserParameterSettings(*) {
         payload .= line (i < lines.Length ? "`n" : "")
     }
 
+    ; Use FileOpen in write ("w") mode to atomically overwrite the file.
+    ; FileDelete+FileAppend is unsafe: if delete silently fails, FileAppend appends
+    ; duplicate keys and RegExMatch finds the stale first-occurrence on next load.
     try {
-        FileDelete(UserConfigPath)
-    } catch {
-    }
-
-    try {
-        FileAppend(payload, UserConfigPath, "UTF-8")
+        f := FileOpen(UserConfigPath, "w", "UTF-8")
+        f.Write(payload)
+        f.Close()
         ShowTooltip("Settings saved")
-    } catch {
-        ShowTooltip("Failed to save settings")
+    } catch as err {
+        ShowTooltip("Failed to save settings: " err.Message)
     }
 }
 
@@ -3424,6 +3437,7 @@ SyncRuntimeFromConfig() {
     if (g["ArrangementActive"]) {
         SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
         SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
+        SetTimer(UpdateWindowStates, Config["PhysicsTimeStep"])  ; keep in sync with PhysicsTimeStep
     } else if (g["PhysicsEnabled"]) {
         SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
     }

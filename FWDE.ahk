@@ -395,6 +395,53 @@ SafeMonitorGet(monNum, &mL, &mT, &mR, &mB) {
     return 0
 }
 
+; Like SafeMonitorGet but returns the work area (screen minus all AppBars: taskbar,
+; RetroBar, any docked panel) for the given monitor.  MonitorGetWorkArea is a Windows
+; API call that handles every taskbar position (top / bottom / left / right) and every
+; taskbar replacement that registers itself as an AppBar (RetroBar does this).
+; Falls back to full monitor bounds when the call fails.
+SafeMonitorGetWorkArea(monNum, &mL, &mT, &mR, &mB) {
+    mL := 0
+    mT := 0
+    mR := A_ScreenWidth
+    mB := A_ScreenHeight
+
+    resolvedMon := monNum
+    if (!resolvedMon)
+        resolvedMon := MonitorGetPrimary()
+
+    try {
+        MonitorGetWorkArea resolvedMon, &tmpL, &tmpT, &tmpR, &tmpB
+        if (IsSet(tmpL) && IsSet(tmpT) && IsSet(tmpR) && IsSet(tmpB)) {
+            mL := tmpL
+            mT := tmpT
+            mR := tmpR
+            mB := tmpB
+            return resolvedMon
+        }
+    }
+    catch {
+    }
+
+    ; Retry on primary if the requested monitor disappeared.
+    try {
+        resolvedMon := MonitorGetPrimary()
+        MonitorGetWorkArea resolvedMon, &tmpL, &tmpT, &tmpR, &tmpB
+        if (IsSet(tmpL) && IsSet(tmpT) && IsSet(tmpR) && IsSet(tmpB)) {
+            mL := tmpL
+            mT := tmpT
+            mR := tmpR
+            mB := tmpB
+            return resolvedMon
+        }
+    }
+    catch {
+    }
+
+    ; Last resort: full monitor bounds (at least not garbage values).
+    return SafeMonitorGet(monNum, &mL, &mT, &mR, &mB)
+}
+
 IsFullscreenWindow(hwnd) {
     try {
         if (!SafeWinExist(hwnd))
@@ -1219,8 +1266,9 @@ CalculateWindowForces(win, allWindows) {
         mR := virtualBounds["Right"]
         mB := virtualBounds["Bottom"]
     } else {
-        ; Use current monitor bounds for traditional single-monitor floating
-        SafeMonitorGet(win["monitor"], &mL, &mT, &mR, &mB)
+        ; Work area already excludes the taskbar on any side (top/bottom/left/right)
+        ; for both native Windows taskbar and AppBar replacements like RetroBar.
+        SafeMonitorGetWorkArea(win["monitor"], &mL, &mT, &mR, &mB)
     }
 
     monLeft := mL
@@ -1508,8 +1556,9 @@ ApplyWindowMovements() {
                 monRight := virtualBounds["Right"] - win["width"]
                 monBottom := virtualBounds["Bottom"] - Config["MinMargin"] - win["height"]
             } else {
-                ; Use current monitor bounds for traditional single-monitor floating
-                SafeMonitorGet(win["monitor"], &mL, &mT, &mR, &mB)
+                ; Work area already excludes the taskbar on any side (top/bottom/left/right)
+                ; for both native Windows taskbar and AppBar replacements like RetroBar.
+                SafeMonitorGetWorkArea(win["monitor"], &mL, &mT, &mR, &mB)
                 monLeft := mL
                 monRight := mR - win["width"]
                 monTop := mT + Config["MinMargin"]
@@ -1520,31 +1569,6 @@ ApplyWindowMovements() {
             monRight := A_ScreenWidth - win["width"]
             monTop := Config["MinMargin"]
             monBottom := A_ScreenHeight - Config["MinMargin"] - win["height"]
-        }
-        
-        ; Apply taskbar boundary constraints
-        taskbarRect := GetTaskbarRect()
-        if (taskbarRect) {
-            ; Check if taskbar is at bottom of screen
-            if (taskbarRect.top > A_ScreenHeight / 2) {
-                ; Taskbar at bottom - adjust bottom boundary
-                monBottom := Min(monBottom, taskbarRect.top - Config["MinMargin"] - win["height"])
-            }
-            ; Check if taskbar is at top of screen
-            else if (taskbarRect.bottom < A_ScreenHeight / 2) {
-                ; Taskbar at top - adjust top boundary
-                monTop := Max(monTop, taskbarRect.bottom + Config["MinMargin"])
-            }
-            ; Check if taskbar is at left of screen
-            else if (taskbarRect.right < A_ScreenWidth / 2) {
-                ; Taskbar at left - adjust left boundary
-                monLeft := Max(monLeft, taskbarRect.right + Config["MinMargin"])
-            }
-            ; Check if taskbar is at right of screen
-            else if (taskbarRect.left > A_ScreenWidth / 2) {
-                ; Taskbar at right - adjust right boundary
-                monRight := Min(monRight, taskbarRect.left - Config["MinMargin"] - win["width"])
-            }
         }
 
         hwnd := win["hwnd"]
@@ -1690,41 +1714,14 @@ ResolveCollisions(positions) {
             i := A_Index
             pos1 := positions[i]
 
-            SafeMonitorGet(pos1["monitor"], &mL, &mT, &mR, &mB)
+            ; Work area already excludes the taskbar on any side (top/bottom/left/right)
+            ; for both native Windows taskbar and AppBar replacements like RetroBar.
+            SafeMonitorGetWorkArea(pos1["monitor"], &mL, &mT, &mR, &mB)
 
             newX := Max(mL + Config["MinMargin"],
                        Min(pos1["x"], mR - pos1["width"] - Config["MinMargin"]))
             newY := Max(mT + Config["MinMargin"],
                        Min(pos1["y"], mB - pos1["height"] - Config["MinMargin"]))
-            
-            ; Apply taskbar boundary constraints
-            taskbarRect := GetTaskbarRect()
-            if (taskbarRect) {
-                ; Check if taskbar is at bottom of screen
-                if (taskbarRect.top > A_ScreenHeight / 2) {
-                    ; Taskbar at bottom - adjust bottom boundary
-                    maxY := taskbarRect.top - Config["MinMargin"] - pos1["height"]
-                    newY := Min(newY, maxY)
-                }
-                ; Check if taskbar is at top of screen
-                else if (taskbarRect.bottom < A_ScreenHeight / 2) {
-                    ; Taskbar at top - adjust top boundary
-                    minY := taskbarRect.bottom + Config["MinMargin"]
-                    newY := Max(newY, minY)
-                }
-                ; Check if taskbar is at left of screen
-                else if (taskbarRect.right < A_ScreenWidth / 2) {
-                    ; Taskbar at left - adjust left boundary
-                    minX := taskbarRect.right + Config["MinMargin"]
-                    newX := Max(newX, minX)
-                }
-                ; Check if taskbar is at right of screen
-                else if (taskbarRect.left > A_ScreenWidth / 2) {
-                    ; Taskbar at right - adjust right boundary
-                    maxX := taskbarRect.left - Config["MinMargin"] - pos1["width"]
-                    newX := Min(newX, maxX)
-                }
-            }
 
             if (newX != pos1["x"] || newY != pos1["y"]) {
                 pos1["x"] := newX
@@ -1767,7 +1764,7 @@ ResolveCollisions(positions) {
         for pos in positions {
             if (IsOverlapping(pos, otherWindows)) {
                 try {
-                    SafeMonitorGet(pos["monitor"], &mL, &mT, &mR, &mB)
+                    SafeMonitorGetWorkArea(pos["monitor"], &mL, &mT, &mR, &mB)
                     monitor := Map(
                         "Left", mL, "Right", mR,
                         "Top", mT, "Bottom", mB,
@@ -2704,8 +2701,8 @@ CalculateSpaceSeekingForce(win, allWindows) {
     if (allWindows.Length <= 2)
         return Map()  ; Not enough windows to need space seeking
 
-    ; Get current monitor bounds
-    SafeMonitorGet(win["monitor"], &mL, &mT, &mR, &mB)
+    ; Use work area so space-seeking never pushes windows under the taskbar.
+    SafeMonitorGetWorkArea(win["monitor"], &mL, &mT, &mR, &mB)
 
     winCenterX := win["x"] + win["width"]/2
     winCenterY := win["y"] + win["height"]/2
@@ -3708,37 +3705,81 @@ ShowTaskbarMenu() {
 }
 
 GetTaskbarRect() {
-    hwnd := WinExist("ahk_class Shell_TrayWnd")
-    if (hwnd && WinExist("ahk_id " hwnd)) {
-        try {
-            WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-            return { left: x, top: y, right: x + w, bottom: y + h }
-        } catch {
-            ; fall through
+    ; Returns the rect of the taskbar on the monitor the mouse is currently on.
+    ; Supports:
+    ;   - Windows native taskbar (Shell_TrayWnd = primary, Shell_SecondaryTrayWnd = per-monitor)
+    ;   - RetroBar (one window per monitor, found via ahk_exe; also tries known WPF class names)
+    ; Uses WinGetList instead of WinExist so all instances are checked (multi-monitor coverage).
+    ; Returns 0 when no taskbar is detectable.
+    ;
+    ; NOTE: for physics/boundary purposes prefer SafeMonitorGetWorkArea — it reads the
+    ; system work area directly and doesn't need to know which side the taskbar is on.
+    ; This function is kept for ShowTaskbarMenu popup placement.
+
+    CoordMode "Mouse", "Screen"
+    MouseGetPos(&mx, &my)
+    monNum := MonitorGetFromPoint(mx, my)
+    if (!monNum)
+        monNum := MonitorGetPrimary()
+    SafeMonitorGet(monNum, &mL, &mT, &mR, &mB)
+
+    ; --- Collect all candidate taskbar window handles ---
+    candidates := []
+
+    ; Native primary taskbar (always exactly one per system)
+    try {
+        hwnd := WinExist("ahk_class Shell_TrayWnd")
+        if (hwnd)
+            candidates.Push(hwnd)
+    }
+
+    ; Native per-monitor secondary taskbars (one per additional monitor)
+    try {
+        for hwnd in WinGetList("ahk_class Shell_SecondaryTrayWnd")
+            candidates.Push(hwnd)
+    }
+
+    ; RetroBar — registers as an AppBar and can run one instance per monitor.
+    ; WinGetList("ahk_exe RetroBar.exe") covers all its windows regardless of class name.
+    try {
+        for hwnd in WinGetList("ahk_exe RetroBar.exe") {
+            try {
+                if (WinGetMinMax("ahk_id " hwnd) == 0)   ; skip minimised/tray
+                    candidates.Push(hwnd)
+            }
         }
     }
-    hwnd := WinExist("ahk_class RetroBarWnd")
-    if (!hwnd)
-        hwnd := WinExist("ahk_exe RetroBar.exe")
-    if (hwnd && WinExist("ahk_id " hwnd)) {
+
+    ; --- Pass 1: prefer the taskbar whose left-top corner is on the mouse's monitor ---
+    for hwnd in candidates {
         try {
+            if (!SafeWinExist(hwnd))
+                continue
             WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-            return { left: x, top: y, right: x + w, bottom: y + h }
+            if (w == 0 || h == 0)
+                continue
+            ; The taskbar is "on" this monitor when its origin is within monitor bounds.
+            ; (Taskbars always start at a monitor edge, so the origin is sufficient.)
+            if (x >= mL && x < mR && y >= mT && y < mB)
+                return { left: x, top: y, right: x + w, bottom: y + h }
         } catch {
-            ; fall through
+            continue
         }
     }
-    ; Try secondary taskbars (multi-monitor)
-    hwnd := WinExist("ahk_class Shell_SecondaryTrayWnd")
-    if (hwnd && WinExist("ahk_id " hwnd)) {
+
+    ; --- Pass 2: fall back to any non-zero taskbar found ---
+    for hwnd in candidates {
         try {
+            if (!SafeWinExist(hwnd))
+                continue
             WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-            return { left: x, top: y, right: x + w, bottom: y + h }
+            if (w > 0 && h > 0)
+                return { left: x, top: y, right: x + w, bottom: y + h }
         } catch {
-            ; fall through
+            continue
         }
     }
-    ; If we cannot determine taskbar, return 0 to signal absence to callers
+
     return 0
 }
 

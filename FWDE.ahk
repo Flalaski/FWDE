@@ -66,28 +66,28 @@ global g_PhysicsBuffer := Buffer(4096)
 ; When enabled, windows are no longer confined to the current monitor boundaries
 
 global Config := Map(
-    "MinMargin", 1,  ; Reduced to allow windows closer to screen edges
-    "MinGap", 2,
-    "SeedDiagonalStep", 32,      ; Base diagonal step used to de-stack similar windows
-    "SeedDiagonalMaxSteps", 7,   ; Maximum number of diagonal steps to try per seed
-    "SeedJitterRange", 13,        ; Small per-window variance so same-size windows don't line up
-    "ManualGapBonus", 369,
-    "AttractionForce", 0.00005,   ; Reduced to allow more spreading
-    "RepulsionForce", 0.8,       ; Increased to push windows further apart
-    "EdgeRepulsionForce", 0.80,
-    "CollisionOverlapThreshold", 2,   ; Treat tiny edge overlaps as real collisions
-    "RepulsionRangeMultiplier", 1.7,  ; Wider near-field repulsion envelope
-    "RepulsionImpulseScale", 0.42,    ; Stronger per-step push for overlap release
-    "SmallWindowReferenceDim", 320,   ; Windows smaller than this get extra push
+    "MinMargin", 0,  ; Allow windows right to screen edges
+    "MinGap", 0,
+    "SeedDiagonalStep", 61,      ; Base diagonal step used to de-stack similar windows
+    "SeedDiagonalMaxSteps", 18,   ; Maximum number of diagonal steps to try per seed
+    "SeedJitterRange", 31,        ; Per-window variance so same-size windows don't line up
+    "ManualGapBonus", 0,
+    "AttractionForce", 0.00045,   ; Center-seeking pull strength
+    "RepulsionForce", 5.0,        ; Strong push to keep windows clearly separated
+    "EdgeRepulsionForce", 1.04,
+    "CollisionOverlapThreshold", 100,   ; Higher = only significant overlaps trigger separation (stops bouncing)
+    "RepulsionRangeMultiplier", 2.4,   ; Wider repulsion envelope for earlier reaction
+    "RepulsionImpulseScale", 2.5,      ; Strong per-step push for rapid overlap release
+    "SmallWindowReferenceDim", 1200,   ; Reference dimension for small-window classification
     "MaxSmallWindowRepulsionBoost", 1.6,
-    "PairSeparationBase", 0.013,      ; Base overlap separation force
-    "PairSeparationOverlapScale", 2.6,
-    "PairSmallWindowBoost", 1.45,
-    "SmallWindowThresholdW", 442,
-    "SmallWindowThresholdH", 414,
-    "UserMoveTimeout", 209,        ; How long to keep focused window still after interaction (ms)
+    "PairSeparationBase", 0.08,        ; Base overlap separation force
+    "PairSeparationOverlapScale", 0.1,
+    "PairSmallWindowBoost", 3.0,
+    "SmallWindowThresholdW", 614,
+    "SmallWindowThresholdH", 591,
+    "UserMoveTimeout", 523,        ; How long to keep focused window still after interaction (ms)
     "ManualLockDuration", 33333,     ; How long manual window locks last (ms) - about 33 seconds
-    "ResizeDelay", 22,
+    "ResizeDelay", 20,
     "TooltipDuration", 6767,
     "ParameterHelpTooltipDuration", 2200,
     "MultimonitorExpanse", false,   ; Toggle for multi-monitor expanse (seamless floating)
@@ -155,21 +155,21 @@ global Config := Map(
         "powerpnt.exe",  ; Microsoft PowerPoint
         "outlook.exe"    ; Microsoft Outlook
     ],
-    "Damping", 0.001,    ; Lower = less friction (0.001-0.01)
+    "Damping", 0.216,    ; 1.0 = no damping, 0.0 = full stop (use 0.001-1.0)
     "MaxSpeed", 12.0,    ; Limits maximum velocity
     "PhysicsTimeStep", 1,   ; Lower = more frequent physics updates (1ms is max)
-    "VisualTimeStep", 16,    ; Lower = smoother visuals (16ms = 60fps, 33ms = 30fps)
-    "Smoothing", 0.5,  ; Higher = smoother but more lag (0.9-0.99)
+    "VisualTimeStep", 1,    ; 1ms = ultra-smooth visuals (max refresh)
+    "Smoothing", 0.5,  ; Higher = smoother but more lag (0.0-0.999)
     "Stabilization", Map(
         "MinSpeedThreshold", 0.369,  ; Lower values high-DPI (0.05-0.15) ~ Higher values (0.2-0.5)  low-performance systems
         "EnergyThreshold", 0.06,     ; Lower values (0.05-0.1): Early stabilization, prevents overshooting
         "DampingBoost", 0.12,       ; 0.01-0.05: Subtle braking (smooth stops) ~ 0.1+: Strong braking (quick stops but may feel robotic)
-        "OverlapTolerance", 0     ; Zero tolerance for overlaps unless forced by constraints
+        "OverlapTolerance", 120     ; Generous overlap tolerance for natural settling without bouncing
     ),
     "ManualWindowColor", "FF5555",
     "ManualWindowAlpha", 222,
-    "NoiseScale", 2220,
-    "NoiseInfluence", 201,
+    "NoiseScale", 5550,
+    "NoiseInfluence", 503,
     "AnimationDuration", 32,    ; Higher = longer animations (try 16-32)
     "PhysicsUpdateInterval", 1000,
     "ManualRepulsionMultiplier", 1.0
@@ -1326,13 +1326,13 @@ CalculateWindowForces(win, allWindows) {
     ; Gentle center attraction with distance falloff - stronger for equilibrium
     if (centerDist > 100) {  ; Reduced threshold for earlier attraction
         attractionScale := Min(0.25, centerDist/1200)  ; Stronger attraction (was 0.15 and /1500)
-        ; Use less damping for Electron apps
-        dampingFactor := IsElectronApp(win["hwnd"]) ? 0.99 : 0.98
+        ; Use Config["Damping"] as base; Electron apps get slightly less damping
+        dampingFactor := IsElectronApp(win["hwnd"]) ? Min(1.0, Config["Damping"] + (1.0 - Config["Damping"]) * 0.15) : Config["Damping"]
         vx := prev_vx * dampingFactor + dx * Config["AttractionForce"] * 0.08 * attractionScale  ; Increased from 0.05
         vy := prev_vy * dampingFactor + dy * Config["AttractionForce"] * 0.08 * attractionScale
     } else {
-        ; Use less damping for Electron apps near center
-        dampingFactor := IsElectronApp(win["hwnd"]) ? 0.998 : 0.995
+        ; Use Config["Damping"]; slightly more damping near center for settling
+        dampingFactor := IsElectronApp(win["hwnd"]) ? Min(1.0, Config["Damping"] + (1.0 - Config["Damping"]) * 0.10) : Config["Damping"]
         vx := prev_vx * dampingFactor  ; Slightly more damping near center
         vy := prev_vy * dampingFactor
     }
@@ -1431,9 +1431,8 @@ CalculateWindowForces(win, allWindows) {
         }
     }
 
-    ; Space-like momentum with equilibrium-seeking damping
-    ; Use less damping for Electron apps to make them more responsive
-    dampingFactor := IsElectronApp(win["hwnd"]) ? 0.998 : 0.994  ; Less friction for Electron apps
+    ; Space-like momentum with equilibrium-seeking damping (driven by Config["Damping"])
+    dampingFactor := IsElectronApp(win["hwnd"]) ? Min(1.0, Config["Damping"] + (1.0 - Config["Damping"]) * 0.12) : Config["Damping"]
     vx *= dampingFactor
     vy *= dampingFactor
 
@@ -1444,9 +1443,10 @@ CalculateWindowForces(win, allWindows) {
 
     ; Progressive stabilization based on speed - less aggressive for Electron apps
     if (Abs(vx) < 0.15 && Abs(vy) < 0.15) {  ; Increased threshold for earlier settling
-        stabilizationFactor := IsElectronApp(win["hwnd"]) ? 0.95 : 0.88  ; Less aggressive stabilization for Electron apps
-        vx *= stabilizationFactor
-        vy *= stabilizationFactor
+        ; Apply extra stabilization damping when nearly stopped
+        stabFactor := IsElectronApp(win["hwnd"]) ? Min(1.0, Config["Damping"] + (1.0 - Config["Damping"]) * 0.25) : Max(0.85, Config["Damping"])
+        vx *= stabFactor
+        vy *= stabFactor
     }
 
     win["vx"] := vx
@@ -1887,7 +1887,12 @@ CalculateDynamicLayout() {
     lastState := newState
 }
 
-; New floating collision system
+; New floating collision system with chain-effect propagation
+; Runs multiple iterative passes so that when window A pushes B,
+; B's accumulated velocity causes it to push C in the same tick,
+; creating a realistic chain reaction through window clusters.
+; Every overlapping pair gets a guaranteed seeded diagonal bias
+; to prevent corner/edge stuckness from perfect symmetry.
 ResolveFloatingCollisions(windows) {
     global Config, g
     
@@ -1895,91 +1900,158 @@ ResolveFloatingCollisions(windows) {
     draggedHwnd := GetDraggedManagedWindow()
     isDragging := (draggedHwnd != 0)
 
-    ; More aggressive but gentle collision resolution for overlapping windows.
-    ; Protected windows (manual lock / active / snap) remain fixed, but still push others.
-    for i, win1 in windows {
-        ; Skip maximized and fullscreen windows
+    ; Number of chain-propagation passes
+    chainPasses := 5
+    
+    ; Balanced pass weights: force is spread more evenly so later passes
+    ; still contribute meaningfully to chain propagation.
+    passWeights := [0.30, 0.25, 0.20, 0.15, 0.10]
+    
+    ; Pre-compute protection state for all windows (doesn't change across passes)
+    protection := Map()
+    for win in windows {
         try {
-            if (WinGetMinMax("ahk_id " win1["hwnd"]) != 0 || IsFullscreenWindow(win1["hwnd"]))
+            if (WinGetMinMax("ahk_id " win["hwnd"]) != 0 || IsFullscreenWindow(win["hwnd"])) {
+                protection[win["hwnd"]] := "skip"
                 continue
+            }
         } catch {
+            protection[win["hwnd"]] := "skip"
             continue
         }
         
-        ; Protected windows should not be moved directly.
-        isManuallyLocked1 := (win1.Has("ManualLock") && A_TickCount < win1["ManualLock"])
-        isActive1 := (win1["hwnd"] == g["ActiveWindow"])
-        isBeingSnapped1 := g["SnapInProgress"].Has(win1["hwnd"]) && A_TickCount < g["SnapInProgress"][win1["hwnd"]]
-        isProtected1 := (isManuallyLocked1 || (isActive1 && !isDragging) || isBeingSnapped1)
-            
+        isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
+        isActive := (win["hwnd"] == g["ActiveWindow"])
+        isBeingSnapped := g["SnapInProgress"].Has(win["hwnd"]) && A_TickCount < g["SnapInProgress"][win["hwnd"]]
+        
+        if (isManuallyLocked || (isActive && !isDragging) || isBeingSnapped)
+            protection[win["hwnd"]] := "protected"
+        else
+            protection[win["hwnd"]] := "free"
+    }
+    
+    ; Pre-compute per-pair diagonal un-stick directions (deterministic, seeded)
+    ; so every overlapping pair has a guaranteed escape vector.
+    pairBias := Map()
+    for i, win1 in windows {
         for j, win2 in windows {
             if (i >= j)
                 continue
-
-            ; Skip maximized and fullscreen windows
-            try {
-                if (WinGetMinMax("ahk_id " win2["hwnd"]) != 0 || IsFullscreenWindow(win2["hwnd"]))
+            dir := GetSeededPairDirection(win1, win2)
+            key := win1["hwnd"] "_" win2["hwnd"]
+            pairBias[key] := dir
+        }
+    }
+    
+    ; Multi-pass chain propagation
+    loop chainPasses {
+        passIdx := A_Index
+        passWeight := passWeights[passIdx]
+        
+        anyChanges := false
+        
+        for i, win1 in windows {
+            if (protection[win1["hwnd"]] == "skip")
+                continue
+            
+            isProtected1 := (protection[win1["hwnd"]] == "protected")
+            
+            ; Apply a virtual position offset based on accumulated velocity
+            ; so subsequent passes can detect new collisions caused by prior pushes.
+            probeX1 := win1["x"] + win1["vx"] * 0.3
+            probeY1 := win1["y"] + win1["vy"] * 0.3
+                
+            for j, win2 in windows {
+                if (i >= j)
                     continue
-            } catch {
-                continue
-            }
+                
+                if (protection[win2["hwnd"]] == "skip")
+                    continue
+                
+                isProtected2 := (protection[win2["hwnd"]] == "protected")
+                
+                ; No need to process if both windows are protected.
+                if (isProtected1 && isProtected2)
+                    continue
+                
+                ; Use probed positions for chain-aware overlap detection
+                probeX2 := win2["x"] + win2["vx"] * 0.3
+                probeY2 := win2["y"] + win2["vy"] * 0.3
 
-            ; Protected windows should not be moved directly.
-            isManuallyLocked2 := (win2.Has("ManualLock") && A_TickCount < win2["ManualLock"])
-            isActive2 := (win2["hwnd"] == g["ActiveWindow"])
-            isBeingSnapped2 := g["SnapInProgress"].Has(win2["hwnd"]) && A_TickCount < g["SnapInProgress"][win2["hwnd"]]
-            isProtected2 := (isManuallyLocked2 || (isActive2 && !isDragging) || isBeingSnapped2)
+                ; Check for overlap using probed positions
+                overlapX := Max(0, Min(probeX1 + win1["width"], probeX2 + win2["width"]) - Max(probeX1, probeX2))
+                overlapY := Max(0, Min(probeY1 + win1["height"], probeY2 + win2["height"]) - Max(probeY1, probeY2))
 
-            ; No need to process if both windows are protected.
-            if (isProtected1 && isProtected2)
-                continue
+                if (overlapX > Config["CollisionOverlapThreshold"] && overlapY > Config["CollisionOverlapThreshold"]) {
+                    centerX1 := probeX1 + win1["width"]/2
+                    centerY1 := probeY1 + win1["height"]/2
+                    centerX2 := probeX2 + win2["width"]/2
+                    centerY2 := probeY2 + win2["height"]/2
 
-            ; Check for overlap with smaller tolerance for quicker separation
-            overlapX := Max(0, Min(win1["x"] + win1["width"], win2["x"] + win2["width"]) - Max(win1["x"], win2["x"]))
-            overlapY := Max(0, Min(win1["y"] + win1["height"], win2["y"] + win2["height"]) - Max(win1["y"], win2["y"]))
+                    dx := centerX1 - centerX2
+                    dy := centerY1 - centerY2
 
-            if (overlapX > Config["CollisionOverlapThreshold"] && overlapY > Config["CollisionOverlapThreshold"]) {
-                ; Gentle separation force
-                centerX1 := win1["x"] + win1["width"]/2
-                centerY1 := win1["y"] + win1["height"]/2
-                centerX2 := win2["x"] + win2["width"]/2
-                centerY2 := win2["y"] + win2["height"]/2
+                    ; --- GUARANTEED DIAGONAL UN-STICK ---
+                    ; When centers are near-identical OR the separation vector is tiny
+                    ; (corner/edge stuck), inject the seeded diagonal direction as a
+                    ; floor bias. This prevents any perfect-overlap deadlock.
+                    biasKey := win1["hwnd"] "_" win2["hwnd"]
+                    bias := pairBias[biasKey]
+                    
+                    ; Blend in diagonal bias: stronger when dx/dy are small (stuck),
+                    ; weaker when the natural separation direction is already clear.
+                    centerDist := Sqrt(dx*dx + dy*dy)
+                    if (centerDist < 10.0) {
+                        ; Heavily stuck: diagonal bias dominates
+                        blendRatio := 1.0 - (centerDist / 10.0)
+                        dx := dx * (1.0 - blendRatio) + bias[1] * blendRatio * 10.0
+                        dy := dy * (1.0 - blendRatio) + bias[2] * blendRatio * 10.0
+                    } else {
+                        ; Lightly add ~15% diagonal bias to prevent re-sticking
+                        dx := dx + bias[1] * 2.0
+                        dy := dy + bias[2] * 2.0
+                    }
 
-                dx := centerX1 - centerX2
-                dy := centerY1 - centerY2
+                    dist := Max(Sqrt(dx*dx + dy*dy), 1)
 
-                ; If centers are identical, use a deterministic diagonal split.
-                if (Abs(dx) < 0.5 && Abs(dy) < 0.5) {
-                    dir := GetSeededPairDirection(win1, win2)
-                    dx := dir[1]
-                    dy := dir[2]
-                }
+                    ; Stronger separation for small windows or high overlap
+                    overlapArea := overlapX * overlapY
+                    avgSize := (win1["width"] * win1["height"] + win2["width"] * win2["height"]) / 2
+                    overlapRatio := overlapArea / Max(avgSize, 1)
 
-                dist := Max(Sqrt(dx*dx + dy*dy), 1)
+                    ; Base separation force with a guaranteed minimum floor
+                    ; so even tiny overlaps get a meaningful push.
+                    baseForce := (overlapX + overlapY) * Config["PairSeparationBase"]
+                    scaledForce := baseForce * (1 + overlapRatio * Config["PairSeparationOverlapScale"])
+                    
+                    ; Minimum force floor: never push weaker than this regardless of overlap size.
+                    ; This prevents cranked forces from producing near-zero pushes on small overlaps.
+                    minForce := Config["PairSeparationBase"] * 80.0
+                    separationForce := Max(scaledForce, minForce)
+                    separationForce *= passWeight
 
-                ; Stronger separation for small windows or high overlap
-                overlapArea := overlapX * overlapY
-                avgSize := (win1["width"] * win1["height"] + win2["width"] * win2["height"]) / 2
-                overlapRatio := overlapArea / avgSize
+                    ; Small window boost
+                    if (win1["width"] < Config["SmallWindowThresholdW"] || win1["height"] < Config["SmallWindowThresholdH"] || win2["width"] < Config["SmallWindowThresholdW"] || win2["height"] < Config["SmallWindowThresholdH"]) {
+                        separationForce *= Config["PairSmallWindowBoost"]
+                    }
 
-                ; Stronger pair separation to converge faster after overlap.
-                separationForce := (overlapX + overlapY) * Config["PairSeparationBase"] * (1 + overlapRatio * Config["PairSeparationOverlapScale"])
-
-                ; Reduced small window bonus to prevent excessive jumping
-                if (win1["width"] < Config["SmallWindowThresholdW"] || win1["height"] < Config["SmallWindowThresholdH"] || win2["width"] < Config["SmallWindowThresholdW"] || win2["height"] < Config["SmallWindowThresholdH"]) {
-                    separationForce *= Config["PairSmallWindowBoost"]
-                }
-
-                if (!isProtected1) {
-                    win1["vx"] += dx * separationForce / dist
-                    win1["vy"] += dy * separationForce / dist
-                }
-                if (!isProtected2) {
-                    win2["vx"] -= dx * separationForce / dist
-                    win2["vy"] -= dy * separationForce / dist
+                    if (!isProtected1) {
+                        win1["vx"] += dx * separationForce / dist
+                        win1["vy"] += dy * separationForce / dist
+                        anyChanges := true
+                    }
+                    if (!isProtected2) {
+                        win2["vx"] -= dx * separationForce / dist
+                        win2["vy"] -= dy * separationForce / dist
+                        anyChanges := true
+                    }
                 }
             }
         }
+        
+        ; Early exit if no windows received force this pass (chain settled)
+        if (!anyChanges)
+            break
     }
 }
 
@@ -3184,30 +3256,45 @@ BuildNumericParamSpec(path, defaultValue) {
 
 ApplyNumericSpecOverrides(spec) {
     static overrides := Map(
-        "AttractionForce", Map("min", 0.0, "max", 0.002, "decimals", 6),
-        "RepulsionForce", Map("min", 0.05, "max", 5.0, "decimals", 3),
-        "EdgeRepulsionForce", Map("min", 0.05, "max", 5.0, "decimals", 3),
-        "RepulsionRangeMultiplier", Map("min", 0.5, "max", 4.0, "decimals", 3),
-        "RepulsionImpulseScale", Map("min", 0.05, "max", 2.5, "decimals", 3),
-        "PairSeparationBase", Map("min", 0.001, "max", 0.08, "decimals", 4),
-        "PairSeparationOverlapScale", Map("min", 0.1, "max", 8.0, "decimals", 3),
-        "PairSmallWindowBoost", Map("min", 1.0, "max", 3.0, "decimals", 3),
-        "MaxSmallWindowRepulsionBoost", Map("min", 1.0, "max", 4.0, "decimals", 3),
-        "SmallWindowReferenceDim", Map("min", 80, "max", 1200, "decimals", 0),
-        "CollisionOverlapThreshold", Map("min", 0, "max", 20, "decimals", 0),
-        "SmallWindowThresholdW", Map("min", 80, "max", 1200, "decimals", 0),
-        "SmallWindowThresholdH", Map("min", 60, "max", 900, "decimals", 0),
-        "Damping", Map("min", 0.0001, "max", 1.0, "decimals", 4),
-        "MaxSpeed", Map("min", 1.0, "max", 60.0, "decimals", 2),
-        "PhysicsTimeStep", Map("min", 1, "max", 33, "decimals", 0),
+        "AttractionForce", Map("min", 0.0, "max", 0.005, "decimals", 6),
+        "RepulsionForce", Map("min", 0.01, "max", 20.0, "decimals", 3),
+        "EdgeRepulsionForce", Map("min", 0.01, "max", 10.0, "decimals", 3),
+        "RepulsionRangeMultiplier", Map("min", 0.25, "max", 8.0, "decimals", 3),
+        "RepulsionImpulseScale", Map("min", 0.01, "max", 10.0, "decimals", 3),
+        "PairSeparationBase", Map("min", 0.001, "max", 0.5, "decimals", 4),
+        "PairSeparationOverlapScale", Map("min", 0.01, "max", 20.0, "decimals", 3),
+        "PairSmallWindowBoost", Map("min", 0.5, "max", 8.0, "decimals", 3),
+        "MaxSmallWindowRepulsionBoost", Map("min", 0.5, "max", 10.0, "decimals", 3),
+        "SmallWindowReferenceDim", Map("min", 40, "max", 3000, "decimals", 0),
+        "CollisionOverlapThreshold", Map("min", 0, "max", 300, "decimals", 0),
+        "SmallWindowThresholdW", Map("min", 40, "max", 3000, "decimals", 0),
+        "SmallWindowThresholdH", Map("min", 30, "max", 2000, "decimals", 0),
+        "Damping", Map("min", 0.0, "max", 1.0, "decimals", 4),
+        "MaxSpeed", Map("min", 0.5, "max", 120.0, "decimals", 2),
+        "PhysicsTimeStep", Map("min", 1, "max", 50, "decimals", 0),
         "VisualTimeStep", Map("min", 1, "max", 100, "decimals", 0),
         "Smoothing", Map("min", 0.0, "max", 0.999, "decimals", 3),
-        "ParameterHelpTooltipDuration", Map("min", 300, "max", 10000, "decimals", 0),
-        "ManualRepulsionMultiplier", Map("min", 0.1, "max", 6.0, "decimals", 3),
-        "Stabilization.MinSpeedThreshold", Map("min", 0.0, "max", 2.0, "decimals", 3),
-        "Stabilization.EnergyThreshold", Map("min", 0.0, "max", 2.0, "decimals", 3),
+        "ParameterHelpTooltipDuration", Map("min", 100, "max", 30000, "decimals", 0),
+        "ManualRepulsionMultiplier", Map("min", 0.05, "max", 15.0, "decimals", 3),
+        "SeedDiagonalStep", Map("min", 1, "max", 200, "decimals", 0),
+        "SeedDiagonalMaxSteps", Map("min", 1, "max", 50, "decimals", 0),
+        "SeedJitterRange", Map("min", 0, "max", 100, "decimals", 0),
+        "ManualGapBonus", Map("min", 0, "max", 1000, "decimals", 0),
+        "MinMargin", Map("min", 0, "max", 200, "decimals", 0),
+        "MinGap", Map("min", 0, "max", 200, "decimals", 0),
+        "NoiseScale", Map("min", 100, "max", 20000, "decimals", 0),
+        "NoiseInfluence", Map("min", 0, "max", 2000, "decimals", 0),
+        "AnimationDuration", Map("min", 1, "max", 200, "decimals", 0),
+        "PhysicsUpdateInterval", Map("min", 100, "max", 10000, "decimals", 0),
+        "ResizeDelay", Map("min", 1, "max", 200, "decimals", 0),
+        "TooltipDuration", Map("min", 100, "max", 30000, "decimals", 0),
+        "UserMoveTimeout", Map("min", 50, "max", 5000, "decimals", 0),
+        "ManualLockDuration", Map("min", 1000, "max", 120000, "decimals", 0),
+        "ManualWindowAlpha", Map("min", 0, "max", 255, "decimals", 0),
+        "Stabilization.MinSpeedThreshold", Map("min", 0.0, "max", 5.0, "decimals", 3),
+        "Stabilization.EnergyThreshold", Map("min", 0.0, "max", 10.0, "decimals", 3),
         "Stabilization.DampingBoost", Map("min", 0.0, "max", 1.0, "decimals", 3),
-        "Stabilization.OverlapTolerance", Map("min", 0, "max", 50, "decimals", 0)
+        "Stabilization.OverlapTolerance", Map("min", 0, "max", 500, "decimals", 0)
     )
 
     path := spec["path"]

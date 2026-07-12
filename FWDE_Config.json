@@ -1,14 +1,14 @@
 ﻿{
   "_metadata": {
     "application": "FWDE",
-    "saved": "20260708132250",
+    "saved": "20260712150237",
     "format": "flat-path-v1"
   },
   "AnimationDuration": 32,
   "AttractionForce": 0.00045,
-  "CollisionOverlapThreshold": 20,
-  "Damping": 1,
-  "EdgeRepulsionForce": 1.04,
+  "CollisionOverlapThreshold": 300,
+  "Damping": 0.216,
+  "EdgeRepulsionForce": 6.244,
   "ManualGapBonus": 0,
   "ManualLockDuration": 33333,
   "ManualRepulsionMultiplier": 1,
@@ -26,8 +26,8 @@
   "ParameterHelpTooltipDuration": 2200,
   "PhysicsTimeStep": 1,
   "PhysicsUpdateInterval": 1000,
-  "RepulsionForce": 5,
-  "RepulsionImpulseScale": 2.5,
+  "RepulsionForce": 20,
+  "RepulsionImpulseScale": 10,
   "RepulsionRangeMultiplier": 2.4,
   "ResizeDelay": 20,
   "SeedDiagonalMaxSteps": 18,
@@ -40,7 +40,7 @@
   "Stabilization.DampingBoost": 0.12,
   "Stabilization.EnergyThreshold": 0.06,
   "Stabilization.MinSpeedThreshold": 0.369,
-  "Stabilization.OverlapTolerance": 50,
+  "Stabilization.OverlapTolerance": 120,
   "TooltipDuration": 6767,
   "UserMoveTimeout": 523,
   "VisualTimeStep": 1

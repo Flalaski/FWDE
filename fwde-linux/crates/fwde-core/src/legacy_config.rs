@@ -1,0 +1,182 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StabilizationConfig {
+    pub min_speed_threshold: f64,
+    pub energy_threshold: f64,
+    pub damping_boost: f64,
+    pub overlap_tolerance: f64,
+}
+
+impl Default for StabilizationConfig {
+    fn default() -> Self {
+        Self {
+            min_speed_threshold: 0.369,
+            energy_threshold: 0.06,
+            damping_boost: 0.12,
+            overlap_tolerance: 0.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LegacyConfig {
+    pub min_margin: f64,
+    pub min_gap: f64,
+    pub seed_diagonal_step: f64,
+    pub seed_diagonal_max_steps: u32,
+    pub seed_jitter_range: f64,
+    pub manual_gap_bonus: f64,
+    pub attraction_force: f64,
+    pub repulsion_force: f64,
+    pub edge_repulsion_force: f64,
+    pub collision_overlap_threshold: f64,
+    pub repulsion_range_multiplier: f64,
+    pub repulsion_impulse_scale: f64,
+    pub small_window_reference_dim: f64,
+    pub max_small_window_repulsion_boost: f64,
+    pub pair_separation_base: f64,
+    pub pair_separation_overlap_scale: f64,
+    pub pair_small_window_boost: f64,
+    pub small_window_threshold_w: f64,
+    pub small_window_threshold_h: f64,
+    pub user_move_timeout_ms: u64,
+    pub manual_lock_duration_ms: u64,
+    pub resize_delay_ms: u64,
+    pub tooltip_duration_ms: u64,
+    pub parameter_help_tooltip_duration_ms: u64,
+    pub multimonitor_expanse: bool,
+    pub float_class_patterns: Vec<String>,
+    pub float_title_patterns: Vec<String>,
+    pub force_float_processes: Vec<String>,
+    pub damping: f64,
+    pub max_speed: f64,
+    pub physics_time_step_ms: u64,
+    pub visual_time_step_ms: u64,
+    pub smoothing: f64,
+    pub stabilization: StabilizationConfig,
+    pub manual_window_color: String,
+    pub manual_window_alpha: u8,
+    pub noise_scale: f64,
+    pub noise_influence: f64,
+    pub animation_duration_ms: u64,
+    pub physics_update_interval_ms: u64,
+    pub manual_repulsion_multiplier: f64,
+}
+
+impl Default for LegacyConfig {
+    fn default() -> Self {
+        Self {
+            min_margin: 1.0,
+            min_gap: 2.0,
+            seed_diagonal_step: 32.0,
+            seed_diagonal_max_steps: 7,
+            seed_jitter_range: 13.0,
+            manual_gap_bonus: 369.0,
+            attraction_force: 0.00005,
+            repulsion_force: 0.8,
+            edge_repulsion_force: 0.80,
+            collision_overlap_threshold: 2.0,
+            repulsion_range_multiplier: 1.7,
+            repulsion_impulse_scale: 0.42,
+            small_window_reference_dim: 320.0,
+            max_small_window_repulsion_boost: 1.6,
+            pair_separation_base: 0.013,
+            pair_separation_overlap_scale: 2.6,
+            pair_small_window_boost: 1.45,
+            small_window_threshold_w: 442.0,
+            small_window_threshold_h: 414.0,
+            user_move_timeout_ms: 209,
+            manual_lock_duration_ms: 33_333,
+            resize_delay_ms: 22,
+            tooltip_duration_ms: 6_767,
+            parameter_help_tooltip_duration_ms: 2_200,
+            multimonitor_expanse: false,
+            float_class_patterns: vec![
+                "Vst.*",
+                "JS.*",
+                ".*Plugin.*",
+                ".*Float.*",
+                ".*Dock.*",
+                "#32770",
+                "ConsoleWindowClass",
+                "TextToSpeechWndClass",
+                "MozillaWindowClass",
+                "Chrome_WidgetWin_1",
+                "ApplicationFrameWindow",
+                "SunAwtFrame",
+                "Notepad",
+                "Notepad++",
+                "Code.exe",
+                "Cursor.exe",
+                "devenv.exe",
+                "XamlExplorerHost",
+                "CabinetWClass",
+                "OpusApp",
+                "XLMAIN",
+                "PPTFrameClass",
+                "rctrl_renwnd32",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+            float_title_patterns: vec![
+                "VST.*",
+                "JS:.*",
+                "Plugin",
+                ".*FX.*",
+                "Command Prompt",
+                "cmd.exe",
+                "Windows Terminal",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+            force_float_processes: vec![
+                "reaper.exe",
+                "ableton.exe",
+                "flstudio.exe",
+                "cubase.exe",
+                "studioone.exe",
+                "bitwig.exe",
+                "protools.exe",
+                "cmd.exe",
+                "conhost.exe",
+                "WindowsTerminal.exe",
+                "DTDEMO.exe",
+                "speak.exe",
+                "speak",
+                "speak.EXE",
+                "firefox.exe",
+                "chrome.exe",
+                "msedge.exe",
+                "code.exe",
+                "cursor.exe",
+                "notepad.exe",
+                "notepad++.exe",
+                "devenv.exe",
+                "explorer.exe",
+                "winword.exe",
+                "excel.exe",
+                "powerpnt.exe",
+                "outlook.exe",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+            damping: 0.001,
+            max_speed: 12.0,
+            physics_time_step_ms: 1,
+            visual_time_step_ms: 16,
+            smoothing: 0.5,
+            stabilization: StabilizationConfig::default(),
+            manual_window_color: "FF5555".to_string(),
+            manual_window_alpha: 222,
+            noise_scale: 2220.0,
+            noise_influence: 201.0,
+            animation_duration_ms: 32,
+            physics_update_interval_ms: 1_000,
+            manual_repulsion_multiplier: 1.0,
+        }
+    }
+}

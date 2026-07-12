@@ -1,0 +1,84 @@
+{
+  "outputs": [
+    {
+      "id": 1,
+      "name": "HDMI-1",
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1920.0,
+        "height": 1080.0
+      },
+      "work_area": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1920.0,
+        "height": 1040.0
+      },
+      "primary": true
+    }
+  ],
+  "windows": [
+    {
+      "id": 1001,
+      "title": "Firefox",
+      "app_id": "firefox",
+      "class_name": "MozillaWindowClass",
+      "process_name": "firefox.exe",
+      "pid": 1001,
+      "output": 1,
+      "frame": {
+        "x": 100.0,
+        "y": 120.0,
+        "width": 700.0,
+        "height": 520.0
+      },
+      "floating": true,
+      "fullscreen": false,
+      "minimized": false,
+      "pinned": false,
+      "visible": true,
+      "urgent": false,
+      "workspace": null,
+      "role": null,
+      "window_type": "normal",
+      "is_popup": false,
+      "has_caption": true,
+      "is_tool_window": false
+    },
+    {
+      "id": 1002,
+      "title": "Terminal",
+      "app_id": "org.gnome.Terminal",
+      "class_name": "CASCADIA_HOSTING_WINDOW_CLASS",
+      "process_name": "WindowsTerminal.exe",
+      "pid": 1002,
+      "output": 1,
+      "frame": {
+        "x": 180.0,
+        "y": 160.0,
+        "width": 640.0,
+        "height": 440.0
+      },
+      "floating": true,
+      "fullscreen": false,
+      "minimized": false,
+      "pinned": false,
+      "visible": true,
+      "urgent": false,
+      "workspace": null,
+      "role": null,
+      "window_type": "normal",
+      "is_popup": false,
+      "has_caption": true,
+      "is_tool_window": false
+    }
+  ],
+  "focused_window": 1001,
+  "hovered_window": 1001,
+  "pointer_position": {
+    "x": 300.0,
+    "y": 240.0
+  },
+  "timestamp_ms": 1000
+}

@@ -1,0 +1,23 @@
+pub mod engine;
+pub mod geometry;
+pub mod legacy_config;
+pub mod legacy_debug;
+pub mod legacy_engine;
+pub mod legacy_params;
+pub mod legacy_rules;
+pub mod legacy_runtime;
+pub mod legacy_support;
+pub mod legacy_types;
+pub mod legacy_ui;
+pub mod model;
+
+pub use engine::{SimulationEngine, SimulationStats};
+pub use geometry::{Rect, Vec2};
+pub use legacy_config::{LegacyConfig, StabilizationConfig};
+pub use legacy_debug::{MenuItem, MenuModel, TaskbarRect};
+pub use legacy_engine::{LegacyEngine, LegacySimulationStats, WindowMovePlan};
+pub use legacy_params::{ParamSpec, ParamType, ParamValue};
+pub use legacy_runtime::{BlurBehindStruct, TooltipMessage, WindowSnapshot};
+pub use legacy_types::{LegacyManagedWindow, LegacyMonitor, LegacyRuntimeState};
+pub use legacy_ui::ParameterSettingsWindowModel;
+pub use model::{EngineConfig, OutputId, OutputInfo, WindowId, WindowInfo, WindowState};

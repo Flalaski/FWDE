@@ -39,6 +39,8 @@
         "panelTitle.activeBorder": "#df5d1c",
         "activityBar.activeBorder": "#d2500f",
         "activityBarBadge.foreground": "#ffffff",
-        "activityBarBadge.background": "#d2500f"
+        "activityBarBadge.background": "#d2500f",
+        "minimap.background": "#00000000",
+        "scrollbar.shadow": "#00000000"
     }
 }

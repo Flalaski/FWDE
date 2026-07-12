@@ -1,0 +1,12 @@
+[package]
+name = "fwde-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+fwde-backend = { path = "../fwde-backend" }
+fwde-core = { path = "../fwde-core" }
+tracing.workspace = true
+tracing-subscriber.workspace = true

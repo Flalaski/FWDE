@@ -163,8 +163,8 @@ global Config := Map(
     ],
     "Damping", 0.216,    ; 1.0 = no damping, 0.0 = full stop (use 0.001-1.0)
     "MaxSpeed", 12.0,    ; Limits maximum velocity
-    "PhysicsTimeStep", 1,   ; Lower = more frequent physics updates (1ms is max)
-    "VisualTimeStep", 1,    ; 1ms = ultra-smooth visuals (max refresh)
+    "PhysicsTimeStep", 16,  ; ~60 Hz physics — AHK rounds <10-15ms to nearest multiple anyway
+    "VisualTimeStep", 16,   ; ~60 Hz visual updates — matches typical display refresh rate
     "Smoothing", 0.5,  ; Higher = smoother but more lag (0.0-0.999)
     "Stabilization", Map(
         "MinSpeedThreshold", 0.369,  ; Lower values high-DPI (0.05-0.15) ~ Higher values (0.2-0.5)  low-performance systems
@@ -1218,20 +1218,16 @@ ApplyStabilization(win) {
 CalculateWindowForces(win, allWindows) {
     global g, Config
 
-    ; Suspend physics for parent windows if a dropdown/menu is open
-    menuParent := GetOpenDropdownMenuParent()
+    ; Use cached menu parent (computed once per tick in CalculateDynamicLayout)
+    menuParent := g["_menuParent"]
     if (menuParent && win["hwnd"] == menuParent) {
         win["vx"] := 0
         win["vy"] := 0
         return
     }
 
-    ; Check if this specific window is currently being dragged by the user
-    try {
-        draggedHwnd := GetDraggedManagedWindow()
-    } catch {
-        draggedHwnd := 0
-    }
+    ; Use cached drag state (computed once per tick in CalculateDynamicLayout)
+    draggedHwnd := g["_draggedHwnd"]
     isDraggedWindow := (draggedHwnd != 0 && win["hwnd"] == draggedHwnd)
     
     if (isDraggedWindow) {
@@ -1388,12 +1384,8 @@ CalculateWindowForces(win, allWindows) {
         vy -= push
     }
 
-    ; Dynamic inter-window forces (no grid constraints)
-    try {
-        draggedHwnd := GetDraggedManagedWindow()
-    } catch {
-        draggedHwnd := 0
-    }
+    ; Use cached drag state (computed once per tick)
+    draggedHwnd := g["_draggedHwnd"]
     isDraggingManaged := (draggedHwnd != 0)
     
     for other in allWindows {
@@ -1522,7 +1514,8 @@ ApplyWindowMovements() {
     try {  ; Wrap entire timer body — any exception would silently kill this timer in AHK v2
 
     ; Suspend movement for parent windows if a dropdown/menu is open
-    menuParent := GetOpenDropdownMenuParent()
+    ; Use cached menu parent (computed once per tick in CalculateDynamicLayout)
+    menuParent := g["_menuParent"]
 
     Critical
 
@@ -1549,12 +1542,8 @@ ApplyWindowMovements() {
 
     moveBatch := []
 
-    ; Check if currently dragging a managed window
-    try {
-        draggedHwnd := GetDraggedManagedWindow()
-    } catch {
-        draggedHwnd := 0
-    }
+    ; Use cached drag state (computed once per tick in CalculateDynamicLayout)
+    draggedHwnd := g["_draggedHwnd"]
     isDragging := (draggedHwnd != 0)
     
     for win in g["Windows"] {
@@ -1833,8 +1822,17 @@ CalculateDynamicLayout() {
 
     try {  ; Wrap entire timer body — any exception would silently kill this timer in AHK v2
 
-    ; Suspend physics for parent windows if a dropdown/menu is open
+    ; Cache expensive per-tick values ONCE so child functions don't recompute N times
+    ; menuParent: would be called N+2 times otherwise (each iterates ALL system windows!)
+    ; draggedHwnd: would be called N+4 times (each does GetKeyState+MouseGetPos+DllCall)
     menuParent := GetOpenDropdownMenuParent()
+    g["_menuParent"] := menuParent
+
+    try {
+        g["_draggedHwnd"] := GetDraggedManagedWindow()
+    } catch {
+        g["_draggedHwnd"] := 0
+    }
 
     ; Keep physics calculations running during drag to allow dragged window to push other windows
     ; The dragged window itself will be protected from movement in CalculateWindowForces and ApplyWindowMovements
@@ -1861,13 +1859,8 @@ CalculateDynamicLayout() {
                 }
             }
 
-            ; If focus moved to desktop/non-managed UI, clear stale active protection.
-            ; Manual locks remain independent and continue to protect intentionally placed windows.
-            try {
-                draggedCheck := GetDraggedManagedWindow()
-            } catch {
-                draggedCheck := 0
-            }
+            ; Use cached drag state (computed once per tick)
+            draggedCheck := g["_draggedHwnd"]
             if (!isManagedWindow && g["ActiveWindow"] != 0 && draggedCheck == 0) {
                 g["ActiveWindow"] := 0
             }
@@ -1919,13 +1912,8 @@ CalculateDynamicLayout() {
         currentMultiplier := forceMultipliers[newState]
     }
 
-    ; During active drag, override force multiplier to keep full-strength repulsion
-    ; for lively interaction (prevents "chaos" damping from weakening forces)
-    try {
-        draggedCheck := GetDraggedManagedWindow()
-    } catch {
-        draggedCheck := 0
-    }
+    ; Use cached drag state (computed once per tick)
+    draggedCheck := g["_draggedHwnd"]
     if (draggedCheck != 0) {
         currentMultiplier := 1.0
     }
@@ -1943,7 +1931,8 @@ CalculateDynamicLayout() {
     }
 
     ; Gentle collision resolution (no rigid partitioning)
-    if (g["Windows"].Length > 1) {
+    ; Skip when system is settled (low energy, no drag) — saves ~2.5N² pair checks
+    if (g["Windows"].Length > 1 && (g["SystemEnergy"] > 0.5 || g["_draggedHwnd"] != 0)) {
         ResolveFloatingCollisions(g["Windows"])
     }
 
@@ -1963,20 +1952,16 @@ CalculateDynamicLayout() {
 ResolveFloatingCollisions(windows) {
     global Config, g
     
-    ; Check if currently dragging a managed window
-    try {
-        draggedHwnd := GetDraggedManagedWindow()
-    } catch {
-        draggedHwnd := 0
-    }
+    ; Use cached drag state (computed once per tick in CalculateDynamicLayout)
+    draggedHwnd := g["_draggedHwnd"]
     isDragging := (draggedHwnd != 0)
 
-    ; Number of chain-propagation passes
-    chainPasses := 5
+    ; Number of chain-propagation passes (reduced from 5 to 3 — primary
+    ; separation is handled by CalculateWindowForces repulsion)
+    chainPasses := 3
     
-    ; Balanced pass weights: force is spread more evenly so later passes
-    ; still contribute meaningfully to chain propagation.
-    passWeights := [0.30, 0.25, 0.20, 0.15, 0.10]
+    ; Pass weights redistributed to sum to 1.0 over 3 passes
+    passWeights := [0.40, 0.35, 0.25]
     
     ; Pre-compute protection state for all windows (doesn't change across passes)
     protection := Map()
@@ -3612,7 +3597,7 @@ SyncRuntimeFromConfig() {
     if (g["ArrangementActive"]) {
         SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
         SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
-        SetTimer(UpdateWindowStates, Config["PhysicsTimeStep"])  ; keep in sync with PhysicsTimeStep
+        SetTimer(UpdateWindowStates, 250)  ; Window list rebuild ~4 Hz — expensive, doesn't need 60 Hz
     } else if (g["PhysicsEnabled"]) {
         SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
     }
@@ -4230,7 +4215,7 @@ DebugActiveWindow() {
 ^!I::DebugActiveWindow()          ; Ctrl+Alt+I to debug active window details
  
 ; Start timers - but respect active window protection
-SetTimer(UpdateWindowStates, Config["PhysicsTimeStep"])
+SetTimer(UpdateWindowStates, 250)  ; Window list rebuild ~4 Hz — expensive WinGetList+IsWindowValid cycle
 SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
 UpdateWindowStates()
 

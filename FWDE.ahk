@@ -115,7 +115,13 @@ global Config := Map(
         "OpusApp",              ; Microsoft Word
         "XLMAIN",               ; Microsoft Excel
         "PPTFrameClass",        ; Microsoft PowerPoint
-        "rctrl_renwnd32"        ; Microsoft Outlook
+        "rctrl_renwnd32",       ; Microsoft Outlook
+        "TaskManagerWindow",    ; Task Manager
+        "RegEdit_RegEdit",      ; Registry Editor
+        "MMCMainFrame",         ; MMC snap-ins (Event Viewer, Services, etc.)
+        "CalcFrame",            ; Classic Calculator
+        "TApplication",         ; Delphi applications
+        "wxWindowClassNR"       ; wxWidgets applications
     ],
     "FloatTitlePatterns", [
         "VST.*",        ; VST windows
@@ -197,7 +203,9 @@ global g := Map(
     "ManualWindows", Map(),
     "SystemEnergy", 1,
     "InternalMoveDepth", 0,
-    "LastInternalMoveTick", 0
+    "LastInternalMoveTick", 0,
+    "LastWMMoveHeavy", 0,     ; Throttle for heavy work in WindowMoveHandler
+    "DragActive", false       ; Set by WindowMoveHandler during real drags
 )
 #Requires AutoHotkey v2.0
 
@@ -232,10 +240,21 @@ GetDraggedManagedWindow() {
     global g
     if (!GetKeyState("LButton", "P"))
         return 0
+    ; Only treat as dragging when the WM_MOVE handler confirmed real movement
+    if (!g.Has("DragActive") || !g["DragActive"])
+        return 0
     MouseGetPos(,, &hoverHwnd)
+    ; MouseGetPos often returns child controls (title bar, toolbar, etc.)
+    ; that aren't in g["Windows"]. Use GetAncestor(GA_ROOT=2) to get the
+    ; top-level window in a single safe call.
+    try {
+        root := DllCall("GetAncestor", "Ptr", hoverHwnd, "UInt", 2, "Ptr")
+    } catch {
+        root := 0
+    }
     for win in g["Windows"] {
-        if (win["hwnd"] == hoverHwnd)
-            return hoverHwnd
+        if (win["hwnd"] == hoverHwnd || (root && win["hwnd"] == root))
+            return win["hwnd"]
     }
     return 0
 }
@@ -898,9 +917,11 @@ IsWindowFloating(hwnd) {
         ; Debug output - remove after testing if not needed
         ; OutputDebug("Window Check - Class: " winClass " | Process: " processName " | Title: " title)
 
-        ; 1. First check for forced processes (simplified)
+        ; 1. First check for forced processes (extension-insensitive match)
+        procNoExt := StrLower(StrReplace(processName, ".exe", ""))
         for pattern in Config["ForceFloatProcesses"] {
-            if (processName ~= "i)^" pattern "$") {  ; Exact match with case insensitivity
+            patNoExt := StrLower(StrReplace(pattern, ".exe", ""))
+            if (procNoExt == patNoExt) {
                 return true
             }
         }
@@ -1206,7 +1227,11 @@ CalculateWindowForces(win, allWindows) {
     }
 
     ; Check if this specific window is currently being dragged by the user
-    draggedHwnd := GetDraggedManagedWindow()
+    try {
+        draggedHwnd := GetDraggedManagedWindow()
+    } catch {
+        draggedHwnd := 0
+    }
     isDraggedWindow := (draggedHwnd != 0 && win["hwnd"] == draggedHwnd)
     
     if (isDraggedWindow) {
@@ -1364,7 +1389,11 @@ CalculateWindowForces(win, allWindows) {
     }
 
     ; Dynamic inter-window forces (no grid constraints)
-    draggedHwnd := GetDraggedManagedWindow()
+    try {
+        draggedHwnd := GetDraggedManagedWindow()
+    } catch {
+        draggedHwnd := 0
+    }
     isDraggingManaged := (draggedHwnd != 0)
     
     for other in allWindows {
@@ -1490,6 +1519,8 @@ ApplyWindowMovements() {
     static lastPositions := Map()
     static smoothPos := Map()
 
+    try {  ; Wrap entire timer body — any exception would silently kill this timer in AHK v2
+
     ; Suspend movement for parent windows if a dropdown/menu is open
     menuParent := GetOpenDropdownMenuParent()
 
@@ -1519,7 +1550,11 @@ ApplyWindowMovements() {
     moveBatch := []
 
     ; Check if currently dragging a managed window
-    draggedHwnd := GetDraggedManagedWindow()
+    try {
+        draggedHwnd := GetDraggedManagedWindow()
+    } catch {
+        draggedHwnd := 0
+    }
     isDragging := (draggedHwnd != 0)
     
     for win in g["Windows"] {
@@ -1678,6 +1713,10 @@ ApplyWindowMovements() {
     for move in moveBatch {
         try MoveWindowAPI(move.hwnd, move.x, move.y)
     }
+    } catch {
+        ; Any exception in the movement loop is caught to prevent
+        ; the AHK v2 timer from silently stopping forever.
+    }
 }
 
 ; Calc overlap
@@ -1792,6 +1831,8 @@ CalculateDynamicLayout() {
     static transitionTime := 300
     static lastFocusCheck := 0
 
+    try {  ; Wrap entire timer body — any exception would silently kill this timer in AHK v2
+
     ; Suspend physics for parent windows if a dropdown/menu is open
     menuParent := GetOpenDropdownMenuParent()
 
@@ -1822,7 +1863,12 @@ CalculateDynamicLayout() {
 
             ; If focus moved to desktop/non-managed UI, clear stale active protection.
             ; Manual locks remain independent and continue to protect intentionally placed windows.
-            if (!isManagedWindow && g["ActiveWindow"] != 0 && GetDraggedManagedWindow() == 0) {
+            try {
+                draggedCheck := GetDraggedManagedWindow()
+            } catch {
+                draggedCheck := 0
+            }
+            if (!isManagedWindow && g["ActiveWindow"] != 0 && draggedCheck == 0) {
                 g["ActiveWindow"] := 0
             }
 
@@ -1846,8 +1892,14 @@ CalculateDynamicLayout() {
             win["vy"] := 0
             continue
         }
-        CalculateWindowForces(win, g["Windows"]) ; Pass all windows for dynamic interactions
-        currentEnergy += win["vx"]**2 + win["vy"]**2
+        try {
+            CalculateWindowForces(win, g["Windows"])
+            currentEnergy += win["vx"]**2 + win["vy"]**2
+        } catch {
+            ; Skip this window if force calculation fails — don't crash the timer
+            win["vx"] := 0
+            win["vy"] := 0
+        }
     }
     g["SystemEnergy"] := Lerp(g["SystemEnergy"], currentEnergy, 0.1)
 
@@ -1865,6 +1917,17 @@ CalculateDynamicLayout() {
         currentMultiplier := Lerp(forceMultipliers[newState], forceMultipliers[lastState], SmoothStep(t))
     } else {
         currentMultiplier := forceMultipliers[newState]
+    }
+
+    ; During active drag, override force multiplier to keep full-strength repulsion
+    ; for lively interaction (prevents "chaos" damping from weakening forces)
+    try {
+        draggedCheck := GetDraggedManagedWindow()
+    } catch {
+        draggedCheck := 0
+    }
+    if (draggedCheck != 0) {
+        currentMultiplier := 1.0
     }
 
     ; Apply space-like physics adjustments
@@ -1885,6 +1948,10 @@ CalculateDynamicLayout() {
     }
 
     lastState := newState
+    } catch {
+        ; Any exception in the physics loop is caught to prevent
+        ; the AHK v2 timer from silently stopping forever.
+    }
 }
 
 ; New floating collision system with chain-effect propagation
@@ -1897,7 +1964,11 @@ ResolveFloatingCollisions(windows) {
     global Config, g
     
     ; Check if currently dragging a managed window
-    draggedHwnd := GetDraggedManagedWindow()
+    try {
+        draggedHwnd := GetDraggedManagedWindow()
+    } catch {
+        draggedHwnd := 0
+    }
     isDragging := (draggedHwnd != 0)
 
     ; Number of chain-propagation passes
@@ -2904,47 +2975,62 @@ WindowMoveHandler(wParam, lParam, msg, hwnd) {
     if (!targetWin)
         return
 
-    if (!g["ArrangementActive"] || (A_TickCount - g["LastUserMove"] < Config["ResizeDelay"]))
+    if (!g["ArrangementActive"])
         return
 
     Critical
-    
-    ; Detect Windows Snap operation (window position changing while dragging)
+
+    ; === FAST PATH: runs on every WM_MOVE to keep DragActive + position in sync ===
     isBeingDragged := GetKeyState("LButton", "P")
     if (isBeingDragged) {
-        ; Mark this window as potentially being snapped
-        g["SnapInProgress"][hwnd] := A_TickCount + 2000  ; 2 second protection during/after snap
+        g["SnapInProgress"][hwnd] := A_TickCount + 2000
+        g["DragActive"] := true   ; Activate drag physics pipeline for real-time repulsion
+    } else {
+        g["DragActive"] := false  ; Drag ended — deactivate
     }
-    
+
     g["LastUserMove"] := A_TickCount
     g["ActiveWindow"] := hwnd
 
     try {
-        if (WinGetMinMax("ahk_id " hwnd) != 0)
+        if (WinGetMinMax("ahk_id " hwnd) != 0) {
+            g["DragActive"] := false
             return
-    }
-    catch {
+        }
+    } catch {
+        g["DragActive"] := false
         return
     }
 
     try {
         WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-        winCenterX := x + w/2
-        winCenterY := y + h/2
-        monNum := MonitorGetFromPoint(winCenterX, winCenterY)
+        monNum := MonitorGetFromPoint(x + w/2, y + h/2)
 
-        ; Don't auto-lock Electron apps - they update their UI frequently
-        if (!IsElectronApp(hwnd)) {
-            targetWin["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
-            targetWin["IsManual"] := true
-            targetWin["vx"] := 0
-            targetWin["vy"] := 0
-            AddManualWindowBorder(hwnd)
-        }
+        ; CRITICAL: Sync live drag position every WM_MOVE so physics sees real-time position
+        targetWin["x"] := x
+        targetWin["y"] := y
+        targetWin["targetX"] := x
+        targetWin["targetY"] := y
+        targetWin["width"] := w
+        targetWin["height"] := h
+        targetWin["vx"] := 0
+        targetWin["vy"] := 0
         targetWin["monitor"] := monNum
-    }
-    catch {
+    } catch {
+        g["DragActive"] := false
         return
+    }
+
+    ; === THROTTLED PATH: heavy work only every ResizeDelay ms ===
+    if (A_TickCount - g["LastWMMoveHeavy"] < Config["ResizeDelay"])
+        return
+    g["LastWMMoveHeavy"] := A_TickCount
+
+    ; Don't auto-lock Electron apps - they update their UI frequently
+    if (!IsElectronApp(hwnd)) {
+        targetWin["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
+        targetWin["IsManual"] := true
+        AddManualWindowBorder(hwnd)
     }
 
     SetTimer(UpdateWindowStates, -Config["ResizeDelay"])
@@ -3016,7 +3102,12 @@ UpdateWindowStates() {
     
     ; CRITICAL: Skip rebuilding window list if user is actively dragging a window
     ; This prevents interference with user placement
-    if (GetDraggedManagedWindow() != 0)
+    try {
+        draggedCheck := GetDraggedManagedWindow()
+    } catch {
+        draggedCheck := 0
+    }
+    if (draggedCheck != 0)
         return
     
     ; CRITICAL: Skip if any window is currently being snapped by Windows

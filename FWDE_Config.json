@@ -1,14 +1,14 @@
 ﻿{
   "_metadata": {
     "application": "FWDE",
-    "saved": "20260719230159",
+    "saved": "20260719230237",
     "format": "flat-path-v1"
   },
   "AnimationDuration": 32,
   "AttractionForce": 0.00045,
   "CollisionOverlapThreshold": 300,
   "Damping": 0.216,
-  "DesktopIconMargin": 60,
+  "DesktopIconMargin": 0,
   "DesktopIconRefreshMs": 3000,
   "DesktopIconRepulsion": 1,
   "DesktopIconRepulsionForce": 8,

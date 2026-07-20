@@ -189,6 +189,7 @@ global Config := Map(
     "DesktopIconSpring", 0.008,  ; Spring constant pulling icons back to grid anchor (0=static, 0.01=snappy)
     "DesktopIconDamping", 0.65,  ; Icon velocity damping (0=no damping, 1=instant stop)
     "DesktopIconInterRepel", 0.4, ; Inter-icon repulsion strength multiplier
+    "DesktopIconInterRepelRange", 0.7, ; Inter-icon repulsion range multiplier (0.5=never at default 145px spacing, 1.0=always active, 0.7=only when pushed ~40px toward neighbor)
 )
 
 global DefaultConfig := CloneMapDeep(Config)
@@ -1545,7 +1546,7 @@ ProcessIconPhysics(icons, windows) {
     if (iconCount == 0)
         return
 
-    static iconPhysLogTick := 0
+    static iconPhysLogTick := 0, interRepelFireCount := 0, interRepelLogTick := 0
     totalIconV := 0.0
     maxIconV := 0.0
 
@@ -1569,9 +1570,10 @@ ProcessIconPhysics(icons, windows) {
             }
             dist := Max(Sqrt(dx*dx + dy*dy), 1)
 
-            ; Minimal interaction range for icons
+            ; Inter-icon repulsion range: only activates when icons are pushed
+            ; closer than their natural grid spacing (145px center-to-center).
             iconRange := Sqrt(icon["width"] * icon["height"] + other["width"] * other["height"]) / 2.0
-            repelRange := iconRange * Config["RepulsionRangeMultiplier"] * 0.5  ; Half-range for icons
+            repelRange := iconRange * Config["RepulsionRangeMultiplier"] * Config["DesktopIconInterRepelRange"]
 
             if (dist < repelRange) {
                 repelForce := Config["RepulsionForce"] * Config["DesktopIconInterRepel"] * (repelRange - dist) / repelRange
@@ -1582,13 +1584,20 @@ ProcessIconPhysics(icons, windows) {
                 icon["vy"] += forceY / Max(icon["mass"], 0.001)
                 other["vx"] -= forceX / Max(other["mass"], 0.001)
                 other["vy"] -= forceY / Max(other["mass"], 0.001)
+                interRepelFireCount++
             }
         }
+    }
+    if (A_TickCount - interRepelLogTick > 15000) {
+        interRepelLogTick := A_TickCount
+        DebugLog("IconPhys — inter-icon repulsion fired {} times this cycle", interRepelFireCount)
+        interRepelFireCount := 0
     }
 
     ; --- Window recoil: Newton's 3rd law for icon←window repulsion ---
     ; When the window force calc pushes a window away from an icon, the icon
     ; should feel equal-and-opposite recoil (like icons are light objects being bumped)
+    static recoilFireCount := 0, recoilLogTick := 0
     for win in windows {
         wx := win["x"] + win["width"] / 2
         wy := win["y"] + win["height"] / 2
@@ -1612,14 +1621,20 @@ ProcessIconPhysics(icons, windows) {
                 recoilScale := 0.15  ; Icons are light — they feel 15% of the force
                 icon["vx"] -= dxi * repelForce * recoilScale / distIcon / Max(icon["mass"], 0.001)
                 icon["vy"] -= dyi * repelForce * recoilScale / distIcon / Max(icon["mass"], 0.001)
+                recoilFireCount++
             }
         }
+    }
+    if (A_TickCount - recoilLogTick > 15000) {
+        recoilLogTick := A_TickCount
+        DebugLog("IconPhys — window recoil fired {} times this cycle", recoilFireCount)
+        recoilFireCount := 0
     }
 
     ; --- Spring anchor + damping + position update ---
     springK := Config["DesktopIconSpring"]
     dampingF := Config["DesktopIconDamping"]
-    maxIconV := Config["MaxIconSpeed"] * 0.5  ; Icons move at half the max window speed
+    iconSpeedLimit := Config["MaxIconSpeed"] * 0.5  ; Icons move at half the max window speed
 
     for icon in icons {
         ; Spring force pulling toward anchor
@@ -1633,8 +1648,8 @@ ProcessIconPhysics(icons, windows) {
         icon["vy"] *= dampingF
 
         ; Speed clamp
-        icon["vx"] := Min(Max(icon["vx"], -maxIconV), maxIconV)
-        icon["vy"] := Min(Max(icon["vy"], -maxIconV), maxIconV)
+        icon["vx"] := Min(Max(icon["vx"], -iconSpeedLimit), iconSpeedLimit)
+        icon["vy"] := Min(Max(icon["vy"], -iconSpeedLimit), iconSpeedLimit)
 
         ; Update position
         icon["x"] += icon["vx"]
@@ -1941,24 +1956,47 @@ CalculateWindowForces(win, allWindows) {
         baseForce := Config["RepulsionForce"] * iconForceMult * Config["RepulsionImpulseScale"]
 
         ; X axis: push proportional to overlap — tapers to zero at boundary
+        ; Dead-zone: ignore overlap less than 6% of window dimension to prevent
+        ; endless micro-nudging when a window barely touches the zone edge.
         if (overlapLeft > 0 && overlapRight > 0) {
             depth := Min(overlapLeft, overlapRight)
-            scale := Min(depth / Max(win["width"], 1), 1.0)
-            if (overlapLeft < overlapRight)
-                iconVx += baseForce * scale
-            else
-                iconVx -= baseForce * scale
+            minDepth := Max(win["width"] * 0.06, 8.0)
+            if (depth > minDepth) {
+                scale := Min(depth / Max(win["width"], 1), 1.0)
+                if (overlapLeft < overlapRight)
+                    iconVx += baseForce * scale
+                else
+                    iconVx -= baseForce * scale
+            }
         }
 
         ; Y axis: push proportional to overlap — tapers to zero at boundary
+        ; Same dead-zone as X to prevent boundary chatter.
         if (overlapTop > 0 && overlapBottom > 0) {
             depth := Min(overlapTop, overlapBottom)
-            scale := Min(depth / Max(win["height"], 1), 1.0)
-            if (overlapTop < overlapBottom)
-                iconVy += baseForce * scale
-            else
-                iconVy -= baseForce * scale
+            minDepth := Max(win["height"] * 0.06, 8.0)
+            if (depth > minDepth) {
+                scale := Min(depth / Max(win["height"], 1), 1.0)
+                if (overlapTop < overlapBottom)
+                    iconVy += baseForce * scale
+                else
+                    iconVy -= baseForce * scale
+            }
         }
+
+        ; --- Suppress pushes blocked by monitor edges ---
+        ; If the zone repel pushes a window toward a screen edge it's already
+        ; sitting on, the push is wasted — the bounds clamp will eat it every
+        ; frame, causing endless repeated repel logs with no actual movement.
+        edgeTol := 3.0
+        if (iconVx < 0 && win["x"] <= monLeft + edgeTol)
+            iconVx := 0.0
+        else if (iconVx > 0 && win["x"] >= monRight - edgeTol)
+            iconVx := 0.0
+        if (iconVy < 0 && win["y"] <= monTop + edgeTol)
+            iconVy := 0.0
+        else if (iconVy > 0 && win["y"] >= monBottom - edgeTol)
+            iconVy := 0.0
 
         ; Clamp
         maxIcon := Config["MaxIconSpeed"]
@@ -3949,7 +3987,8 @@ ApplyNumericSpecOverrides(spec) {
         "Stabilization.OverlapTolerance", Map("min", 0, "max", 500, "decimals", 0),
         "DesktopIconMargin", Map("min", 0, "max", 200, "decimals", 0),
         "DesktopIconRefreshMs", Map("min", 500, "max", 30000, "decimals", 0),
-        "DesktopIconRepulsionForce", Map("min", 0.0, "max", 25.0, "decimals", 1)
+        "DesktopIconRepulsionForce", Map("min", 0.0, "max", 25.0, "decimals", 1),
+        "DesktopIconInterRepelRange", Map("min", 0.1, "max", 3.0, "decimals", 2)
     )
 
     path := spec["path"]

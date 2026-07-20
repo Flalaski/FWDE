@@ -74,11 +74,11 @@ global Config := Map(
     "SeedJitterRange", 31,        ; Per-window variance so same-size windows don't line up
     "ManualGapBonus", 0,
     "AttractionForce", 0.00045,   ; Center-seeking pull strength
-    "RepulsionForce", 5.0,        ; Strong push to keep windows clearly separated
+    "RepulsionForce", 13.31,        ; Strong push to keep windows clearly separated
     "EdgeRepulsionForce", 1.04,
     "CollisionOverlapThreshold", 100,   ; Higher = only significant overlaps trigger separation (stops bouncing)
-    "RepulsionRangeMultiplier", 2.4,   ; Wider repulsion envelope for earlier reaction
-    "RepulsionImpulseScale", 2.5,      ; Strong per-step push for rapid overlap release
+    "RepulsionRangeMultiplier", 3.069,   ; Wider repulsion envelope for earlier reaction
+    "RepulsionImpulseScale", 4.32,      ; Strong per-step push for rapid overlap release
     "SmallWindowReferenceDim", 1200,   ; Reference dimension for small-window classification
     "MaxSmallWindowRepulsionBoost", 1.6,
     "PairSeparationBase", 0.08,        ; Base overlap separation force
@@ -181,10 +181,14 @@ global Config := Map(
     "PhysicsUpdateInterval", 1000,
     "ManualRepulsionMultiplier", 1.0,
     "DesktopIconRepulsion", true,        ; Treat desktop icons as physics obstacles
-    "DesktopIconMargin", 60,             ; Extra padding around each icon rect (pixels) — wide range for strong push
+    "DesktopIconMargin", 0,              ; Extra padding around each icon rect (0 = icon edges only)
     "DesktopIconRefreshMs", 3000,        ; How often to re-scan desktop icon positions
-    "DesktopIconRepulsionForce", 8.0,     ; Multiplier for icon→window repulsion strength — extreme by default
-    "MaxIconSpeed", 40.0,       ; Max per-frame velocity from icon repulsion (px/frame — undamped)
+    "DesktopIconRepulsionForce", 0.112358,     ; Multiplier for icon→window repulsion strength
+    "MaxIconSpeed", 30.0,       ; Max per-frame velocity from icon repulsion (px/frame — undamped)
+    "DesktopIconPhysics", true,  ; Treat icons as individual physics bodies (mass, velocity, inter-icon forces)
+    "DesktopIconSpring", 0.008,  ; Spring constant pulling icons back to grid anchor (0=static, 0.01=snappy)
+    "DesktopIconDamping", 0.65,  ; Icon velocity damping (0=no damping, 1=instant stop)
+    "DesktopIconInterRepel", 0.4, ; Inter-icon repulsion strength multiplier
 )
 
 global DefaultConfig := CloneMapDeep(Config)
@@ -291,7 +295,7 @@ DumpDebugLog(auto := false) {
 ; --- Auto-dump debug log every 15 seconds so user can always retrieve it ---
 DumpDebugLogPeriodic() {
     static lastAutoDump := 0
-    if (A_TickCount - lastAutoDump > 15000) {
+    if (A_TickCount - lastAutoDump > 60000) {
         lastAutoDump := A_TickCount
         DumpDebugLog(true)
     }
@@ -1311,7 +1315,7 @@ _FindDesktopLV() {
 }
 
 ; Build icon grid from known parameters — pure math, zero Explorer interaction
-_BuildIconGrid(lvLeft, lvTop, lvRight, lvBottom, iconCount, spX, spY, margin) {
+_BuildIconGrid(lvLeft, lvTop, lvRight, lvBottom, iconCount, spX, spY, margin, verbose := false) {
     rects := []
     lvWidth := lvRight - lvLeft
     if (lvWidth <= 0)
@@ -1328,8 +1332,13 @@ _BuildIconGrid(lvLeft, lvTop, lvRight, lvBottom, iconCount, spX, spY, margin) {
         screenY := lvTop + row * spY - margin
         if (screenX < -10000 || screenY < -10000 || screenX > 50000 || screenY > 50000)
             continue
-        rects.Push(Map("x", screenX, "y", screenY, "width", gIconW, "height", gIconH))
-        if (found < 5)
+        rects.Push(Map(
+            "x", screenX, "y", screenY, "width", gIconW, "height", gIconH,
+            "anchorX", screenX, "anchorY", screenY,
+            "vx", 0.0, "vy", 0.0,
+            "mass", gIconW * gIconH / 100000.0
+        ))
+        if (verbose && found < 5)
             DebugLog("IconGrid — [{}] col={} row={} screen=({},{}) {}×{}", idx, col, row, screenX, screenY, gIconW, gIconH)
         found++
     }
@@ -1349,9 +1358,13 @@ GetDesktopIconRects() {
     ; unless the user rearranges icons — which is rare. Cache survives forever.
     static s_cached := false
     static s_lvLeft, s_lvTop, s_lvRight, s_lvBottom
-    static s_iconCount, s_spX, s_spY
+    static s_iconCount, s_spX, s_spY, s_margin
 
     margin := Config["DesktopIconMargin"]
+
+    ; Rebuild if margin changed (user adjusted the slider)
+    if (s_cached && s_margin != margin)
+        s_cached := false
 
     if (s_cached) {
         return _BuildIconGrid(s_lvLeft, s_lvTop, s_lvRight, s_lvBottom, s_iconCount, s_spX, s_spY, margin)
@@ -1420,8 +1433,9 @@ GetDesktopIconRects() {
     s_iconCount := iconCount
     s_spX := spX
     s_spY := spY
+    s_margin := margin
 
-    result := _BuildIconGrid(lvLeft, lvTop, lvRight, lvBottom, iconCount, spX, spY, margin)
+    result := _BuildIconGrid(lvLeft, lvTop, lvRight, lvBottom, iconCount, spX, spY, margin, true)
     DebugLog("IconGrid — CACHED: {} obstacles, {}×{} spacing, lv=({},{})–({},{})",
         result.Length, spX, spY, lvLeft, lvTop, lvRight, lvBottom)
     
@@ -1521,8 +1535,132 @@ ApplyStabilization(win) {
     }
 }
 
+; --- Icon physics: treats desktop icons as individual physics bodies ---
+; Icons repel each other, spring back to their grid anchors, and recoil when windows push them.
+; This runs every physics tick, independent of window forces.
+ProcessIconPhysics(icons, windows) {
+    global Config
+
+    iconCount := icons.Length
+    if (iconCount == 0)
+        return
+
+    static iconPhysLogTick := 0
+    totalIconV := 0.0
+    maxIconV := 0.0
+
+    ; --- Inter-icon repulsion ---
+    ; Each icon repels nearby icons (same formula as window repulsion, scaled down)
+    for i, icon in icons {
+        ix := icon["x"] + icon["width"] / 2
+        iy := icon["y"] + icon["height"] / 2
+
+        for j, other in icons {
+            if (j <= i)
+                continue
+
+            ox := other["x"] + other["width"] / 2
+            oy := other["y"] + other["height"] / 2
+            dx := ix - ox
+            dy := iy - oy
+            if (Abs(dx) < 0.5 && Abs(dy) < 0.5) {
+                dx := (Mod(i * 37 + j * 13, 17) - 8) / 8.0
+                dy := (Mod(i * 53 + j * 7, 17) - 8) / 8.0
+            }
+            dist := Max(Sqrt(dx*dx + dy*dy), 1)
+
+            ; Minimal interaction range for icons
+            iconRange := Sqrt(icon["width"] * icon["height"] + other["width"] * other["height"]) / 2.0
+            repelRange := iconRange * Config["RepulsionRangeMultiplier"] * 0.5  ; Half-range for icons
+
+            if (dist < repelRange) {
+                repelForce := Config["RepulsionForce"] * Config["DesktopIconInterRepel"] * (repelRange - dist) / repelRange
+                forceX := dx * repelForce / dist * Config["RepulsionImpulseScale"] * 0.3
+                forceY := dy * repelForce / dist * Config["RepulsionImpulseScale"] * 0.3
+
+                icon["vx"] += forceX / Max(icon["mass"], 0.001)
+                icon["vy"] += forceY / Max(icon["mass"], 0.001)
+                other["vx"] -= forceX / Max(other["mass"], 0.001)
+                other["vy"] -= forceY / Max(other["mass"], 0.001)
+            }
+        }
+    }
+
+    ; --- Window recoil: Newton's 3rd law for icon←window repulsion ---
+    ; When the window force calc pushes a window away from an icon, the icon
+    ; should feel equal-and-opposite recoil (like icons are light objects being bumped)
+    for win in windows {
+        wx := win["x"] + win["width"] / 2
+        wy := win["y"] + win["height"] / 2
+        wMass := win["width"] * win["height"] / 100000.0
+
+        for icon in icons {
+            iconCX := icon["x"] + icon["width"] / 2
+            iconCY := icon["y"] + icon["height"] / 2
+            dxi := wx - iconCX
+            dyi := wy - iconCY
+            distIcon := Max(Sqrt(dxi*dxi + dyi*dyi), 1)
+
+            iconRange := Sqrt(win["width"] * win["height"] + icon["width"] * icon["height"]) / 4.0
+            sizeBonus := Max(1.0, 200.0 / Max(Min(win["width"], win["height"]), 1))
+            iconRange *= sizeBonus
+            iconRepelRange := iconRange * Config["RepulsionRangeMultiplier"]
+
+            if (distIcon < iconRepelRange) {
+                ; The window gets pushed by this icon — icon gets opposite recoil
+                repelForce := Config["RepulsionForce"] * Config["DesktopIconRepulsionForce"] * (iconRepelRange - distIcon) / iconRepelRange
+                recoilScale := 0.15  ; Icons are light — they feel 15% of the force
+                icon["vx"] -= dxi * repelForce * recoilScale / distIcon / Max(icon["mass"], 0.001)
+                icon["vy"] -= dyi * repelForce * recoilScale / distIcon / Max(icon["mass"], 0.001)
+            }
+        }
+    }
+
+    ; --- Spring anchor + damping + position update ---
+    springK := Config["DesktopIconSpring"]
+    dampingF := Config["DesktopIconDamping"]
+    maxIconV := Config["MaxIconSpeed"] * 0.5  ; Icons move at half the max window speed
+
+    for icon in icons {
+        ; Spring force pulling toward anchor
+        dxAnchor := icon["anchorX"] - icon["x"]
+        dyAnchor := icon["anchorY"] - icon["y"]
+        icon["vx"] += dxAnchor * springK
+        icon["vy"] += dyAnchor * springK
+
+        ; Damping
+        icon["vx"] *= dampingF
+        icon["vy"] *= dampingF
+
+        ; Speed clamp
+        icon["vx"] := Min(Max(icon["vx"], -maxIconV), maxIconV)
+        icon["vy"] := Min(Max(icon["vy"], -maxIconV), maxIconV)
+
+        ; Update position
+        icon["x"] += icon["vx"]
+        icon["y"] += icon["vy"]
+
+        ; Clamp to reasonable bounds
+        icon["x"] := Min(Max(icon["x"], icon["anchorX"] - 200), icon["anchorX"] + 200)
+        icon["y"] := Min(Max(icon["y"], icon["anchorY"] - 200), icon["anchorY"] + 200)
+
+        totalIconV += Abs(icon["vx"]) + Abs(icon["vy"])
+        maxIconV := Max(maxIconV, Abs(icon["vx"]))
+        maxIconV := Max(maxIconV, Abs(icon["vy"]))
+    }
+
+    if (A_TickCount - iconPhysLogTick > 15000) {
+        iconPhysLogTick := A_TickCount
+        DebugLog("IconPhys — {} icons processed, totalV={:.1f}, maxV={:.1f}", iconCount, totalIconV, maxIconV)
+    }
+}
+
 CalculateWindowForces(win, allWindows) {
     global g, Config
+
+    ; Icon zone cache — computed once, persisted across all calls
+    static iconZoneCached := false
+    static iconZoneMinX, iconZoneMaxX, iconZoneMinY, iconZoneMaxY
 
     ; Use cached menu parent (computed once per tick in CalculateDynamicLayout)
     menuParent := g["_menuParent"]
@@ -1622,7 +1760,7 @@ CalculateWindowForces(win, allWindows) {
         distProbe := Max(Sqrt(dxProbe*dxProbe + dyProbe*dyProbe), 1)
 
         probeRange := Sqrt(win["width"] * win["height"] + other["width"] * other["height"]) / 2.5
-        probeRange *= Max(1, 200 / Min(win["width"], win["height"]))
+        probeRange *= Max(1.0, 200.0 / Max(Min(win["width"], win["height"]), 1))
 
         if (distProbe < probeRange * 3) {
             hasNearbyInfluence := true
@@ -1728,7 +1866,7 @@ CalculateWindowForces(win, allWindows) {
         interactionRange := Sqrt(win["width"] * win["height"] + other["width"] * other["height"]) / 2.5  ; Increased for wider gaps
 
         ; Smaller windows get proportionally larger interaction zones
-        sizeBonus := Max(1, 200 / Min(win["width"], win["height"]))  ; Boost for small windows
+        sizeBonus := Max(1.0, 200.0 / Max(Min(win["width"], win["height"]), 1))  ; Boost for small windows
         interactionRange *= sizeBonus
 
         repulsionRange := interactionRange * Config["RepulsionRangeMultiplier"]
@@ -1768,52 +1906,74 @@ CalculateWindowForces(win, allWindows) {
     ; Only repulsion — no attraction. Icons are static, so only the window moves.
     ; Store icon velocity separately — applied AFTER damping so icons overpower everything.
     iconVx := 0.0, iconVy := 0.0
-    if (Config["DesktopIconRepulsion"]) {
+    if (Config["DesktopIconRepulsion"] && g["DesktopIconRects"].Length > 0) {
         iconRects := g["DesktopIconRects"]
         iconForceMult := Config["DesktopIconRepulsionForce"]
-        iconPushes := 0
-        iconTotalForce := 0.0
-        for icon in iconRects {
-            iconCX := icon["x"] + icon["width"]/2
-            iconCY := icon["y"] + icon["height"]/2
-            dxi := wx - iconCX
-            dyi := wy - iconCY
 
-            if (Abs(dxi) < 0.5 && Abs(dyi) < 0.5) {
-                seed := (win["hwnd"] + icon["x"] + icon["y"]) & 255
-                dxi := (Mod(seed, 17) - 8) / 8.0
-                dyi := (Mod(seed * 7, 17) - 8) / 8.0
+        ; --- Pure zone repulsion ---
+        ; The icon grid is one horizontal strip. Treat it as a single obstacle zone.
+        if (!iconZoneCached) {
+            iconZoneMinX := 999999.0, iconZoneMaxX := -999999.0
+            iconZoneMinY := 999999.0, iconZoneMaxY := -999999.0
+            for icon in iconRects {
+                ix := icon["x"], iy := icon["y"]
+                iw := icon["width"], ih := icon["height"]
+                iconZoneMinX := Min(iconZoneMinX, ix)
+                iconZoneMaxX := Max(iconZoneMaxX, ix + iw)
+                iconZoneMinY := Min(iconZoneMinY, iy)
+                iconZoneMaxY := Max(iconZoneMaxY, iy + ih)
             }
-
-            distIcon := Max(Sqrt(dxi*dxi + dyi*dyi), 1)
-
-            iconRange := Sqrt(win["width"] * win["height"] + icon["width"] * icon["height"]) / 1.5
-            sizeBonus := Max(1, 200 / Min(win["width"], win["height"]))
-            iconRange *= sizeBonus
-            iconRepelRange := iconRange * Config["RepulsionRangeMultiplier"]
-
-            if (distIcon < iconRepelRange) {
-                repelForce := Config["RepulsionForce"] * iconForceMult * (iconRepelRange - distIcon) / iconRepelRange
-                proximityMult := 1 + (1 - distIcon / iconRepelRange) * 2
-
-                iconVx += dxi * repelForce * proximityMult / distIcon * Config["RepulsionImpulseScale"] * 3.0
-                iconVy += dyi * repelForce * proximityMult / distIcon * Config["RepulsionImpulseScale"] * 3.0
-                iconPushes++
-                iconTotalForce += Abs(repelForce * proximityMult)
-            }
+            iconZoneCached := true
+            DebugLog("IconZone — cached bounds: ({:.0f},{:.0f})–({:.0f},{:.0f}) from {} icons", iconZoneMinX, iconZoneMinY, iconZoneMaxX, iconZoneMaxY, iconRects.Length)
         }
-        ; Clamp icon velocity — inverse-distance formula can spike at close range
+
+        ; Window rectangle
+        winLeft := win["x"], winRight := win["x"] + win["width"]
+        winTop := win["y"], winBottom := win["y"] + win["height"]
+
+        ; Overlap check using window RECTANGLE
+        overlapLeft   := iconZoneMaxX - winLeft
+        overlapRight  := winRight - iconZoneMinX
+        overlapTop    := iconZoneMaxY - winTop
+        overlapBottom := winBottom - iconZoneMinY
+
+        ; Each axis independently: push toward the NEAREST edge (no cancellation)
+        baseForce := Config["RepulsionForce"] * iconForceMult * Config["RepulsionImpulseScale"]
+
+        ; X axis: push toward whichever edge is closer
+        if (overlapLeft > 0 && overlapRight > 0) {
+            if (overlapLeft < overlapRight)
+                iconVx += baseForce
+            else
+                iconVx -= baseForce
+        }
+
+        ; Y axis: push toward whichever edge is closer
+        if (overlapTop > 0 && overlapBottom > 0) {
+            if (overlapTop < overlapBottom)
+                iconVy += baseForce
+            else
+                iconVy -= baseForce
+        }
+
+        ; Clamp
         maxIcon := Config["MaxIconSpeed"]
         iconVx := Min(Max(iconVx, -maxIcon), maxIcon)
         iconVy := Min(Max(iconVy, -maxIcon), maxIcon)
+
         static iconLogTick := 0
-        static iconSilentTick := 0
-        if (iconPushes > 0 && A_TickCount - iconLogTick > 2000) {
+        if ((iconVx != 0 || iconVy != 0) && A_TickCount - iconLogTick > 2000) {
             iconLogTick := A_TickCount
-            DebugLog("IconRepel — win=0x{:X} got {} icon pushes, totalForce={:.1f}, iconV=({:.1f},{:.1f}), iconCount={}", win["hwnd"], iconPushes, iconTotalForce, iconVx, iconVy, iconRects.Length)
-        } else if (iconPushes == 0 && iconRects.Length > 0 && A_TickCount - iconSilentTick > 5000) {
-            iconSilentTick := A_TickCount
-            DebugLog("IconRepel — win=0x{:X} has {} icons loaded but 0 pushes (winCenter=({:.0f},{:.0f}), winSize={}×{})", win["hwnd"], iconRects.Length, wx, wy, win["width"], win["height"])
+            DebugLog("IconRepel — win=0x{:X} iconV=({:.1f},{:.1f}) zone=({:.0f},{:.0f})–({:.0f},{:.0f})",
+                win["hwnd"], iconVx, iconVy, iconZoneMinX, iconZoneMinY, iconZoneMaxX, iconZoneMaxY)
+        }
+
+        static silentLogTick := 0
+        if (iconVx == 0 && iconVy == 0 && iconRects.Length > 0 && A_TickCount - silentLogTick > 30000) {
+            silentLogTick := A_TickCount
+            DebugLog("IconRepel — win=0x{:X} no push (winRect=({:.0f},{:.0f})–({:.0f},{:.0f}), zone=({:.0f},{:.0f})–({:.0f},{:.0f}))",
+                win["hwnd"], win["x"], win["y"], win["x"]+win["width"], win["y"]+win["height"],
+                iconZoneMinX, iconZoneMinY, iconZoneMaxX, iconZoneMaxY)
         }
     }
 
@@ -1847,10 +2007,10 @@ CalculateWindowForces(win, allWindows) {
     ; Manual lock / active window / dragged window check
     isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
     if (isManuallyLocked || win["hwnd"] == g["ActiveWindow"] || isDraggedWindow) {
-        ; Icons STILL push even locked windows — override with icon-only velocity
+        ; Icons STILL push even locked windows — but respect screen bounds
         if (iconVx != 0 || iconVy != 0) {
-            win["targetX"] += iconVx
-            win["targetY"] += iconVy
+            win["targetX"] := Max(monLeft, Min(win["targetX"] + iconVx, monRight))
+            win["targetY"] := Max(monTop, Min(win["targetY"] + iconVy, monBottom))
         }
         return
     }
@@ -2279,6 +2439,11 @@ CalculateDynamicLayout() {
         }
     }
     g["SystemEnergy"] := Lerp(g["SystemEnergy"], currentEnergy, 0.1)
+
+    ; --- Icon physics: treat icons as individual bodies (if enabled) ---
+    if (Config["DesktopIconPhysics"] && Config["DesktopIconRepulsion"] && g["DesktopIconRects"].Length > 0) {
+        ProcessIconPhysics(g["DesktopIconRects"], g["Windows"])
+    }
 
     ; State machine for natural motion transitions
     newState := (g["SystemEnergy"] > Config["Stabilization"]["EnergyThreshold"] * 2) ? "chaos" : "normal"
@@ -2814,6 +2979,22 @@ ToggleMultimonitorExpanse() {
     ; Force update of all window states to apply new boundaries
     if (g["ArrangementActive"]) {
         UpdateWindowStates()
+    }
+    BuildFWDEMenus()
+}
+
+ToggleIconRepulsion() {
+    global Config, g
+    Config["DesktopIconRepulsion"] := !Config["DesktopIconRepulsion"]
+    if (Config["DesktopIconRepulsion"]) {
+        ; Refresh icon grid from cache or probe
+        newRects := GetDesktopIconRects()
+        if (newRects.Length > 0)
+            g["DesktopIconRects"] := newRects
+        ShowTooltip("Icon Repulsion: ON (" g["DesktopIconRects"].Length " obstacles)")
+    } else {
+        g["DesktopIconRects"] := []
+        ShowTooltip("Icon Repulsion: OFF")
     }
     BuildFWDEMenus()
 }
@@ -3545,6 +3726,8 @@ BuildFWDEMenus() {
     physIcon := (g["PhysicsEnabled"] ? onSymbol : offSymbol)
     expIcon := (Config["MultimonitorExpanse"] ? onSymbol : offSymbol)
     lockIcon := (windowLockStatus = "enabled" ? "🔒" : (windowLockStatus = "disabled" ? "🔓" : "◯"))
+    iconRepelStatus := StatusText(Config["DesktopIconRepulsion"])
+    iconIcon := (Config["DesktopIconRepulsion"] ? onSymbol : offSymbol)
 
     ; Rebuild custom FWDE popup menu
     TaskbarMenu.Delete()
@@ -3556,6 +3739,7 @@ BuildFWDEMenus() {
     TaskbarMenu.Add(physIcon " Toggle Physics [" physicsStatus "] (Ctrl+Alt+P)", (*) => TogglePhysics())
     TaskbarMenu.Add(expIcon " Toggle Multimonitor Expanse [" expanseStatus "] (Ctrl+Alt+M)", (*) => ToggleMultimonitorExpanse())
     TaskbarMenu.Add(lockIcon " Toggle Window Lock [" windowLockStatus "] (Ctrl+Alt+L)", (*) => ToggleWindowLock())
+    TaskbarMenu.Add(iconIcon " Toggle Icon Repulsion [" iconRepelStatus "] (Ctrl+Alt+I)", (*) => ToggleIconRepulsion())
     TaskbarMenu.Add()
     ; Settings group - Parameter Settings stands out
     TaskbarMenu.Add("⚙️ Parameter Settings", (*) => ShowParameterSettingsWindow())
@@ -3565,7 +3749,7 @@ BuildFWDEMenus() {
     debugIcon := (DebugMode ? onSymbol : offSymbol)
     DebugTaskbarMenu.Add(debugIcon " Toggle Debug Mode [" debugStatus "]", (*) => ToggleDebugMode())
     DebugTaskbarMenu.Add("🔍 Debug Window Info (Ctrl+Alt+D)", (*) => DebugWindowInfo())
-    DebugTaskbarMenu.Add("🔍 Debug Active Window (Ctrl+Alt+I)", (*) => DebugActiveWindow())
+    DebugTaskbarMenu.Add("🔍 Debug Active Window", (*) => DebugActiveWindow())
     DebugTaskbarMenu.Add("➕ Force Add Active Window (Ctrl+Alt+A)", (*) => ForceAddActiveWindow())
 
     TaskbarMenu.Add("🔧 Debug", DebugTaskbarMenu)
@@ -3583,6 +3767,7 @@ BuildFWDEMenus() {
     A_TrayMenu.Add(physIcon " Toggle Physics [" physicsStatus "] (Ctrl+Alt+P)", (*) => TogglePhysics())
     A_TrayMenu.Add(expIcon " Toggle Multimonitor Expanse [" expanseStatus "] (Ctrl+Alt+M)", (*) => ToggleMultimonitorExpanse())
     A_TrayMenu.Add(lockIcon " Toggle Window Lock [" windowLockStatus "] (Ctrl+Alt+L)", (*) => ToggleWindowLock())
+    A_TrayMenu.Add(iconIcon " Toggle Icon Repulsion [" iconRepelStatus "] (Ctrl+Alt+I)", (*) => ToggleIconRepulsion())
     A_TrayMenu.Add()
     ; Settings group
     A_TrayMenu.Add("⚙️ Parameter Settings", (*) => ShowParameterSettingsWindow())
@@ -3591,7 +3776,7 @@ BuildFWDEMenus() {
 
     DebugTrayMenu.Add(debugIcon " Toggle Debug Mode [" debugStatus "]", (*) => ToggleDebugMode())
     DebugTrayMenu.Add("🔍 Debug Window Info (Ctrl+Alt+D)", (*) => DebugWindowInfo())
-    DebugTrayMenu.Add("🔍 Debug Active Window (Ctrl+Alt+I)", (*) => DebugActiveWindow())
+    DebugTrayMenu.Add("🔍 Debug Active Window", (*) => DebugActiveWindow())
     DebugTrayMenu.Add("➕ Force Add Active Window (Ctrl+Alt+A)", (*) => ForceAddActiveWindow())
 
     A_TrayMenu.Add("🔧 Debug", DebugTrayMenu)
@@ -4601,11 +4786,11 @@ DebugActiveWindow() {
 ^!L::ToggleWindowLock()           ; Ctrl+Alt+L to lock/unlock active window
 ^!D::DebugWindowInfo()            ; Ctrl+Alt+D to debug window information
 ^!A::ForceAddActiveWindow()       ; Ctrl+Alt+A to force add active window
-^!I::DebugActiveWindow()          ; Ctrl+Alt+I to debug active window details
+^!I::ToggleIconRepulsion()       ; Ctrl+Alt+I to toggle desktop icon repulsion
 ^!C::DumpDebugLog()               ; Ctrl+Alt+C to copy debug log to clipboard
 
 ; Auto-dump debug log to clipboard every 15 seconds for easy reporting
-SetTimerEx(DumpDebugLogPeriodic, 5000)
+SetTimerEx(DumpDebugLogPeriodic, 15000)
  
 ; Start timers - but respect active window protection
 SetTimerEx(UpdateWindowStates, 250)  ; Window list rebuild ~4 Hz — expensive WinGetList+IsWindowValid cycle

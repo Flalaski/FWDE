@@ -163,7 +163,7 @@ global Config := Map(
         "outlook.exe"    ; Microsoft Outlook
     ],
     "Damping", 0.216,    ; 1.0 = no damping, 0.0 = full stop (use 0.001-1.0)
-    "MaxSpeed", 12.0,    ; Limits maximum velocity
+    "MaxSpeed", 120.0,    ; Limits maximum velocity
     "PhysicsTimeStep", 16,  ; ~60 Hz physics — AHK rounds <10-15ms to nearest multiple anyway
     "VisualTimeStep", 16,   ; ~60 Hz visual updates — matches typical display refresh rate
     "Smoothing", 0.5,  ; Higher = smoother but more lag (0.0-0.999)
@@ -184,7 +184,7 @@ global Config := Map(
     "DesktopIconMargin", 0,              ; Extra padding around each icon rect (0 = icon edges only)
     "DesktopIconRefreshMs", 3000,        ; How often to re-scan desktop icon positions
     "DesktopIconRepulsionForce", 0.112358,     ; Multiplier for icon→window repulsion strength
-    "MaxIconSpeed", 30.0,       ; Max per-frame velocity from icon repulsion (px/frame — undamped)
+    "MaxIconSpeed", 75.0,       ; Max per-frame velocity from icon repulsion (px/frame — undamped)
     "DesktopIconPhysics", true,  ; Treat icons as individual physics bodies (mass, velocity, inter-icon forces)
     "DesktopIconSpring", 0.008,  ; Spring constant pulling icons back to grid anchor (0=static, 0.01=snappy)
     "DesktopIconDamping", 0.65,  ; Icon velocity damping (0=no damping, 1=instant stop)
@@ -1940,20 +1940,24 @@ CalculateWindowForces(win, allWindows) {
         ; Each axis independently: push toward the NEAREST edge (no cancellation)
         baseForce := Config["RepulsionForce"] * iconForceMult * Config["RepulsionImpulseScale"]
 
-        ; X axis: push toward whichever edge is closer
+        ; X axis: push proportional to overlap — tapers to zero at boundary
         if (overlapLeft > 0 && overlapRight > 0) {
+            depth := Min(overlapLeft, overlapRight)
+            scale := Min(depth / Max(win["width"], 1), 1.0)
             if (overlapLeft < overlapRight)
-                iconVx += baseForce
+                iconVx += baseForce * scale
             else
-                iconVx -= baseForce
+                iconVx -= baseForce * scale
         }
 
-        ; Y axis: push toward whichever edge is closer
+        ; Y axis: push proportional to overlap — tapers to zero at boundary
         if (overlapTop > 0 && overlapBottom > 0) {
+            depth := Min(overlapTop, overlapBottom)
+            scale := Min(depth / Max(win["height"], 1), 1.0)
             if (overlapTop < overlapBottom)
-                iconVy += baseForce
+                iconVy += baseForce * scale
             else
-                iconVy -= baseForce
+                iconVy -= baseForce * scale
         }
 
         ; Clamp
@@ -3917,7 +3921,8 @@ ApplyNumericSpecOverrides(spec) {
         "SmallWindowThresholdW", Map("min", 40, "max", 3000, "decimals", 0),
         "SmallWindowThresholdH", Map("min", 30, "max", 2000, "decimals", 0),
         "Damping", Map("min", 0.0, "max", 1.0, "decimals", 4),
-        "MaxSpeed", Map("min", 0.5, "max", 120.0, "decimals", 2),
+        "MaxSpeed", Map("min", 0.5, "max", 240.0, "decimals", 2),
+        "MaxIconSpeed", Map("min", 1.0, "max", 150.0, "decimals", 1),
         "PhysicsTimeStep", Map("min", 1, "max", 50, "decimals", 0),
         "VisualTimeStep", Map("min", 1, "max", 100, "decimals", 0),
         "Smoothing", Map("min", 0.0, "max", 0.999, "decimals", 3),

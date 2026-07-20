@@ -1,7 +1,7 @@
 ﻿{
   "_metadata": {
     "application": "FWDE",
-    "saved": "20260720000642",
+    "saved": "20260720004635",
     "format": "flat-path-v1"
   },
   "AnimationDuration": 32,
@@ -21,9 +21,9 @@
   "ManualLockDuration": 33333,
   "ManualRepulsionMultiplier": 1,
   "ManualWindowAlpha": 222,
-  "MaxIconSpeed": 30,
+  "MaxIconSpeed": 75,
   "MaxSmallWindowRepulsionBoost": 1.6,
-  "MaxSpeed": 64.23,
+  "MaxSpeed": 120,
   "MinGap": 0,
   "MinMargin": 0,
   "MultimonitorExpanse": 0,

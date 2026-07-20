@@ -1,4 +1,5 @@
-﻿; --- Dropdown/Menu Detection ---
+﻿#Requires AutoHotkey v2.0
+; --- Dropdown/Menu Detection ---
 IsDropdownOrMenuWindow(hwnd) {
     try {
         if (!SafeWinExist(hwnd))
@@ -178,7 +179,12 @@ global Config := Map(
     "NoiseInfluence", 503,
     "AnimationDuration", 32,    ; Higher = longer animations (try 16-32)
     "PhysicsUpdateInterval", 1000,
-    "ManualRepulsionMultiplier", 1.0
+    "ManualRepulsionMultiplier", 1.0,
+    "DesktopIconRepulsion", true,        ; Treat desktop icons as physics obstacles
+    "DesktopIconMargin", 60,             ; Extra padding around each icon rect (pixels) — wide range for strong push
+    "DesktopIconRefreshMs", 3000,        ; How often to re-scan desktop icon positions
+    "DesktopIconRepulsionForce", 8.0,     ; Multiplier for icon→window repulsion strength — extreme by default
+    "MaxIconSpeed", 40.0,       ; Max per-frame velocity from icon repulsion (px/frame — undamped)
 )
 
 global DefaultConfig := CloneMapDeep(Config)
@@ -205,9 +211,99 @@ global g := Map(
     "InternalMoveDepth", 0,
     "LastInternalMoveTick", 0,
     "LastWMMoveHeavy", 0,     ; Throttle for heavy work in WindowMoveHandler
-    "DragActive", false       ; Set by WindowMoveHandler during real drags
+    "DragActive", false,      ; Set by WindowMoveHandler during real drags
+    "DesktopIconRects", [],   ; Cached desktop icon obstacle rectangles
+    "DesktopIconLastRefresh", A_TickCount  ; TickCount of last icon position scan — pre-set to prevent early scan race
 )
-#Requires AutoHotkey v2.0
+
+; --- Crash-safe debug log ---
+; Accumulates timestamped text. On an unhandled error, the entire log is copied
+; to clipboard automatically so you can paste it into a bug report or DM.
+global g_DebugLog := []
+global g_Crashed := false
+
+; Helper wrapper to avoid language server false positives with SetTimer's parameter signature
+SetTimerEx(Func, Period) {
+    SetTimer(Func, Period)
+}
+
+DebugLog(msg, values*) {
+    global g_DebugLog
+    timestamp := Format("{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
+        A_YYYY, A_MM, A_DD, A_Hour, A_Min, A_Sec, A_MSec)
+    entry := timestamp " | " Format(msg, values*)
+    g_DebugLog.Push(entry)
+    ; Keep log trimmed to last 500 entries to avoid memory bloat
+    while (g_DebugLog.Length > 500)
+        g_DebugLog.RemoveAt(1)
+}
+
+; Register crash handler — copies the full debug log to clipboard when an
+; unhandled error terminates the script, so you don't lose diagnostics.
+OnError(ErrorHandler, -1)  ; priority -1 = run after other handlers
+
+ErrorHandler(exception, mode) {
+    global g_DebugLog, g_Crashed
+    g_Crashed := true
+    if (mode != 0)  ; not a throw — it's an unhandled error
+        return
+    ; Append the crash details
+    g_DebugLog.Push("")
+    g_DebugLog.Push("======  CRASH  ======")
+    g_DebugLog.Push("Message: " exception.Message)
+    g_DebugLog.Push("File:    " exception.File)
+    g_DebugLog.Push("Line:    " exception.Line)
+    g_DebugLog.Push("Stack:")
+    for frame in exception.Stack {
+        g_DebugLog.Push("  " frame.File " :: " frame.Function " (line " frame.Line ")")
+    }
+    g_DebugLog.Push("=====================")
+    CopyLogToClipboard()
+}
+
+CopyLogToClipboard() {
+    global g_DebugLog
+    text := "FWDE Debug Log — " A_Now "`n" A_DD "/" A_MM "/" A_YYYY " " A_Hour ":" A_Min ":" A_Sec "`n`n"
+    text .= JoinLog(g_DebugLog, "`n")
+    try {
+        A_Clipboard := text
+        ToolTip("⚠️ FWDE crashed! Debug log copied to clipboard.", 10, 10)
+        SetTimerEx(() => ToolTip(), -5000)
+    }
+}
+
+; --- User-facing debug dump: copies the entire debug log to clipboard on demand ---
+; Ctrl+Alt+C or automatic via periodic timer
+DumpDebugLog(auto := false) {
+    global g_DebugLog
+    text := "FWDE Debug Log — " A_Now "`n" A_DD "/" A_MM "/" A_YYYY " " A_Hour ":" A_Min ":" A_Sec "`n`n"
+    text .= "Entries: " g_DebugLog.Length "`n`n"
+    text .= JoinLog(g_DebugLog, "`n")
+    try {
+        A_Clipboard := text
+        label := auto ? "📋 Auto-copied debug log to clipboard" : "📋 Debug log copied to clipboard! (Ctrl+V to paste)"
+        ToolTip(label, 10, 10)
+        SetTimerEx(() => ToolTip(), -4000)
+        DebugLog("DumpDebugLog — {} entries copied to clipboard (auto={})", g_DebugLog.Length, auto)
+    }
+}
+
+; --- Auto-dump debug log every 15 seconds so user can always retrieve it ---
+DumpDebugLogPeriodic() {
+    static lastAutoDump := 0
+    if (A_TickCount - lastAutoDump > 15000) {
+        lastAutoDump := A_TickCount
+        DumpDebugLog(true)
+    }
+}
+
+JoinLog(arr, delim) {
+    s := ""
+    for i, entry in arr {
+        s .= (i > 1 ? delim : "") entry
+    }
+    return s
+}
 
 ; --- High-resolution timer management (prevents "only updates while mouse is held" feel) ---
 ; Windows timers are typically ~15.6ms unless the process requests higher resolution.
@@ -262,8 +358,25 @@ GetDraggedManagedWindow() {
 ; --- Ensure arrangement timers start if ArrangementActive is true ---
 if (g["ArrangementActive"])
     AcquireHighResTimer()
-SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
-SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
+; Start physics and visual timers
+SetTimerEx(CalculateDynamicLayout, Config["PhysicsTimeStep"]), SetTimerEx(ApplyWindowMovements, Config["VisualTimeStep"])
+
+; --- One-time startup: prime the desktop icon cache and show diagnostic ---
+{
+    DebugLog("Startup — beginning desktop icon scan")
+    fresh := GetDesktopIconRects()
+    if (fresh.Length > 0)
+        g["DesktopIconRects"] := fresh
+    g["DesktopIconLastRefresh"] := A_TickCount
+    count := g["DesktopIconRects"].Length
+    if (DebugMode) {
+        SetTimerEx(() => ToolTip(), -4000)
+        ToolTip("FWDE: Desktop icon scan — " count " obstacles detected", 10, 40)
+    }
+    DebugLog("Startup — desktop icon scan: {} obstacles", count)
+    ; Auto-copy startup scan results for user reporting
+    SetTimerEx(() => DumpDebugLog(true), -2000)  ; Dump after 2 seconds, once icon scan is done
+}
 
 class NoiseAnimator {
     static permutations := [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,35,11,32,57,177,33,88,237,149,56,87,174,20,125,136,171,168,68,175,74,165,71,134,139,48,27,166,77,146,158,231,83,111,229,122,60,211,133,230,220,105,92,41,55,46,245,40,244,102,143,54,65,25,63,161,1,216,80,73,209,76,132,187,208,89,18,169,200,196,135,130,116,188,159,86,164,100,109,198,173,186,3,64,52,217,226,250,124,123,5,202,38,147,118,126,255,82,85,212,207,206,59,227,47,16,58,17,182,189,28,42,223,183,170,213,119,248,152,2,44,154,163,70,221,153,101,155,167,43,172,9,129,22,39,253,19,98,108,110,79,113,224,232,178,185,112,104,218,246,97,228,251,34,242,193,238,210,144,12,191,179,162,241,81,51,145,235,249,14,239,107,49,192,214,31,181,199,106,157,184,84,204,176,115,121,50,45,127,4,150,254,138,236,205,93,222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180]
@@ -273,7 +386,6 @@ class NoiseAnimator {
 
     static F2 := 0.5*(Sqrt(3)-1)
     static G2 := (3-Sqrt(3))/6
-#Requires AutoHotkey v2.0
 
     static noise(x, y) {
         s := (x + y) * this.F2
@@ -651,7 +763,7 @@ EaseOutCubic(t) {
 ShowTooltip(text) {
     global g, Config
     ToolTip(text, g["Monitor"]["CenterX"] - 100, g["Monitor"]["Top"] + 20)
-    SetTimer(() => ToolTip(), -Config["TooltipDuration"])
+    SetTimerEx(() => ToolTip(), -Config["TooltipDuration"])
 }
 
 GetCurrentMonitorInfo() {
@@ -1125,6 +1237,200 @@ GetVisibleWindows(monitor) {
     return WinList
 }
 
+; --- Desktop Icon Detection ---
+; Generates desktop icon obstacle rectangles for physics repulsion.
+; NEVER sends window messages to Explorer (crashes Win11 shell).
+; Strategy: find the desktop SysListView32 via safe kernel calls → GetWindowRect →
+; compute grid from known icon spacing. Caches result permanently — one probe, then pure math.
+; If the ListView is unreachable, falls back to virtual-screen geometry.
+; Returns an array of Maps with x, y, width, height (screen coordinates).
+
+_GetClassNameSafe(hwnd) {
+    if (!hwnd)
+        return ""
+    clsBuf := Buffer(256, 0)
+    DllCall("GetClassName", "Ptr", hwnd, "Ptr", clsBuf, "Int", 255)
+    return StrGet(clsBuf)
+}
+
+; Find a SysListView32 under hParent using only GetWindow (reads linked list, zero messages)
+_FindLV(hParent) {
+    if (!hParent)
+        return 0
+    hChild := DllCall("GetWindow", "Ptr", hParent, "UInt", 5, "Ptr")
+    loop 100 {
+        if (!hChild)
+            break
+        if (_GetClassNameSafe(hChild) = "SysListView32")
+            return hChild
+        hGrand := DllCall("GetWindow", "Ptr", hChild, "UInt", 5, "Ptr")
+        loop 50 {
+            if (!hGrand)
+                break
+            if (_GetClassNameSafe(hGrand) = "SysListView32")
+                return hGrand
+            hGrand := DllCall("GetWindow", "Ptr", hGrand, "UInt", 2, "Ptr")
+        }
+        hChild := DllCall("GetWindow", "Ptr", hChild, "UInt", 2, "Ptr")
+    }
+    return 0
+}
+
+; Find desktop ListView through any available safe path (zero messages)
+_FindDesktopLV() {
+    ; Try Progman
+    hProgman := DllCall("FindWindow", "Str", "Progman", "Ptr", 0, "Ptr")
+    if (hProgman) {
+        result := _FindLV(hProgman)
+        if (result)
+            return result
+    }
+    ; Try WorkerW windows
+    hWorkerW := DllCall("FindWindow", "Str", "WorkerW", "Ptr", 0, "Ptr")
+    while (hWorkerW) {
+        result := _FindLV(hWorkerW)
+        if (result)
+            return result
+        hWorkerW := DllCall("GetWindow", "Ptr", hWorkerW, "UInt", 2, "Ptr")
+    }
+    ; Try COM Shell.Application
+    try {
+        shell := ComObject("Shell.Application")
+        for w in shell.Windows {
+            try {
+                hwnd := w.HWND
+                if (hwnd) {
+                    result := _FindLV(hwnd)
+                    if (result)
+                        return result
+                }
+            }
+        }
+    }
+    return 0
+}
+
+; Build icon grid from known parameters — pure math, zero Explorer interaction
+_BuildIconGrid(lvLeft, lvTop, lvRight, lvBottom, iconCount, spX, spY, margin) {
+    rects := []
+    lvWidth := lvRight - lvLeft
+    if (lvWidth <= 0)
+        lvWidth := A_ScreenWidth
+    cols := Max(1, Floor(lvWidth / spX))
+    gIconW := 72 + margin * 2
+    gIconH := 68 + margin * 2
+    found := 0
+    loop iconCount {
+        idx := A_Index - 1
+        row := idx // cols
+        col := Mod(idx, cols)
+        screenX := lvLeft + col * spX - margin
+        screenY := lvTop + row * spY - margin
+        if (screenX < -10000 || screenY < -10000 || screenX > 50000 || screenY > 50000)
+            continue
+        rects.Push(Map("x", screenX, "y", screenY, "width", gIconW, "height", gIconH))
+        if (found < 5)
+            DebugLog("IconGrid — [{}] col={} row={} screen=({},{}) {}×{}", idx, col, row, screenX, screenY, gIconW, gIconH)
+        found++
+    }
+    return rects
+}
+
+GetDesktopIconRects() {
+    global Config, DebugMode
+    Critical
+    rects := []
+
+    if (!Config["DesktopIconRepulsion"])
+        return rects
+
+    ; --- Persistent grid cache ---
+    ; Once we have valid params, never touch Explorer again. Grid doesn't change
+    ; unless the user rearranges icons — which is rare. Cache survives forever.
+    static s_cached := false
+    static s_lvLeft, s_lvTop, s_lvRight, s_lvBottom
+    static s_iconCount, s_spX, s_spY
+
+    margin := Config["DesktopIconMargin"]
+
+    if (s_cached) {
+        return _BuildIconGrid(s_lvLeft, s_lvTop, s_lvRight, s_lvBottom, s_iconCount, s_spX, s_spY, margin)
+    }
+
+    ; --- First run: establish the grid ---
+    ; Default spacing for Windows large icons (most common config)
+    spX := 145
+    spY := 95
+
+    ; Try to find the ListView (zero messages — pure kernel calls)
+    hListView := _FindDesktopLV()
+    
+    if (hListView) {
+        ; Got the LV handle — read its screen position (GetWindowRect = kernel, safe)
+        lvRect := Buffer(16, 0)
+        DllCall("GetWindowRect", "Ptr", hListView, "Ptr", lvRect)
+        lvLeft := NumGet(lvRect, 0, "Int")
+        lvTop := NumGet(lvRect, 4, "Int")
+        lvRight := NumGet(lvRect, 8, "Int")
+        lvBottom := NumGet(lvRect, 12, "Int")
+        DebugLog("IconGrid — LV at ({},{})–({},{}), using spacing {}×{}", lvLeft, lvTop, lvRight, lvBottom, spX, spY)
+
+        ; Try ONE SendMessage to get the real icon count (LVM_GETITEMCOUNT).
+        ; If this fails, we still have valid geometry — just use a default count.
+        iconCount := 0
+        try iconCount := SendMessage(0x1004, 0, 0, , "ahk_id " hListView)
+        if (iconCount <= 0 || iconCount > 500) {
+            ; SendMessage failed or returned garbage — use geometry-based estimate
+            lvWidth := lvRight - lvLeft
+            lvHeight := lvBottom - lvTop
+            if (lvWidth <= 0)
+                lvWidth := A_ScreenWidth
+            if (lvHeight <= 0)
+                lvHeight := A_ScreenHeight
+            cols := Max(1, Floor(lvWidth / spX))
+            rows := Max(1, Floor(lvHeight / spY))
+            iconCount := Min(cols * rows, 200)
+            DebugLog("IconGrid — SendMessage unavailable, estimated {} icons ({}×{} grid)", iconCount, cols, rows)
+        } else {
+            DebugLog("IconGrid — ListView reports {} icons", iconCount)
+        }
+    } else {
+        ; No ListView found at all — use virtual screen geometry
+        vLeft := DllCall("GetSystemMetrics", "Int", 76)
+        vTop := DllCall("GetSystemMetrics", "Int", 77)
+        vWidth := DllCall("GetSystemMetrics", "Int", 78)
+        vHeight := DllCall("GetSystemMetrics", "Int", 79)
+        lvLeft := vLeft
+        lvTop := vTop
+        lvRight := vLeft + vWidth
+        lvBottom := vTop + vHeight
+        cols := Max(1, Floor(vWidth / spX))
+        rows := Max(1, Floor(vHeight / spY))
+        iconCount := Min(cols * rows, 200)
+        DebugLog("IconGrid — no ListView, using virtual screen ({},{})–({},{}), {} icons",
+            lvLeft, lvTop, lvRight, lvBottom, iconCount)
+    }
+
+    ; Cache permanently
+    s_cached := true
+    s_lvLeft := lvLeft
+    s_lvTop := lvTop
+    s_lvRight := lvRight
+    s_lvBottom := lvBottom
+    s_iconCount := iconCount
+    s_spX := spX
+    s_spY := spY
+
+    result := _BuildIconGrid(lvLeft, lvTop, lvRight, lvBottom, iconCount, spX, spY, margin)
+    DebugLog("IconGrid — CACHED: {} obstacles, {}×{} spacing, lv=({},{})–({},{})",
+        result.Length, spX, spY, lvLeft, lvTop, lvRight, lvBottom)
+    
+    if (DebugMode)
+        ToolTip("FWDE: " result.Length " desktop icons ✓", 10, 40)
+    
+    return result
+}
+
 CleanupStaleWindows() {
     global g
     threshold := 5000 ; 5 seconds
@@ -1438,8 +1744,13 @@ CalculateWindowForces(win, allWindows) {
             repulsionForce *= (other.Has("IsManual") ? Config["ManualRepulsionMultiplier"] : 1)
             repulsionForce *= smallWindowBoost
 
-            ; Reduced force scaling to prevent jumpiness
-            proximityMultiplier := 1 + (1 - dist / repulsionRange) * 1  ; Reduced from 2x to 1x max
+            ; Chain reaction: if THIS window was pushed by icons last frame, transfer that momentum
+            chainBoost := 1.0
+            if (win.Has("_iconVMag") && win["_iconVMag"] > 5.0)
+                chainBoost := 1.0 + win["_iconVMag"] / Config["MaxIconSpeed"]
+            repulsionForce *= chainBoost
+
+            proximityMultiplier := 1 + (1 - dist / repulsionRange) * 2  ; Wider proximity boost
 
             vx += dx * repulsionForce * proximityMultiplier / dist * Config["RepulsionImpulseScale"]
             vy += dy * repulsionForce * proximityMultiplier / dist * Config["RepulsionImpulseScale"]
@@ -1452,34 +1763,95 @@ CalculateWindowForces(win, allWindows) {
         }
     }
 
-    ; Space-like momentum with equilibrium-seeking damping (driven by Config["Damping"])
+    ; --- Desktop icon obstacle repulsion ---
+    ; Treat desktop icons as immovable obstacles that push windows away.
+    ; Only repulsion — no attraction. Icons are static, so only the window moves.
+    ; Store icon velocity separately — applied AFTER damping so icons overpower everything.
+    iconVx := 0.0, iconVy := 0.0
+    if (Config["DesktopIconRepulsion"]) {
+        iconRects := g["DesktopIconRects"]
+        iconForceMult := Config["DesktopIconRepulsionForce"]
+        iconPushes := 0
+        iconTotalForce := 0.0
+        for icon in iconRects {
+            iconCX := icon["x"] + icon["width"]/2
+            iconCY := icon["y"] + icon["height"]/2
+            dxi := wx - iconCX
+            dyi := wy - iconCY
+
+            if (Abs(dxi) < 0.5 && Abs(dyi) < 0.5) {
+                seed := (win["hwnd"] + icon["x"] + icon["y"]) & 255
+                dxi := (Mod(seed, 17) - 8) / 8.0
+                dyi := (Mod(seed * 7, 17) - 8) / 8.0
+            }
+
+            distIcon := Max(Sqrt(dxi*dxi + dyi*dyi), 1)
+
+            iconRange := Sqrt(win["width"] * win["height"] + icon["width"] * icon["height"]) / 1.5
+            sizeBonus := Max(1, 200 / Min(win["width"], win["height"]))
+            iconRange *= sizeBonus
+            iconRepelRange := iconRange * Config["RepulsionRangeMultiplier"]
+
+            if (distIcon < iconRepelRange) {
+                repelForce := Config["RepulsionForce"] * iconForceMult * (iconRepelRange - distIcon) / iconRepelRange
+                proximityMult := 1 + (1 - distIcon / iconRepelRange) * 2
+
+                iconVx += dxi * repelForce * proximityMult / distIcon * Config["RepulsionImpulseScale"] * 3.0
+                iconVy += dyi * repelForce * proximityMult / distIcon * Config["RepulsionImpulseScale"] * 3.0
+                iconPushes++
+                iconTotalForce += Abs(repelForce * proximityMult)
+            }
+        }
+        ; Clamp icon velocity — inverse-distance formula can spike at close range
+        maxIcon := Config["MaxIconSpeed"]
+        iconVx := Min(Max(iconVx, -maxIcon), maxIcon)
+        iconVy := Min(Max(iconVy, -maxIcon), maxIcon)
+        static iconLogTick := 0
+        static iconSilentTick := 0
+        if (iconPushes > 0 && A_TickCount - iconLogTick > 2000) {
+            iconLogTick := A_TickCount
+            DebugLog("IconRepel — win=0x{:X} got {} icon pushes, totalForce={:.1f}, iconV=({:.1f},{:.1f}), iconCount={}", win["hwnd"], iconPushes, iconTotalForce, iconVx, iconVy, iconRects.Length)
+        } else if (iconPushes == 0 && iconRects.Length > 0 && A_TickCount - iconSilentTick > 5000) {
+            iconSilentTick := A_TickCount
+            DebugLog("IconRepel — win=0x{:X} has {} icons loaded but 0 pushes (winCenter=({:.0f},{:.0f}), winSize={}×{})", win["hwnd"], iconRects.Length, wx, wy, win["width"], win["height"])
+        }
+    }
+
+    ; Space-like momentum with equilibrium-seeking damping (ONLY on non-icon velocity)
     dampingFactor := IsElectronApp(win["hwnd"]) ? Min(1.0, Config["Damping"] + (1.0 - Config["Damping"]) * 0.12) : Config["Damping"]
     vx *= dampingFactor
     vy *= dampingFactor
 
     ; Floating speed limits (balanced for equilibrium)
-    maxFloatSpeed := Config["MaxSpeed"] * 2.0  ; Reduced from 2.5
+    maxFloatSpeed := Config["MaxSpeed"] * 2.0
     vx := Min(Max(vx, -maxFloatSpeed), maxFloatSpeed)
     vy := Min(Max(vy, -maxFloatSpeed), maxFloatSpeed)
 
-    ; Progressive stabilization based on speed - less aggressive for Electron apps
-    if (Abs(vx) < 0.15 && Abs(vy) < 0.15) {  ; Increased threshold for earlier settling
-        ; Apply extra stabilization damping when nearly stopped
+    ; Progressive stabilization based on speed
+    if (Abs(vx) < 0.15 && Abs(vy) < 0.15) {
         stabFactor := IsElectronApp(win["hwnd"]) ? Min(1.0, Config["Damping"] + (1.0 - Config["Damping"]) * 0.25) : Max(0.85, Config["Damping"])
         vx *= stabFactor
         vy *= stabFactor
     }
 
+    ; --- Apply icon velocity AFTER damping — icons always win ---
+    vx += iconVx
+    vy += iconVy
+
+    ; Store icon momentum for chain reaction in next frame
+    win["_iconVMag"] := Sqrt(iconVx*iconVx + iconVy*iconVy)
+
     win["vx"] := vx
     win["vy"] := vy
 
-    ; CRITICAL: Do NOT update target position for manually locked windows or active windows
-    ; User placed them there, and they should stay exactly where placed
-    ; The active window should NEVER have its position modified
-    ; Also skip for dragged window
+    ; Manual lock / active window / dragged window check
     isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
     if (isManuallyLocked || win["hwnd"] == g["ActiveWindow"] || isDraggedWindow) {
-        ; Keep target position exactly where it is - don't modify it
+        ; Icons STILL push even locked windows — override with icon-only velocity
+        if (iconVx != 0 || iconVy != 0) {
+            win["targetX"] += iconVx
+            win["targetY"] += iconVy
+        }
         return
     }
 
@@ -1702,7 +2074,8 @@ ApplyWindowMovements() {
     for move in moveBatch {
         try MoveWindowAPI(move.hwnd, move.x, move.y)
     }
-    } catch {
+    } catch as e {
+        DebugLog("ApplyWindowMovements timer crashed: {}", e.Message)
         ; Any exception in the movement loop is caught to prevent
         ; the AHK v2 timer from silently stopping forever.
     }
@@ -1822,6 +2195,13 @@ CalculateDynamicLayout() {
 
     try {  ; Wrap entire timer body — any exception would silently kill this timer in AHK v2
 
+    ; One-time diagnostic: confirm physics loop is alive with window + icon counts
+    static diagLogged := false
+    if (!diagLogged && g["Windows"].Length > 0) {
+        diagLogged := true
+        DebugLog("PhysicsLoop — {} windows tracked, {} icon obstacles loaded", g["Windows"].Length, g["DesktopIconRects"].Length)
+    }
+
     ; Cache expensive per-tick values ONCE so child functions don't recompute N times
     ; menuParent: would be called N+2 times otherwise (each iterates ALL system windows!)
     ; draggedHwnd: would be called N+4 times (each does GetKeyState+MouseGetPos+DllCall)
@@ -1833,6 +2213,9 @@ CalculateDynamicLayout() {
     } catch {
         g["_draggedHwnd"] := 0
     }
+
+    ; Desktop icon grid is cached permanently — no periodic refresh needed
+    ; (Grid doesn't change unless user rearranges icons, which requires script restart)
 
     ; Keep physics calculations running during drag to allow dragged window to push other windows
     ; The dragged window itself will be protected from movement in CalculateWindowForces and ApplyWindowMovements
@@ -1888,7 +2271,8 @@ CalculateDynamicLayout() {
         try {
             CalculateWindowForces(win, g["Windows"])
             currentEnergy += win["vx"]**2 + win["vy"]**2
-        } catch {
+        } catch as e {
+            DebugLog("CalculateDynamicLayout — force calc failed for window 0x{:X}: {}", win["hwnd"], e.Message)
             ; Skip this window if force calculation fails — don't crash the timer
             win["vx"] := 0
             win["vy"] := 0
@@ -1937,7 +2321,8 @@ CalculateDynamicLayout() {
     }
 
     lastState := newState
-    } catch {
+    } catch as e {
+        DebugLog("CalculateDynamicLayout timer crashed: {}", e.Message)
         ; Any exception in the physics loop is caught to prevent
         ; the AHK v2 timer from silently stopping forever.
     }
@@ -2387,12 +2772,12 @@ ToggleArrangement() {
     if (g["ArrangementActive"]) {
         AcquireHighResTimer()
         UpdateWindowStates()
-        SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
-        SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
+        SetTimerEx(CalculateDynamicLayout, Config["PhysicsTimeStep"])
+        SetTimerEx(ApplyWindowMovements, Config["VisualTimeStep"])
         ShowTooltip("Window Arrangement: ON")
     } else {
-        SetTimer(CalculateDynamicLayout, 0)
-        SetTimer(ApplyWindowMovements, 0)
+        SetTimerEx(CalculateDynamicLayout, 0)
+        SetTimerEx(ApplyWindowMovements, 0)
         ReleaseHighResTimer()
         ShowTooltip("Window Arrangement: OFF")
     }
@@ -2403,10 +2788,10 @@ TogglePhysics() {
     global g
     g["PhysicsEnabled"] := !g["PhysicsEnabled"]
     if (g["PhysicsEnabled"]) {
-        SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
+        SetTimerEx(CalculateDynamicLayout, Config["PhysicsTimeStep"])
         ShowTooltip("Physics Engine: ON")
     } else {
-        SetTimer(CalculateDynamicLayout, 0)
+        SetTimerEx(CalculateDynamicLayout, 0)
         ShowTooltip("Physics Engine: OFF")
     }
     BuildFWDEMenus()
@@ -3018,7 +3403,7 @@ WindowMoveHandler(wParam, lParam, msg, hwnd) {
         AddManualWindowBorder(hwnd)
     }
 
-    SetTimer(UpdateWindowStates, -Config["ResizeDelay"])
+    SetTimerEx(UpdateWindowStates, -Config["ResizeDelay"])
 }
 
 WindowSizeHandler(wParam, lParam, msg, hwnd) {
@@ -3079,7 +3464,7 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
         return
     }
 
-    SetTimer(UpdateWindowStates, -Config["ResizeDelay"])
+    SetTimerEx(UpdateWindowStates, -Config["ResizeDelay"])
 }
 
 UpdateWindowStates() {
@@ -3275,7 +3660,8 @@ GetDecimalPlaces(value) {
 
 ShouldTreatAsBoolean(path) {
     static boolPaths := Map(
-        "MultimonitorExpanse", true
+        "MultimonitorExpanse", true,
+        "DesktopIconRepulsion", true
     )
     return boolPaths.Has(path)
 }
@@ -3370,7 +3756,10 @@ ApplyNumericSpecOverrides(spec) {
         "Stabilization.MinSpeedThreshold", Map("min", 0.0, "max", 5.0, "decimals", 3),
         "Stabilization.EnergyThreshold", Map("min", 0.0, "max", 10.0, "decimals", 3),
         "Stabilization.DampingBoost", Map("min", 0.0, "max", 1.0, "decimals", 3),
-        "Stabilization.OverlapTolerance", Map("min", 0, "max", 500, "decimals", 0)
+        "Stabilization.OverlapTolerance", Map("min", 0, "max", 500, "decimals", 0),
+        "DesktopIconMargin", Map("min", 0, "max", 200, "decimals", 0),
+        "DesktopIconRefreshMs", Map("min", 500, "max", 30000, "decimals", 0),
+        "DesktopIconRepulsionForce", Map("min", 0.0, "max", 25.0, "decimals", 1)
     )
 
     path := spec["path"]
@@ -3595,11 +3984,11 @@ SyncRuntimeFromConfig() {
     }
 
     if (g["ArrangementActive"]) {
-        SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
-        SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
-        SetTimer(UpdateWindowStates, 250)  ; Window list rebuild ~4 Hz — expensive, doesn't need 60 Hz
+        SetTimerEx(CalculateDynamicLayout, Config["PhysicsTimeStep"])
+        SetTimerEx(ApplyWindowMovements, Config["VisualTimeStep"])
+        SetTimerEx(UpdateWindowStates, 250)  ; Window list rebuild ~4 Hz — expensive, doesn't need 60 Hz
     } else if (g["PhysicsEnabled"]) {
-        SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])
+        SetTimerEx(CalculateDynamicLayout, Config["PhysicsTimeStep"])
     }
 
     BuildFWDEMenus()
@@ -3742,7 +4131,7 @@ ShowParameterHoverTooltip(path) {
 
     MouseGetPos(&mx, &my)
     ToolTip(text, mx + 14, my + 16, 19)
-    SetTimer(HideParameterHoverTooltip, -Max(300, Round(Config["ParameterHelpTooltipDuration"])))
+    SetTimerEx(HideParameterHoverTooltip, -Max(300, Round(Config["ParameterHelpTooltipDuration"])))
 }
 
 OnParameterHoverMouseMove(wParam, lParam, msg, hwnd) {
@@ -4048,7 +4437,7 @@ DebugWindowInfo() {
     
     ; Show tooltip with debug info
     ToolTip(debugMsg)
-    SetTimer(() => ToolTip(), -10000)  ; Hide after 10 seconds
+    SetTimerEx(() => ToolTip(), -10000)  ; Hide after 10 seconds
 }
 
 ; --- Force add active window to tracking ---
@@ -4058,7 +4447,7 @@ ForceAddActiveWindow() {
     hwnd := WinExist("A")
     if (!hwnd || !SafeWinExist(hwnd)) {
         ToolTip("No active window found!")
-        SetTimer(() => ToolTip(), -2000)
+        SetTimerEx(() => ToolTip(), -2000)
         return
     }
     
@@ -4070,7 +4459,7 @@ ForceAddActiveWindow() {
         
         if (w == 0 || h == 0) {
             ToolTip("Invalid window size!")
-            SetTimer(() => ToolTip(), -2000)
+            SetTimerEx(() => ToolTip(), -2000)
             return
         }
         
@@ -4078,7 +4467,7 @@ ForceAddActiveWindow() {
         for win in g["Windows"] {
             if (win["hwnd"] == hwnd) {
                 ToolTip("Window already tracked: " . title)
-                SetTimer(() => ToolTip(), -2000)
+                SetTimerEx(() => ToolTip(), -2000)
                 return
             }
         }
@@ -4109,11 +4498,11 @@ ForceAddActiveWindow() {
         
         
         ToolTip("Added to tracking: " . title . " (" . winClass . ")")
-        SetTimer(() => ToolTip(), -3000)
+        SetTimerEx(() => ToolTip(), -3000)
         
     } catch {
         ToolTip("Failed to add window to tracking!")
-        SetTimer(() => ToolTip(), -2000)
+        SetTimerEx(() => ToolTip(), -2000)
     }
 }
 
@@ -4124,7 +4513,7 @@ DebugActiveWindow() {
     hwnd := WinExist("A")
     if (!hwnd) {
         ToolTip("No active window!")
-        SetTimer(() => ToolTip(), -2000)
+        SetTimerEx(() => ToolTip(), -2000)
         return
     }
     
@@ -4192,11 +4581,11 @@ DebugActiveWindow() {
         debugMsg .= "WS_VISIBLE: " . ((style & 0x10000000) ? "YES" : "NO") . "`n"
         
         ToolTip(debugMsg)
-        SetTimer(() => ToolTip(), -15000)  ; Show for 15 seconds
+        SetTimerEx(() => ToolTip(), -15000)  ; Show for 15 seconds
         
     } catch {
         ToolTip("Failed to get window details!")
-        SetTimer(() => ToolTip(), -2000)
+        SetTimerEx(() => ToolTip(), -2000)
     }
 }
 
@@ -4213,20 +4602,29 @@ DebugActiveWindow() {
 ^!D::DebugWindowInfo()            ; Ctrl+Alt+D to debug window information
 ^!A::ForceAddActiveWindow()       ; Ctrl+Alt+A to force add active window
 ^!I::DebugActiveWindow()          ; Ctrl+Alt+I to debug active window details
+^!C::DumpDebugLog()               ; Ctrl+Alt+C to copy debug log to clipboard
+
+; Auto-dump debug log to clipboard every 15 seconds for easy reporting
+SetTimerEx(DumpDebugLogPeriodic, 5000)
  
 ; Start timers - but respect active window protection
-SetTimer(UpdateWindowStates, 250)  ; Window list rebuild ~4 Hz — expensive WinGetList+IsWindowValid cycle
-SetTimer(ApplyWindowMovements, Config["VisualTimeStep"])
+SetTimerEx(UpdateWindowStates, 250)  ; Window list rebuild ~4 Hz — expensive WinGetList+IsWindowValid cycle
+SetTimerEx(ApplyWindowMovements, Config["VisualTimeStep"])
 UpdateWindowStates()
 
 ; Start physics calculations but only AFTER ensuring manual locks are respected
-SetTimer(CalculateDynamicLayout, Config["PhysicsTimeStep"])      ; Only need this once
+SetTimerEx(CalculateDynamicLayout, Config["PhysicsTimeStep"])      ; Only need this once
 
 OnMessage(0x0003, WindowMoveHandler)
 OnMessage(0x0005, WindowSizeHandler)
 
 OnExit(*) {
-    global g_TimerResolutionRefs
+    global g_TimerResolutionRefs, g_Crashed
+    if (g_Crashed) {
+        ; If we crashed, OnError already copied the log.
+        ; This is just a safety net in case OnError was not triggered.
+        CopyLogToClipboard()
+    }
     for hwnd in g["ManualWindows"]
         RemoveManualWindowBorder(hwnd)
     while (g_TimerResolutionRefs > 0) {

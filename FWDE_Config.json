@@ -1,18 +1,23 @@
 ﻿{
   "_metadata": {
     "application": "FWDE",
-    "saved": "20260712150237",
+    "saved": "20260719230159",
     "format": "flat-path-v1"
   },
   "AnimationDuration": 32,
   "AttractionForce": 0.00045,
   "CollisionOverlapThreshold": 300,
   "Damping": 0.216,
+  "DesktopIconMargin": 60,
+  "DesktopIconRefreshMs": 3000,
+  "DesktopIconRepulsion": 1,
+  "DesktopIconRepulsionForce": 8,
   "EdgeRepulsionForce": 6.244,
   "ManualGapBonus": 0,
   "ManualLockDuration": 33333,
   "ManualRepulsionMultiplier": 1,
   "ManualWindowAlpha": 222,
+  "MaxIconSpeed": 40,
   "MaxSmallWindowRepulsionBoost": 1.6,
   "MaxSpeed": 12,
   "MinGap": 0,
@@ -41,7 +46,7 @@
   "Stabilization.EnergyThreshold": 0.06,
   "Stabilization.MinSpeedThreshold": 0.369,
   "Stabilization.OverlapTolerance": 120,
-  "TooltipDuration": 6767,
-  "UserMoveTimeout": 523,
+  "TooltipDuration": 7852,
+  "UserMoveTimeout": 50,
   "VisualTimeStep": 1
 }

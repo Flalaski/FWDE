@@ -1,4 +1,6 @@
 {
+    "ahk++.language": "v2",
+    "autohotkey.language": "v2",
     "projectColors.mainColor": "#d2500f",
     "window.title": "b:\\Coding\\FWDE\\FWDE-1",
     "workbench.colorCustomizations": {
@@ -41,6 +43,8 @@
         "activityBarBadge.foreground": "#ffffff",
         "activityBarBadge.background": "#d2500f",
         "minimap.background": "#00000000",
-        "scrollbar.shadow": "#00000000"
+        "scrollbar.shadow": "#00000000",
+        "titleBar.activeBackground": "#7b6759",
+        "titleBar.activeForeground": "#FFFFFF"
     }
 }

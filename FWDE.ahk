@@ -180,7 +180,7 @@ global Config := Map(
     "AnimationDuration", 32,    ; Higher = longer animations (try 16-32)
     "PhysicsUpdateInterval", 1000,
     "ManualRepulsionMultiplier", 1.0,
-    "DesktopIconRepulsion", true,        ; Treat desktop icons as physics obstacles
+    "DesktopIconRepulsion", false,       ; OFF by default — users opt in via Ctrl+Alt+I
     "DesktopIconMargin", 0,              ; Extra padding around each icon rect (0 = icon edges only)
     "DesktopIconRefreshMs", 3000,        ; How often to re-scan desktop icon positions
     "DesktopIconRepulsionForce", 0.112358,     ; Multiplier for icon→window repulsion strength

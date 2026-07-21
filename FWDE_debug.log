@@ -1,203 +1,131 @@
-﻿FWDE Debug Log — 20260721151244
-21/07/2026 15:12:44
+﻿FWDE Debug Log — 20260721161919
+21/07/2026 16:19:19
 
-Entries: 188
+Entries: 126
 
-2026-07-21 15:12:30.104 | Startup — desktop icon scan: 0 obstacles
-2026-07-21 15:12:30.144 | PhysicsLoop — 6 windows tracked, 0 icon obstacles loaded
-2026-07-21 15:12:30.148 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:30.163 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.194 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:30.223 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.240 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:30.270 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.285 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:30.317 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.351 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:30.366 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.395 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:30.413 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.444 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.474 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.489 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.521 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.536 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.566 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.612 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.658 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.695 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.735 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.782 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.790 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.830 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.860 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.869 | Physics tick — 6 windows, energy=0.2411, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:30.906 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.913 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.952 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.984 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.992 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:30.030 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.037 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.076 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.107 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.114 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.153 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.160 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.199 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.231 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.246 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.276 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.292 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.324 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.355 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.374 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.401 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.417 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.447 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.479 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.493 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:31.524 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.539 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:31.570 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.598 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:31.615 | Physics tick — 6 windows, energy=0.2926, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:31.616 | ApplyMovements — 3 windows moved this tick
-2026-07-21 15:12:31.647 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:31.663 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:31.695 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:31.726 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:31.741 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:31.773 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:31.788 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:31.822 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:31.852 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:31.868 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:31.898 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:31.913 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:31.944 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:31.977 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:31.990 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:31.022 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.038 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:32.069 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.100 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:32.116 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.148 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:32.162 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.194 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:32.227 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.242 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:32.271 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.287 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.319 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:32.352 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.364 | Physics tick — 6 windows, energy=0.2921, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:32.365 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.396 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:32.411 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.442 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.487 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:32.534 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.580 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.615 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:32.656 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.698 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.727 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:32.743 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.778 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.794 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.827 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.858 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:32.903 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:32.951 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:33.000 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:33.046 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:33.107 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:33.122 | Physics tick — 6 windows, energy=0.2879, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:33.122 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:33.154 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:33.200 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:33.246 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:33.293 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:33.354 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:33.401 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:33.446 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:33.495 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:33.541 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:33.603 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:33.650 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:33.695 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:33.742 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:33.788 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:33.851 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:33.866 | Physics tick — 6 windows, energy=0.2858, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:33.880 | WindowList — 6 windows detected on monitor 1
-2026-07-21 15:12:33.898 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:33.913 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:33.992 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:34.070 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:34.148 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:34.255 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:34.319 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:34.393 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:34.472 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:34.566 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:34.659 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:34.664 | Physics tick — 6 windows, energy=0.2846, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:34.745 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:34.797 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:34.820 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:34.860 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:34.954 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:34.978 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:34.001 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:35.046 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:35.111 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:35.137 | Health beat — 6 windows, energy=0.2753, drag=no, snap=0, phys=15ms, vis=15ms
-2026-07-21 15:12:35.154 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:35.181 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:35.234 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:35.320 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:35.405 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:35.452 | Physics tick — 6 windows, energy=0.2732, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:35.475 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:35.548 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:35.608 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:35.705 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:35.772 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:35.799 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:35.846 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:35.907 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:36.017 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:36.081 | ApplyMovements — 2 windows moved this tick
-2026-07-21 15:12:36.144 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:36.206 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:36.274 | ApplyMovements — 1 windows moved this tick
-2026-07-21 15:12:36.298 | Physics tick — 6 windows, energy=0.2716, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:37.048 | Physics tick — 6 windows, energy=0.2820, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:37.794 | Physics tick — 6 windows, energy=0.2840, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:37.933 | WindowList — 6 windows detected on monitor 1
-2026-07-21 15:12:38.538 | Physics tick — 6 windows, energy=0.2841, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:39.286 | Physics tick — 6 windows, energy=0.2841, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:40.099 | Physics tick — 6 windows, energy=0.2841, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:40.128 | Health beat — 6 windows, energy=0.2841, drag=no, snap=0, phys=15ms, vis=15ms
-2026-07-21 15:12:40.569 | Settle — limit cycle detected, zeroed velocities (energy was 0.2841)
-2026-07-21 15:12:40.854 | Physics tick — 6 windows, energy=0.1996, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:41.605 | Physics tick — 6 windows, energy=0.2805, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:41.935 | WindowList — 6 windows detected on monitor 1
-2026-07-21 15:12:42.348 | DumpDebugLog — 183 entries, text=13672 file=13672 clip=ok (auto=0)
-2026-07-21 15:12:42.405 | Physics tick — 6 windows, energy=0.2840, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:43.152 | Physics tick — 6 windows, energy=0.2841, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:43.900 | Physics tick — 6 windows, energy=0.2841, state=chaos, dragHwnd=0x0
-2026-07-21 15:12:44.648 | Physics tick — 6 windows, energy=0.2841, state=chaos, dragHwnd=0x0
-
-══════ PERF ══════
-                     Section {:>8s} {:>12s} {:>10s}
-                         AWM      232       123.28     531.37
-                         CDL      234       828.37    3540.04
-                         CWF     1404       485.33     345.68
-                         GVW       24        52.25    2176.90
-                         HLM        1         0.05      47.60
-                         RFC      234       162.56     694.71
-                         UWS       24        53.76    2239.98
+2026-07-21 16:19:15.850 | Startup — desktop icon scan: 0 obstacles
+2026-07-21 16:19:15.895 | PhysicsLoop — 7 windows tracked, 0 icon obstacles loaded
+2026-07-21 16:19:15.899 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:15.914 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:15.945 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:15.978 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:15.994 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:15.024 | ApplyMovements — 3 windows moved this tick
+2026-07-21 16:19:16.040 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.071 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.102 | ApplyMovements — 3 windows moved this tick
+2026-07-21 16:19:16.117 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.148 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:16.165 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.196 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:16.229 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:16.246 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.274 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.290 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:16.322 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.353 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.370 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:16.398 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.414 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:16.445 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.475 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.491 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:16.524 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.539 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.569 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:16.601 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.615 | Physics tick — 7 windows, energy=0.3444, state=chaos, dragHwnd=0x0
+2026-07-21 16:19:16.616 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.649 | ApplyMovements — 3 windows moved this tick
+2026-07-21 16:19:16.663 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.693 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.726 | ApplyMovements — 3 windows moved this tick
+2026-07-21 16:19:16.741 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.772 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:16.789 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.819 | ApplyMovements — 3 windows moved this tick
+2026-07-21 16:19:16.851 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.868 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:16.899 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:16.914 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:16.945 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.976 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:16.992 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:16.024 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.039 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:17.070 | ApplyMovements — 3 windows moved this tick
+2026-07-21 16:19:17.101 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:17.116 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.147 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:17.163 | ApplyMovements — 3 windows moved this tick
+2026-07-21 16:19:17.194 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:17.224 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.241 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:17.271 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.286 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.318 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.350 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.365 | Physics tick — 7 windows, energy=0.3451, state=chaos, dragHwnd=0x0
+2026-07-21 16:19:17.366 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.398 | ApplyMovements — 3 windows moved this tick
+2026-07-21 16:19:17.414 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:17.444 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.475 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:17.491 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.522 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.538 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.569 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.601 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.617 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.647 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:17.663 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.693 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.726 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:17.740 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.772 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:17.787 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.818 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:17.850 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.866 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:17.898 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.914 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:17.945 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.976 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:17.993 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:17.025 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:18.039 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:18.070 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:18.101 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:18.114 | Physics tick — 7 windows, energy=0.3269, state=chaos, dragHwnd=0x0
+2026-07-21 16:19:18.115 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:18.145 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:18.163 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:18.194 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:18.225 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:18.240 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:18.271 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:18.286 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:18.332 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:18.363 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:18.409 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:18.442 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:18.474 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:18.491 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:18.522 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:18.553 | ApplyMovements — 2 windows moved this tick
+2026-07-21 16:19:18.582 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:18.614 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:18.645 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:18.970 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:18.004 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:19.035 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:19.082 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:19.113 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:19.159 | Physics tick — 7 windows, energy=0.3157, state=chaos, dragHwnd=0x0
+2026-07-21 16:19:19.160 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:19.205 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:19.237 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:19.284 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:19.331 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:19.363 | ApplyMovements — 1 windows moved this tick
+2026-07-21 16:19:19.409 | ApplyMovements — 1 windows moved this tick

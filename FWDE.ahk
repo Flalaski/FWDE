@@ -265,35 +265,43 @@ DebugLog(msg, values*) {
 }
 
 ; --- Debug persistence: writes to disk file, then clipboard ---
-; The file at %TEMP%\FWDE_debug.log is the authoritative dump.
+; The file at FWDE_debug.log in the script's directory is the authoritative dump.
 ; Clipboard is a convenience copy — if it fails, the file still has everything.
-global g_DebugFilePath := A_Temp "\FWDE_debug.log"
+global g_DebugFilePath := A_ScriptDir "\FWDE_debug.log"
 
 _ClipPut(text) {
     ; Win32 CF_UNICODETEXT — copies directly from AHK's native UTF-16 buffer.
-    ; No encoding conversion: StrPtr gives us the null-terminated UTF-16
-    ; string, exactly what CF_UNICODETEXT (13) expects.
     size := (StrLen(text) + 1) * 2
     hMem := DllCall("GlobalAlloc", "UInt", 0x0042, "UPtr", size, "Ptr")
     if (!hMem)
-        return false
+        return _ClipPutFallback(text)
     pMem := DllCall("GlobalLock", "Ptr", hMem, "Ptr")
     if (!pMem) {
         DllCall("GlobalFree", "Ptr", hMem)
-        return false
+        return _ClipPutFallback(text)
     }
     DllCall("RtlMoveMemory", "Ptr", pMem, "Ptr", StrPtr(text), "UPtr", size)
     DllCall("GlobalUnlock", "Ptr", hMem)
-    if (!DllCall("OpenClipboard", "Ptr", A_ScriptHwnd))
-        return false
+    if (!DllCall("OpenClipboard", "Ptr", A_ScriptHwnd)) {
+        DllCall("GlobalFree", "Ptr", hMem)
+        return _ClipPutFallback(text)
+    }
     DllCall("EmptyClipboard")
     if (!DllCall("SetClipboardData", "UInt", 13, "Ptr", hMem)) {
         DllCall("CloseClipboard")
         DllCall("GlobalFree", "Ptr", hMem)
-        return false
+        return _ClipPutFallback(text)
     }
     DllCall("CloseClipboard")
     return true
+}
+
+_ClipPutFallback(text) {
+    try {
+        A_Clipboard := text
+        return true
+    }
+    return false
 }
 
 _WriteDebugFile(text) {

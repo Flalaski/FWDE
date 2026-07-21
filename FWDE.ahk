@@ -270,7 +270,30 @@ DebugLog(msg, values*) {
 global g_DebugFilePath := A_Temp "\FWDE_debug.log"
 
 _ClipPut(text) {
-    A_Clipboard := text
+    ; Win32 CF_UNICODETEXT — copies directly from AHK's native UTF-16 buffer.
+    ; No encoding conversion: StrPtr gives us the null-terminated UTF-16
+    ; string, exactly what CF_UNICODETEXT (13) expects.
+    size := (StrLen(text) + 1) * 2
+    hMem := DllCall("GlobalAlloc", "UInt", 0x0042, "UPtr", size, "Ptr")
+    if (!hMem)
+        return false
+    pMem := DllCall("GlobalLock", "Ptr", hMem, "Ptr")
+    if (!pMem) {
+        DllCall("GlobalFree", "Ptr", hMem)
+        return false
+    }
+    DllCall("RtlMoveMemory", "Ptr", pMem, "Ptr", StrPtr(text), "UPtr", size)
+    DllCall("GlobalUnlock", "Ptr", hMem)
+    if (!DllCall("OpenClipboard", "Ptr", A_ScriptHwnd))
+        return false
+    DllCall("EmptyClipboard")
+    if (!DllCall("SetClipboardData", "UInt", 13, "Ptr", hMem)) {
+        DllCall("CloseClipboard")
+        DllCall("GlobalFree", "Ptr", hMem)
+        return false
+    }
+    DllCall("CloseClipboard")
+    return true
 }
 
 _WriteDebugFile(text) {
@@ -325,22 +348,21 @@ DumpDebugLog(auto := false) {
         text .= "`n`n" _PerfReport()
     ; File is authoritative — always write it first
     _WriteDebugFile(text)
-    ; Clipboard — NO try, let errors surface. Then verify it actually landed.
-    A_Clipboard := text
-    clipLen := StrLen(A_Clipboard)
-    ; Self-verification: read back both file and clipboard
+    ; Win32 clipboard via CF_UNICODETEXT
+    clipOk := _ClipPut(text)
+    ; Self-verification: read back file
     fileVerify := ""
     try fileVerify := FileRead(g_DebugFilePath, "UTF-8")
     fileLen := StrLen(fileVerify)
     textLen := StrLen(text)
     if (!auto) {
         ToolTip("📋 " g_DebugLog.Length " entries, " textLen " chars"
-            . "`nFile: " (textLen = fileLen ? "✓" : "✗ MISMATCH(" fileLen ")") "  Clip: " (textLen = clipLen ? "✓" : "✗ (" clipLen ")")
+            . "`nFile: " (textLen = fileLen ? "✓" : "✗ MISMATCH(" fileLen ")") "  Win32: " (clipOk ? "✓" : "✗")
             . "`n" g_DebugFilePath, 10, 10)
         SetTimerEx(() => ToolTip(), -6000)
     }
     DebugLog("DumpDebugLog — {} entries, text={} file={} clip={} (auto={})",
-        g_DebugLog.Length, textLen, fileLen, clipLen, auto)
+        g_DebugLog.Length, textLen, fileLen, clipOk ? "ok" : "FAIL", auto)
 }
 
 ; --- Auto-dump debug log every 15 seconds so user can always retrieve it ---
@@ -4994,7 +5016,7 @@ _PerfToggle() {
 _PerfReport() {
     global g
     txt := "══════ PERF ══════`n"
-    txt .= Format("{:28s} {:>8s} {:>12s} {:>10s}`n", "Section", "Calls", "Total ms", "Avg µs")
+    txt .= Format("{:28s} {:8s} {:12s} {:10s}`n", "Section", "Calls", "Total ms", "Avg µs")
     for key, d in g["_perfData"] {
         avg := d[2] > 0 ? d[1] / d[2] : 0
         txt .= Format("{:28s} {:8d} {:12.2f} {:10.2f}`n", key, d[2], d[1] / 1000, avg)

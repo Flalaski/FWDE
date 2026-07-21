@@ -1,7 +1,7 @@
 ﻿{
   "_metadata": {
     "application": "FWDE",
-    "saved": "20260720004635",
+    "saved": "20260721092811",
     "format": "flat-path-v1"
   },
   "AnimationDuration": 32,
@@ -10,6 +10,7 @@
   "Damping": 0.216,
   "DesktopIconDamping": 0.65,
   "DesktopIconInterRepel": 0.4,
+  "DesktopIconInterRepelRange": 0.7,
   "DesktopIconMargin": 0,
   "DesktopIconPhysics": 1,
   "DesktopIconRefreshMs": 3000,

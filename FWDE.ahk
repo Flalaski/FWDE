@@ -227,7 +227,8 @@ global g := Map(
     "_recoveryCount", 0,         ; Count of auto-recoveries performed
     "_dragFailsafeCount", 0,     ; Count of drag-thread force-resets
     "_snapFailsafeCount", 0,     ; Count of SnapInProgress force-clears
-    "_iconZoneDirty", false,     ; Set true when icon repulsion toggled → invalidate cache
+    "_iconZones", [],            ; Clustered icon zones: [{left,top,right,bottom},...]
+    "_iconZonesLive", false,     ; true = real ListView data, false = virtual fallback
     "DesktopIconRects", [],   ; Cached desktop icon obstacle rectangles
     "DesktopIconLastRefresh", A_TickCount  ; TickCount of last icon position scan — pre-set to prevent early scan race
 )
@@ -1326,8 +1327,49 @@ _FindDesktopLV() {
     return 0
 }
 
-; Build icon grid from known parameters — pure math, zero Explorer interaction
-_BuildIconGrid(lvLeft, lvTop, lvRight, lvBottom, iconCount, spX, spY, margin, verbose := false) {
+; Multi-strategy rect reader for desktop ListView.
+; Strategy 1: GetWindowRect (kernel call, safe).
+; Strategy 2: GetClientRect + ClientToScreen (kernel calls, safe).
+; Returns true if a plausible rect was obtained (w≥200, h≥100).
+_TryGetListViewRect(hListView, &lvLeft, &lvTop, &lvRight, &lvBottom) {
+    lvLeft := 0, lvTop := 0, lvRight := 0, lvBottom := 0
+
+    ; Strategy 1: GetWindowRect
+    lvRect := Buffer(16, 0)
+    DllCall("GetWindowRect", "Ptr", hListView, "Ptr", lvRect)
+    lvLeft := NumGet(lvRect, 0, "Int")
+    lvTop := NumGet(lvRect, 4, "Int")
+    lvRight := NumGet(lvRect, 8, "Int")
+    lvBottom := NumGet(lvRect, 12, "Int")
+    lvW := lvRight - lvLeft
+    lvH := lvBottom - lvTop
+    if (lvW >= 200 && lvH >= 100)
+        return true
+
+    ; Strategy 2: GetClientRect + ClientToScreen
+    clRect := Buffer(16, 0)
+    DllCall("GetClientRect", "Ptr", hListView, "Ptr", clRect)
+    clW := NumGet(clRect, 8, "Int")
+    clH := NumGet(clRect, 12, "Int")
+    if (clW < 200 || clH < 100)
+        return false
+
+    ptBuf := Buffer(8, 0)
+    NumPut("Int", 0, ptBuf, 0)
+    NumPut("Int", 0, ptBuf, 4)
+    DllCall("ClientToScreen", "Ptr", hListView, "Ptr", ptBuf)
+    lvLeft := NumGet(ptBuf, 0, "Int")
+    lvTop := NumGet(ptBuf, 4, "Int")
+    lvRight := lvLeft + clW
+    lvBottom := lvTop + clH
+    DebugLog("IconGrid — GetWindowRect failed ({}×{}), GetClientRect gave {}×{}", lvW, lvH, clW, clH)
+    return true
+}
+
+; Build icon grid from known parameters — pure math, zero Explorer interaction.
+; When lightweight=true, strips per-icon physics fields (vx/vy/mass/anchor) since
+; ProcessIconPhysics is skipped for >50 icons — only zone-repulsion fields needed.
+_BuildIconGrid(lvLeft, lvTop, lvRight, lvBottom, iconCount, spX, spY, margin, lightweight := false, verbose := false) {
     rects := []
     lvWidth := lvRight - lvLeft
     if (lvWidth <= 0)
@@ -1344,12 +1386,19 @@ _BuildIconGrid(lvLeft, lvTop, lvRight, lvBottom, iconCount, spX, spY, margin, ve
         screenY := lvTop + row * spY - margin
         if (screenX < -10000 || screenY < -10000 || screenX > 50000 || screenY > 50000)
             continue
-        rects.Push(Map(
-            "x", screenX, "y", screenY, "width", gIconW, "height", gIconH,
-            "anchorX", screenX, "anchorY", screenY,
-            "vx", 0.0, "vy", 0.0,
-            "mass", gIconW * gIconH / 100000.0
-        ))
+        if (lightweight) {
+            ; Zone-repulsion only: skip physics fields to reduce memory 62%
+            rects.Push(Map(
+                "x", screenX, "y", screenY, "width", gIconW, "height", gIconH
+            ))
+        } else {
+            rects.Push(Map(
+                "x", screenX, "y", screenY, "width", gIconW, "height", gIconH,
+                "anchorX", screenX, "anchorY", screenY,
+                "vx", 0.0, "vy", 0.0,
+                "mass", gIconW * gIconH / 100000.0
+            ))
+        }
         if (verbose && found < 5)
             DebugLog("IconGrid — [{}] col={} row={} screen=({},{}) {}×{}", idx, col, row, screenX, screenY, gIconW, gIconH)
         found++
@@ -1371,6 +1420,7 @@ GetDesktopIconRects() {
     static s_cached := false
     static s_lvLeft, s_lvTop, s_lvRight, s_lvBottom
     static s_iconCount, s_spX, s_spY, s_margin
+    static s_retryTick := 0  ; Next A_TickCount when we should retry LV detection
 
     margin := Config["DesktopIconMargin"]
 
@@ -1378,53 +1428,35 @@ GetDesktopIconRects() {
     if (s_cached && s_margin != margin)
         s_cached := false
 
-    if (s_cached) {
-        return _BuildIconGrid(s_lvLeft, s_lvTop, s_lvRight, s_lvBottom, s_iconCount, s_spX, s_spY, margin)
+    ; Periodic retry: if not cached, try LV detection every 30 seconds
+    if (!s_cached && s_retryTick > 0 && A_TickCount < s_retryTick) {
+        ; Use pre-set fallback values (defined below)
+        spX := 145, spY := 95
+        goto UseFallback
     }
 
-    ; --- First run: establish the grid ---
-    ; Default spacing for Windows large icons (most common config)
+    if (s_cached) {
+        return _BuildIconGrid(s_lvLeft, s_lvTop, s_lvRight, s_lvBottom, s_iconCount, s_spX, s_spY, margin, s_iconCount > 50)
+    }
+
+    ; --- First run / retry: establish the grid ---
     spX := 145
     spY := 95
 
-    ; Try to find the ListView (zero messages — pure kernel calls)
     hListView := _FindDesktopLV()
+    lvOk := false
     
-    if (hListView) {
-        ; Got the LV handle — read its screen position (GetWindowRect = kernel, safe)
-        lvRect := Buffer(16, 0)
-        DllCall("GetWindowRect", "Ptr", hListView, "Ptr", lvRect)
-        lvLeft := NumGet(lvRect, 0, "Int")
-        lvTop := NumGet(lvRect, 4, "Int")
-        lvRight := NumGet(lvRect, 8, "Int")
-        lvBottom := NumGet(lvRect, 12, "Int")
+    if (hListView)
+        lvOk := _TryGetListViewRect(hListView, &lvLeft, &lvTop, &lvRight, &lvBottom)
+    
+    if (lvOk) {
         lvWidth := lvRight - lvLeft
         lvHeight := lvBottom - lvTop
         DebugLog("IconGrid — LV at ({},{})–({},{}), using spacing {}×{}", lvLeft, lvTop, lvRight, lvBottom, spX, spY)
 
-        ; --- Validity gate: reject implausible ListView dimensions ---
-        ; A real desktop SysListView32 is at least 200×100 px. Degenerate rects
-        ; (lvHeight=0, as seen when Explorer hasn't finished initialising) produce
-        ; a broken single-row grid cached permanently. Fall back to virtual-screen
-        ; geometry and skip caching so future calls retry.
-        if (lvWidth < 200 || lvHeight < 100) {
-            DebugLog("IconGrid — LV rect too small ({}×{}), falling back to virtual screen (no cache)", lvWidth, lvHeight)
-            hListView := 0  ; trigger the "No ListView" path below
-        }
-    }
-
-    if (hListView) {
-        ; (re-)read lvWidth/lvHeight after validity gate (they may have been computed
-        ; above and are still in scope; the gate only zeroes hListView on rejection)
-        lvWidth := lvRight - lvLeft
-        lvHeight := lvBottom - lvTop
-
-        ; Try ONE SendMessage to get the real icon count (LVM_GETITEMCOUNT).
-        ; If this fails, we still have valid geometry — just use a default count.
         iconCount := 0
         try iconCount := SendMessage(0x1004, 0, 0, , "ahk_id " hListView)
         if (iconCount <= 0 || iconCount > 500) {
-            ; SendMessage failed or returned garbage — use geometry-based estimate
             if (lvWidth <= 0)
                 lvWidth := A_ScreenWidth
             if (lvHeight <= 0)
@@ -1437,7 +1469,6 @@ GetDesktopIconRects() {
             DebugLog("IconGrid — ListView reports {} icons", iconCount)
         }
 
-        ; Cache permanently — valid ListView geometry confirmed
         s_cached := true
         s_lvLeft := lvLeft
         s_lvTop := lvTop
@@ -1448,42 +1479,128 @@ GetDesktopIconRects() {
         s_spY := spY
         s_margin := margin
 
-    } else {
-        ; No valid ListView — fall back to primary monitor work area.
-        ; Desktop icons only live on the primary monitor, not across the entire
-        ; virtual desktop. Using GetSystemMetrics(SM_XVIRTUALSCREEN) would place
-        ; obstacles on secondary monitors where icons don't exist, and with the
-        ; 200-icon cap would only cover the top third of the combined desktop.
-        try {
-            primaryMon := MonitorGetPrimary()
-            MonitorGetWorkArea primaryMon, &waL, &waT, &waR, &waB
-        } catch {
-            waL := 0, waT := 0, waR := A_ScreenWidth, waB := A_ScreenHeight
-        }
-        lvLeft := waL
-        lvTop := waT
-        lvRight := waR
-        lvBottom := waB
-        waWidth := waR - waL
-        waHeight := waB - waT
-        cols := Max(1, Floor(waWidth / spX))
-        rows := Max(1, Floor(waHeight / spY))
-        iconCount := Min(cols * rows, 200)
-        DebugLog("IconGrid — no ListView, using primary work area ({},{})–({},{}), {} icons ({}×{} grid)",
-            lvLeft, lvTop, lvRight, lvBottom, iconCount, cols, rows)
-        ; Don't cache — the real ListView may become available later (Explorer startup race)
-        s_cached := false
+        lightweight := (iconCount > 50)
+        result := _BuildIconGrid(lvLeft, lvTop, lvRight, lvBottom, iconCount, spX, spY, margin, lightweight, !lightweight)
+        DebugLog("IconGrid — {} obstacles ({}weight), {}×{} spacing, lv=({},{})–({},{})",
+            result.Length, lightweight ? "light" : "full", spX, spY, lvLeft, lvTop, lvRight, lvBottom)
+        if (DebugMode)
+            ToolTip("FWDE: " result.Length " desktop icons ✓", 10, 40)
+        g["_iconZones"] := ClusterIconZones(result, 60)
+        g["_iconZonesLive"] := true
+        DebugLog("IconZones — {} zones from {} icons (live)", g["_iconZones"].Length, result.Length)
+        return result
     }
 
-    result := _BuildIconGrid(lvLeft, lvTop, lvRight, lvBottom, iconCount, spX, spY, margin, true)
-    DebugLog("IconGrid — CACHED: {} obstacles, {}×{} spacing, lv=({},{})–({},{})",
-        result.Length, spX, spY, lvLeft, lvTop, lvRight, lvBottom)
-    
+    UseFallback:
+    ; No valid ListView — fall back to primary monitor work area
+    try {
+        primaryMon := MonitorGetPrimary()
+        MonitorGetWorkArea primaryMon, &waL, &waT, &waR, &waB
+    } catch {
+        waL := 0
+        waT := 0
+        waR := A_ScreenWidth
+        waB := A_ScreenHeight
+    }
+    lvLeft := waL
+    lvTop := waT
+    lvRight := waR
+    lvBottom := waB
+    waWidth := waR - waL
+    waHeight := waB - waT
+    cols := Max(1, Floor(waWidth / spX))
+    rows := Max(1, Floor(waHeight / spY))
+    iconCount := Min(cols * rows, 200)
+    DebugLog("IconGrid — no ListView, using primary work area ({},{})–({},{}), {} icons ({}×{} grid)",
+        lvLeft, lvTop, lvRight, lvBottom, iconCount, cols, rows)
+    s_retryTick := A_TickCount + 30000
+    s_cached := false
+
+    lightweight := (iconCount > 50)
+    result := _BuildIconGrid(lvLeft, lvTop, lvRight, lvBottom, iconCount, spX, spY, margin, lightweight, !lightweight)
+    DebugLog("IconGrid — {} obstacles ({}weight), {}×{} spacing, lv=({},{})–({},{})",
+        result.Length, lightweight ? "light" : "full", spX, spY, lvLeft, lvTop, lvRight, lvBottom)
     if (DebugMode)
         ToolTip("FWDE: " result.Length " desktop icons ✓", 10, 40)
-    
+
+    ; Virtual fallback zones
+    iconH := 68 + margin * 2
+    g["_iconZones"] := SplitVirtualGridIntoZones(lvLeft, lvTop, iconCount, cols, spX, spY, iconH)
+    g["_iconZonesLive"] := false
+    DebugLog("IconZones — {} zones from {} icons (not live)", g["_iconZones"].Length, result.Length)
     return result
 }
+
+; ═══════════════════════════════════════════════════════════════════════════════
+;  ICON ZONE CLUSTERING — groups icon rects into separate rectangular zones
+;  based on spatial proximity. Gaps between clusters become free window space.
+;  For the virtual fallback grid, splits columns into logical groups.
+; ═══════════════════════════════════════════════════════════════════════════════
+
+; Cluster icons using BFS flood-fill. Two icons are connected if their
+; expanded rects (icon ± gapThreshold) overlap. Returns array of zone rects.
+ClusterIconZones(iconRects, gapThreshold := 0) {
+    n := iconRects.Length
+    if (n == 0)
+        return []
+
+    visited := Map()
+    zones := []
+
+    for i, icon in iconRects {
+        if (visited.Has(i))
+            continue
+
+        queue := [i]
+        visited[i] := true
+        zMinX := 999999.0, zMaxX := -999999.0
+        zMinY := 999999.0, zMaxY := -999999.0
+
+        while (queue.Length > 0) {
+            idx := queue.RemoveAt(1)
+            r := iconRects[idx]
+            rx := r["x"] - gapThreshold
+            ry := r["y"] - gapThreshold
+            rr := r["x"] + r["width"] + gapThreshold
+            rb := r["y"] + r["height"] + gapThreshold
+
+            zMinX := Min(zMinX, r["x"])
+            zMaxX := Max(zMaxX, r["x"] + r["width"])
+            zMinY := Min(zMinY, r["y"])
+            zMaxY := Max(zMaxY, r["y"] + r["height"])
+
+            for j, other in iconRects {
+                if (visited.Has(j))
+                    continue
+                ox := other["x"] - gapThreshold
+                oy := other["y"] - gapThreshold
+                or_ := other["x"] + other["width"] + gapThreshold
+                ob := other["y"] + other["height"] + gapThreshold
+                if (rx < or_ && rr > ox && ry < ob && rb > oy) {
+                    visited[j] := true
+                    queue.Push(j)
+                }
+            }
+        }
+        zones.Push(Map("left", zMinX, "top", zMinY, "right", zMaxX, "bottom", zMaxY))
+    }
+    return zones
+}
+
+; For virtual fallback grids, build left-biased zones reflecting typical
+; desktop icon placement. Main zone on the left; optional right zone only
+; if enough icons exist beyond the midpoint plus a gap.
+SplitVirtualGridIntoZones(lvLeft, lvTop, iconCount, cols, spX, spY, iconH) {
+    filledRows := Ceil(iconCount / cols)
+    zoneBottom := lvTop + filledRows * spY
+
+    ; Real desktop icons cluster in the top-left, spanning ~5-7 columns.
+    ; A fixed realistic width leaves the right majority of screen free.
+    realisticCols := 6
+    zoneWidth := realisticCols * spX  ; ~870px on standard 145px spacing
+    return [Map("left", lvLeft, "top", lvTop, "right", lvLeft + zoneWidth, "bottom", zoneBottom)]
+}
+
 
 CleanupStaleWindows() {
     global g
@@ -1712,16 +1829,6 @@ ProcessIconPhysics(icons, windows) {
 CalculateWindowForces(win, allWindows) {
     global g, Config
 
-    ; Icon zone cache — computed once, persisted across all calls.
-    ; Invalidated when DesktopIconRepulsion is toggled via g["_iconZoneDirty"].
-    static iconZoneCached := false
-    static iconZoneMinX, iconZoneMaxX, iconZoneMinY, iconZoneMaxY
-
-    if (g.Has("_iconZoneDirty") && g["_iconZoneDirty"]) {
-        iconZoneCached := false
-        g["_iconZoneDirty"] := false
-    }
-
     ; Use cached menu parent (computed once per tick in CalculateDynamicLayout)
     menuParent := g["_menuParent"]
     if (menuParent && win["hwnd"] == menuParent) {
@@ -1751,11 +1858,7 @@ CalculateWindowForces(win, allWindows) {
     wasJustUnlocked := (win.Has("LockLostAt") && (A_TickCount - win["LockLostAt"]) < 100)
     isBeingSnapped := g["SnapInProgress"].Has(win["hwnd"]) && A_TickCount < g["SnapInProgress"][win["hwnd"]]
 
-    ; CRITICAL: Manually locked windows and the active window should NEVER be affected by physics
-    ; Also protect recently moved windows that are currently focused
-    ; Also protect windows being snapped by Windows
-    ; When a lock is just lost (within 100ms), give system time to transition before physics resumes
-    ; BUT: when dragging, allow the dragged window to calculate forces to push other windows
+    ; Protected windows: no physics
     isProtected := (isManuallyLocked || isActiveWindow || (isRecentlyMoved && isCurrentlyFocused) || isBeingSnapped || wasJustUnlocked) && !isDraggedWindow
     if (isProtected) {
         win["vx"] := 0
@@ -1800,7 +1903,7 @@ CalculateWindowForces(win, allWindows) {
     monRight := mR - win["width"]
     monTop := mT + Config["MinMargin"]
     monBottom := mB - Config["MinMargin"] - win["height"]
-    
+
     ; Check if window is out of bounds
     isOutOfBounds := (win["x"] < monLeft || win["x"] > monRight || win["y"] < monTop || win["y"] > monBottom)
     
@@ -1942,12 +2045,6 @@ CalculateWindowForces(win, allWindows) {
             repulsionForce *= (other.Has("IsManual") ? Config["ManualRepulsionMultiplier"] : 1)
             repulsionForce *= smallWindowBoost
 
-            ; Chain reaction: if THIS window was pushed by icons last frame, transfer that momentum
-            chainBoost := 1.0
-            if (win.Has("_iconVMag") && win["_iconVMag"] > 5.0)
-                chainBoost := 1.0 + win["_iconVMag"] / Config["MaxIconSpeed"]
-            repulsionForce *= chainBoost
-
             proximityMultiplier := 1 + (1 - dist / repulsionRange) * 2  ; Wider proximity boost
 
             vx += dx * repulsionForce * proximityMultiplier / dist * Config["RepulsionImpulseScale"]
@@ -1961,110 +2058,7 @@ CalculateWindowForces(win, allWindows) {
         }
     }
 
-    ; --- Desktop icon obstacle repulsion ---
-    ; Treat desktop icons as immovable obstacles that push windows away.
-    ; Only repulsion — no attraction. Icons are static, so only the window moves.
-    ; Store icon velocity separately — applied AFTER damping so icons overpower everything.
-    iconVx := 0.0, iconVy := 0.0
-    if (Config["DesktopIconRepulsion"] && g["DesktopIconRects"].Length > 0) {
-        iconRects := g["DesktopIconRects"]
-        iconForceMult := Config["DesktopIconRepulsionForce"]
-
-        ; --- Pure zone repulsion ---
-        ; The icon grid is one horizontal strip. Treat it as a single obstacle zone.
-        if (!iconZoneCached) {
-            iconZoneMinX := 999999.0, iconZoneMaxX := -999999.0
-            iconZoneMinY := 999999.0, iconZoneMaxY := -999999.0
-            for icon in iconRects {
-                ix := icon["x"], iy := icon["y"]
-                iw := icon["width"], ih := icon["height"]
-                iconZoneMinX := Min(iconZoneMinX, ix)
-                iconZoneMaxX := Max(iconZoneMaxX, ix + iw)
-                iconZoneMinY := Min(iconZoneMinY, iy)
-                iconZoneMaxY := Max(iconZoneMaxY, iy + ih)
-            }
-            iconZoneCached := true
-            DebugLog("IconZone — cached bounds: ({:.0f},{:.0f})–({:.0f},{:.0f}) from {} icons", iconZoneMinX, iconZoneMinY, iconZoneMaxX, iconZoneMaxY, iconRects.Length)
-        }
-
-        ; Window rectangle
-        winLeft := win["x"], winRight := win["x"] + win["width"]
-        winTop := win["y"], winBottom := win["y"] + win["height"]
-
-        ; Overlap check using window RECTANGLE
-        overlapLeft   := iconZoneMaxX - winLeft
-        overlapRight  := winRight - iconZoneMinX
-        overlapTop    := iconZoneMaxY - winTop
-        overlapBottom := winBottom - iconZoneMinY
-
-        ; Each axis independently: push toward the NEAREST edge (no cancellation)
-        baseForce := Config["RepulsionForce"] * iconForceMult * Config["RepulsionImpulseScale"]
-
-        ; X axis: push proportional to overlap — tapers to zero at boundary
-        ; Dead-zone: ignore overlap less than 6% of window dimension to prevent
-        ; endless micro-nudging when a window barely touches the zone edge.
-        if (overlapLeft > 0 && overlapRight > 0) {
-            depth := Min(overlapLeft, overlapRight)
-            minDepth := Max(win["width"] * 0.06, 8.0)
-            if (depth > minDepth) {
-                scale := Min(depth / Max(win["width"], 1), 1.0)
-                if (overlapLeft < overlapRight)
-                    iconVx += baseForce * scale
-                else
-                    iconVx -= baseForce * scale
-            }
-        }
-
-        ; Y axis: push proportional to overlap — tapers to zero at boundary
-        ; Same dead-zone as X to prevent boundary chatter.
-        if (overlapTop > 0 && overlapBottom > 0) {
-            depth := Min(overlapTop, overlapBottom)
-            minDepth := Max(win["height"] * 0.06, 8.0)
-            if (depth > minDepth) {
-                scale := Min(depth / Max(win["height"], 1), 1.0)
-                if (overlapTop < overlapBottom)
-                    iconVy += baseForce * scale
-                else
-                    iconVy -= baseForce * scale
-            }
-        }
-
-        ; --- Suppress pushes blocked by monitor edges ---
-        ; If the zone repel pushes a window toward a screen edge it's already
-        ; sitting on, the push is wasted — the bounds clamp will eat it every
-        ; frame, causing endless repeated repel logs with no actual movement.
-        edgeTol := 3.0
-        if (iconVx < 0 && win["x"] <= monLeft + edgeTol)
-            iconVx := 0.0
-        else if (iconVx > 0 && win["x"] >= monRight - edgeTol)
-            iconVx := 0.0
-        if (iconVy < 0 && win["y"] <= monTop + edgeTol)
-            iconVy := 0.0
-        else if (iconVy > 0 && win["y"] >= monBottom - edgeTol)
-            iconVy := 0.0
-
-        ; Clamp
-        maxIcon := Config["MaxIconSpeed"]
-        iconVx := Min(Max(iconVx, -maxIcon), maxIcon)
-        iconVy := Min(Max(iconVy, -maxIcon), maxIcon)
-
-        static iconLogTick := 0
-        if ((iconVx != 0 || iconVy != 0) && A_TickCount - iconLogTick > 2000) {
-            iconLogTick := A_TickCount
-            DebugLog("IconRepel — win=0x{:X} iconV=({:.1f},{:.1f}) zone=({:.0f},{:.0f})–({:.0f},{:.0f})",
-                win["hwnd"], iconVx, iconVy, iconZoneMinX, iconZoneMinY, iconZoneMaxX, iconZoneMaxY)
-        }
-
-        static silentLogTick := 0
-        if (iconVx == 0 && iconVy == 0 && iconRects.Length > 0 && A_TickCount - silentLogTick > 30000) {
-            silentLogTick := A_TickCount
-            DebugLog("IconRepel — win=0x{:X} no push (winRect=({:.0f},{:.0f})–({:.0f},{:.0f}), zone=({:.0f},{:.0f})–({:.0f},{:.0f}))",
-                win["hwnd"], win["x"], win["y"], win["x"]+win["width"], win["y"]+win["height"],
-                iconZoneMinX, iconZoneMinY, iconZoneMaxX, iconZoneMaxY)
-        }
-    }
-
-    ; Space-like momentum with equilibrium-seeking damping (ONLY on non-icon velocity)
+    ; Space-like momentum with equilibrium-seeking damping
     dampingFactor := IsElectronApp(win["hwnd"]) ? Min(1.0, Config["Damping"] + (1.0 - Config["Damping"]) * 0.12) : Config["Damping"]
     vx *= dampingFactor
     vy *= dampingFactor
@@ -2081,26 +2075,8 @@ CalculateWindowForces(win, allWindows) {
         vy *= stabFactor
     }
 
-    ; --- Apply icon velocity AFTER damping — icons always win ---
-    vx += iconVx
-    vy += iconVy
-
-    ; Store icon momentum for chain reaction in next frame
-    win["_iconVMag"] := Sqrt(iconVx*iconVx + iconVy*iconVy)
-
     win["vx"] := vx
     win["vy"] := vy
-
-    ; Manual lock / active window / dragged window check
-    isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
-    if (isManuallyLocked || win["hwnd"] == g["ActiveWindow"] || isDraggedWindow) {
-        ; Icons STILL push even locked windows — but respect screen bounds
-        if (iconVx != 0 || iconVy != 0) {
-            win["targetX"] := Max(monLeft, Min(win["targetX"] + iconVx, monRight))
-            win["targetY"] := Max(monTop, Min(win["targetY"] + iconVy, monBottom))
-        }
-        return
-    }
 
     ; Calculate target position
     win["targetX"] := win["x"] + win["vx"]
@@ -2176,17 +2152,68 @@ ApplyWindowMovements() {
             continue
         }
         
-        ; CRITICAL: Never move the active window when not dragging - it should stay exactly where it is
+        ; === ICON ZONE BARRIER: unconditional, runs before all protections ===
+        if (Config["DesktopIconRepulsion"] && g["_iconZones"].Length > 0
+            && win["monitor"] == MonitorGetPrimary()) {
+            try {
+                WinGetPos(&zx, &zy, &zw, &zh, "ahk_id " win["hwnd"])
+                zxR := zx + zw
+                zyB := zy + zh
+                ; Quick bounds
+                SafeMonitorGetWorkArea(win["monitor"], &bzL, &bzT, &bzR, &bzB)
+                bzRight := bzR - zw
+                bzBottom := bzB - Config["MinMargin"] - zh
+                bzTop := bzT + Config["MinMargin"]
+
+                ; Push RIGHT past all overlapping zone edges. No Y movement
+                ; — the zone is a left-side strip; windows just shift right.
+                maxRightEdge := 0
+                minLeftEdge := 999999
+                anyOverlap := false
+                for zone in g["_iconZones"] {
+                    if (zone["left"] < zxR && zone["right"] > zx && zone["top"] < zyB && zone["bottom"] > zy) {
+                        maxRightEdge := Max(maxRightEdge, zone["right"])
+                        minLeftEdge := Min(minLeftEdge, zone["left"])
+                        anyOverlap := true
+                    }
+                }
+                if (anyOverlap) {
+                    ; Push right past the rightmost zone edge
+                    zx := maxRightEdge
+                    ; If window is at or beyond right screen edge, push left instead
+                    if (zx + zw > bzR)
+                        zx := minLeftEdge - zw
+                    zx := Max(bzL, Min(zx, bzRight))
+                    zy := Max(bzTop, Min(zy, bzBottom))
+                    MoveWindowAPI(win["hwnd"], zx, zy)
+                    win["x"] := zx
+                    win["y"] := zy
+                    win["targetX"] := zx
+                    win["targetY"] := zy
+                    win["vx"] := 0
+                    win["vy"] := 0
+                    static zLogTick := 0
+                    if (A_TickCount - zLogTick > 2000) {
+                        zLogTick := A_TickCount
+                        DebugLog("IconBarrier — pushed win=0x{:X} to ({:.0f},{:.0f})", win["hwnd"], zx, zy)
+                    }
+                    ; Skip normal pipeline — barrier already moved the window.
+                    continue
+                }
+            } catch {
+                ; Barrier error — fall through
+            }
+        }
+
+        ; CRITICAL: Never move the active window when not dragging
         ; When dragging, never move the window being dragged
         if ((win["hwnd"] == g["ActiveWindow"] && !isDragging) || win["hwnd"] == draggedHwnd)
             continue
         
-        ; CRITICAL: Never move manually locked windows - user placed them there
         isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
         if (isManuallyLocked)
             continue
         
-        ; CRITICAL: Never move windows currently being snapped by Windows
         isBeingSnapped := g["SnapInProgress"].Has(win["hwnd"]) && A_TickCount < g["SnapInProgress"][win["hwnd"]]
         if (isBeingSnapped)
             continue
@@ -2944,6 +2971,50 @@ DragWindow() {
                 newY := Max(mT + Config["MinMargin"], Min(newY, mB - origH - Config["MinMargin"]))
             }
 
+            ; --- Hard zone barrier during drag: prevent entering icon zones ---
+            if (Config["DesktopIconRepulsion"] && g["_iconZones"].Length > 0) {
+                checkMon := currentMonNum ? currentMonNum : monNum
+                if (checkMon == MonitorGetPrimary()) {
+                    cx := newX
+                    cy := newY
+                    cw := origW
+                    ch := origH
+                    for zone in g["_iconZones"] {
+                        zL := zone["left"], zR := zone["right"], zT := zone["top"], zB := zone["bottom"]
+                        if (!(zL < cx + cw && zR > cx && zT < cy + ch && zB > cy))
+                            continue
+                        dR := zR - cx
+                        dL := cx + cw - zL
+                        dD := zB - cy
+                        dU := cy + ch - zT
+                        best := dR
+                        dir := "R"
+                        if (dL < best) {
+                            best := dL
+                            dir := "L"
+                        }
+                        if (dD < best) {
+                            best := dD
+                            dir := "D"
+                        }
+                        if (dU < best) {
+                            best := dU
+                            dir := "U"
+                        }
+                        if (dir == "R")
+                            cx := zR
+                        else if (dir == "L")
+                            cx := zL - cw
+                        else if (dir == "D")
+                            cy := zB
+                        else
+                            cy := zT - ch
+                    }
+                    newX := cx
+                    newY := cy
+                }
+            }
+
             ; CRITICAL: Explicitly pass original dimensions to prevent any reshaping
             try WinMove(newX, newY, origW, origH, "ahk_id " winID)
             
@@ -3105,7 +3176,8 @@ ToggleIconRepulsion() {
         ShowTooltip("Icon Repulsion: ON (" g["DesktopIconRects"].Length " obstacles)")
     } else {
         g["DesktopIconRects"] := []
-        g["_iconZoneDirty"] := true    ; Invalidate icon zone cache in CalculateWindowForces
+        g["_iconZones"] := []
+        g["_iconZonesLive"] := false
         ShowTooltip("Icon Repulsion: OFF")
     }
     BuildFWDEMenus()
@@ -5001,7 +5073,15 @@ HealthMonitor() {
             lastTrackedCount := g["Windows"].Length
         }
 
-        ; --- 6. Report ---
+        ; --- 6. Icon zone adaptive refresh: retry LV detection periodically ---
+        ; Only when using virtual fallback zones (real ListView not yet found)
+        static lastIconRetry := 0
+        if (Config["DesktopIconRepulsion"] && !g["_iconZonesLive"] && now - lastIconRetry > 30000) {
+            lastIconRetry := now
+            GetDesktopIconRects()  ; internal retry logic handles debouncing
+        }
+
+        ; --- 7. Report ---
         if (anomalies.Length > 0) {
             DebugLog("HealthMonitor — {} anomalies detected:", anomalies.Length)
             for _, msg in anomalies

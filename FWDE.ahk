@@ -2123,15 +2123,21 @@ ApplyWindowMovements() {
     frameTime := now - lastUpdate
     lastUpdate := now
 
-    ; Cache all window positions at the start
+    ; Cache all window positions at the start (kernel-only, no messages)
     hwndPos := Map()
     for win in g["Windows"] {
         if (menuParent && win["hwnd"] == menuParent)
             continue
         hwnd := win["hwnd"]
         try {
-            WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-            hwndPos[hwnd] := { x: x, y: y }
+            wrBuf := Buffer(16, 0)
+            if (DllCall("GetWindowRect", "Ptr", hwnd, "Ptr", wrBuf)) {
+                wl := NumGet(wrBuf, 0, "Int")
+                wt := NumGet(wrBuf, 4, "Int")
+                wr := NumGet(wrBuf, 8, "Int")
+                wb := NumGet(wrBuf, 12, "Int")
+                hwndPos[hwnd] := { x: wl, y: wt, w: wr - wl, h: wb - wt }
+            }
         } catch {
             continue
         }
@@ -2156,7 +2162,17 @@ ApplyWindowMovements() {
         if (Config["DesktopIconRepulsion"] && g["_iconZones"].Length > 0
             && win["monitor"] == MonitorGetPrimary()) {
             try {
-                WinGetPos(&zx, &zy, &zw, &zh, "ahk_id " win["hwnd"])
+                ; Use GetWindowRect (kernel call, no messages) instead of
+                ; WinGetPos (sends WM_GETMINMAXINFO — can block Electron apps)
+                winRect := Buffer(16, 0)
+                if (!DllCall("GetWindowRect", "Ptr", win["hwnd"], "Ptr", winRect))
+                    continue
+                zx := NumGet(winRect, 0, "Int")
+                zy := NumGet(winRect, 4, "Int")
+                zw := NumGet(winRect, 8, "Int") - zx
+                zh := NumGet(winRect, 12, "Int") - zy
+                if (zw <= 0 || zh <= 0)
+                    continue
                 zxR := zx + zw
                 zyB := zy + zh
                 ; Quick bounds

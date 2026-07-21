@@ -217,6 +217,17 @@ global g := Map(
     "LastInternalMoveTick", 0,
     "LastWMMoveHeavy", 0,     ; Throttle for heavy work in WindowMoveHandler
     "DragActive", false,      ; Set by WindowMoveHandler during real drags
+    "_dragThreadActive", false,  ; DragWindow() thread-health flag (timestamp-based)
+    "_dragThreadStart", 0,       ; TickCount when drag thread began
+    "_hbPhysics", A_TickCount,   ; Heartbeat: last CalculateDynamicLayout tick
+    "_hbVisual", A_TickCount,    ; Heartbeat: last ApplyWindowMovements tick
+    "_hbWindowList", A_TickCount, ; Heartbeat: last UpdateWindowStates tick
+    "_hbWatchdog", A_TickCount,  ; Heartbeat: last HealthMonitor tick
+    "_snapOldestTick", 0,        ; TickCount of oldest SnapInProgress entry
+    "_recoveryCount", 0,         ; Count of auto-recoveries performed
+    "_dragFailsafeCount", 0,     ; Count of drag-thread force-resets
+    "_snapFailsafeCount", 0,     ; Count of SnapInProgress force-clears
+    "_iconZoneDirty", false,     ; Set true when icon repulsion toggled → invalidate cache
     "DesktopIconRects", [],   ; Cached desktop icon obstacle rectangles
     "DesktopIconLastRefresh", A_TickCount  ; TickCount of last icon position scan — pre-set to prevent early scan race
 )
@@ -1387,7 +1398,26 @@ GetDesktopIconRects() {
         lvTop := NumGet(lvRect, 4, "Int")
         lvRight := NumGet(lvRect, 8, "Int")
         lvBottom := NumGet(lvRect, 12, "Int")
+        lvWidth := lvRight - lvLeft
+        lvHeight := lvBottom - lvTop
         DebugLog("IconGrid — LV at ({},{})–({},{}), using spacing {}×{}", lvLeft, lvTop, lvRight, lvBottom, spX, spY)
+
+        ; --- Validity gate: reject implausible ListView dimensions ---
+        ; A real desktop SysListView32 is at least 200×100 px. Degenerate rects
+        ; (lvHeight=0, as seen when Explorer hasn't finished initialising) produce
+        ; a broken single-row grid cached permanently. Fall back to virtual-screen
+        ; geometry and skip caching so future calls retry.
+        if (lvWidth < 200 || lvHeight < 100) {
+            DebugLog("IconGrid — LV rect too small ({}×{}), falling back to virtual screen (no cache)", lvWidth, lvHeight)
+            hListView := 0  ; trigger the "No ListView" path below
+        }
+    }
+
+    if (hListView) {
+        ; (re-)read lvWidth/lvHeight after validity gate (they may have been computed
+        ; above and are still in scope; the gate only zeroes hListView on rejection)
+        lvWidth := lvRight - lvLeft
+        lvHeight := lvBottom - lvTop
 
         ; Try ONE SendMessage to get the real icon count (LVM_GETITEMCOUNT).
         ; If this fails, we still have valid geometry — just use a default count.
@@ -1395,8 +1425,6 @@ GetDesktopIconRects() {
         try iconCount := SendMessage(0x1004, 0, 0, , "ahk_id " hListView)
         if (iconCount <= 0 || iconCount > 500) {
             ; SendMessage failed or returned garbage — use geometry-based estimate
-            lvWidth := lvRight - lvLeft
-            lvHeight := lvBottom - lvTop
             if (lvWidth <= 0)
                 lvWidth := A_ScreenWidth
             if (lvHeight <= 0)
@@ -1408,33 +1436,44 @@ GetDesktopIconRects() {
         } else {
             DebugLog("IconGrid — ListView reports {} icons", iconCount)
         }
-    } else {
-        ; No ListView found at all — use virtual screen geometry
-        vLeft := DllCall("GetSystemMetrics", "Int", 76)
-        vTop := DllCall("GetSystemMetrics", "Int", 77)
-        vWidth := DllCall("GetSystemMetrics", "Int", 78)
-        vHeight := DllCall("GetSystemMetrics", "Int", 79)
-        lvLeft := vLeft
-        lvTop := vTop
-        lvRight := vLeft + vWidth
-        lvBottom := vTop + vHeight
-        cols := Max(1, Floor(vWidth / spX))
-        rows := Max(1, Floor(vHeight / spY))
-        iconCount := Min(cols * rows, 200)
-        DebugLog("IconGrid — no ListView, using virtual screen ({},{})–({},{}), {} icons",
-            lvLeft, lvTop, lvRight, lvBottom, iconCount)
-    }
 
-    ; Cache permanently
-    s_cached := true
-    s_lvLeft := lvLeft
-    s_lvTop := lvTop
-    s_lvRight := lvRight
-    s_lvBottom := lvBottom
-    s_iconCount := iconCount
-    s_spX := spX
-    s_spY := spY
-    s_margin := margin
+        ; Cache permanently — valid ListView geometry confirmed
+        s_cached := true
+        s_lvLeft := lvLeft
+        s_lvTop := lvTop
+        s_lvRight := lvRight
+        s_lvBottom := lvBottom
+        s_iconCount := iconCount
+        s_spX := spX
+        s_spY := spY
+        s_margin := margin
+
+    } else {
+        ; No valid ListView — fall back to primary monitor work area.
+        ; Desktop icons only live on the primary monitor, not across the entire
+        ; virtual desktop. Using GetSystemMetrics(SM_XVIRTUALSCREEN) would place
+        ; obstacles on secondary monitors where icons don't exist, and with the
+        ; 200-icon cap would only cover the top third of the combined desktop.
+        try {
+            primaryMon := MonitorGetPrimary()
+            MonitorGetWorkArea primaryMon, &waL, &waT, &waR, &waB
+        } catch {
+            waL := 0, waT := 0, waR := A_ScreenWidth, waB := A_ScreenHeight
+        }
+        lvLeft := waL
+        lvTop := waT
+        lvRight := waR
+        lvBottom := waB
+        waWidth := waR - waL
+        waHeight := waB - waT
+        cols := Max(1, Floor(waWidth / spX))
+        rows := Max(1, Floor(waHeight / spY))
+        iconCount := Min(cols * rows, 200)
+        DebugLog("IconGrid — no ListView, using primary work area ({},{})–({},{}), {} icons ({}×{} grid)",
+            lvLeft, lvTop, lvRight, lvBottom, iconCount, cols, rows)
+        ; Don't cache — the real ListView may become available later (Explorer startup race)
+        s_cached := false
+    }
 
     result := _BuildIconGrid(lvLeft, lvTop, lvRight, lvBottom, iconCount, spX, spY, margin, true)
     DebugLog("IconGrid — CACHED: {} obstacles, {}×{} spacing, lv=({},{})–({},{})",
@@ -1673,9 +1712,15 @@ ProcessIconPhysics(icons, windows) {
 CalculateWindowForces(win, allWindows) {
     global g, Config
 
-    ; Icon zone cache — computed once, persisted across all calls
+    ; Icon zone cache — computed once, persisted across all calls.
+    ; Invalidated when DesktopIconRepulsion is toggled via g["_iconZoneDirty"].
     static iconZoneCached := false
     static iconZoneMinX, iconZoneMaxX, iconZoneMinY, iconZoneMaxY
+
+    if (g.Has("_iconZoneDirty") && g["_iconZoneDirty"]) {
+        iconZoneCached := false
+        g["_iconZoneDirty"] := false
+    }
 
     ; Use cached menu parent (computed once per tick in CalculateDynamicLayout)
     menuParent := g["_menuParent"]
@@ -2087,6 +2132,8 @@ ApplyWindowMovements() {
 
     try {  ; Wrap entire timer body — any exception would silently kill this timer in AHK v2
 
+    g["_hbVisual"] := A_TickCount  ; HealthMonitor heartbeat
+
     ; Suspend movement for parent windows if a dropdown/menu is open
     ; Use cached menu parent (computed once per tick in CalculateDynamicLayout)
     menuParent := g["_menuParent"]
@@ -2397,6 +2444,8 @@ CalculateDynamicLayout() {
 
     try {  ; Wrap entire timer body — any exception would silently kill this timer in AHK v2
 
+    g["_hbPhysics"] := A_TickCount  ; HealthMonitor heartbeat
+
     ; One-time diagnostic: confirm physics loop is alive with window + icon counts
     static diagLogged := false
     if (!diagLogged && g["Windows"].Length > 0) {
@@ -2483,7 +2532,12 @@ CalculateDynamicLayout() {
     g["SystemEnergy"] := Lerp(g["SystemEnergy"], currentEnergy, 0.1)
 
     ; --- Icon physics: treat icons as individual bodies (if enabled) ---
-    if (Config["DesktopIconPhysics"] && Config["DesktopIconRepulsion"] && g["DesktopIconRects"].Length > 0) {
+    ; Zone repulsion in CalculateWindowForces already provides O(1) obstacle
+    ; behaviour per window. Per-icon physics (O(n²) inter-icon + O(n×w) recoil)
+    ; is only viable for real desktop icons (~20-50). The virtual fallback grid
+    ; can produce 200 bodies — skipping prevents ~21k ops/tick performance hit.
+    if (Config["DesktopIconPhysics"] && Config["DesktopIconRepulsion"] && g["DesktopIconRects"].Length > 0
+        && g["DesktopIconRects"].Length <= 50) {
         ProcessIconPhysics(g["DesktopIconRects"], g["Windows"])
     }
 
@@ -2791,10 +2845,20 @@ ClearManualFlags() {
 
 DragWindow() {
     global g, Config
-    static isDragging := false
 
-    if isDragging
-        return
+    ; Thread-health guard: if a previous drag thread is still marked active
+    ; but hasn't updated in 30 seconds, force-reset (prevents permanent stall)
+    if (g["_dragThreadActive"]) {
+        if (A_TickCount - g["_dragThreadStart"] > 30000) {
+            DebugLog("DragFailsafe — previous drag thread stale ({}ms), force-resetting", A_TickCount - g["_dragThreadStart"])
+            g["_dragThreadActive"] := false
+            g["_dragThreadStart"] := 0
+            g["_dragFailsafeCount"] += 1
+            ReleaseHighResTimer()
+        } else {
+            return  ; Previous drag still running — don't re-enter
+        }
+    }
 
     MouseGetPos(&mx, &my, &winID)
     if (!SafeWinExist(winID)) {
@@ -2807,7 +2871,8 @@ DragWindow() {
         }
     }
 
-    isDragging := true
+    g["_dragThreadActive"] := true
+    g["_dragThreadStart"] := A_TickCount
     g["ActiveWindow"] := winID
     g["LastUserMove"] := A_TickCount
     
@@ -2932,10 +2997,14 @@ DragWindow() {
             Sleep(1)
         }
     }
-    catch {
+    catch as dragErr {
+        DebugLog("DragWindow — exception during drag: {}", dragErr.Message)
     }
-    isDragging := false
-    ReleaseHighResTimer()
+    finally {
+        g["_dragThreadActive"] := false
+        g["_dragThreadStart"] := 0
+        ReleaseHighResTimer()
+    }
 
     ; Re-lock the window if it was pre-locked before the drag
     for win in g["Windows"] {
@@ -3036,6 +3105,7 @@ ToggleIconRepulsion() {
         ShowTooltip("Icon Repulsion: ON (" g["DesktopIconRects"].Length " obstacles)")
     } else {
         g["DesktopIconRects"] := []
+        g["_iconZoneDirty"] := true    ; Invalidate icon zone cache in CalculateWindowForces
         ShowTooltip("Icon Repulsion: OFF")
     }
     BuildFWDEMenus()
@@ -3551,6 +3621,7 @@ CalculateDensityAtPoint(testX, testY, allWindows, excludeHwnd := 0) {
 
 WindowMoveHandler(wParam, lParam, msg, hwnd) {
     global g, Config
+    try {  ; Harden against exceptions that could destabilise state
 
     ; Ignore move messages produced by our own physics/apply pipeline
     if ((g.Has("InternalMoveDepth") && g["InternalMoveDepth"] > 0) ||
@@ -3627,10 +3698,14 @@ WindowMoveHandler(wParam, lParam, msg, hwnd) {
     }
 
     SetTimerEx(UpdateWindowStates, -Config["ResizeDelay"])
+    } catch as wmErr {
+        DebugLog("WindowMoveHandler — exception: {}", wmErr.Message)
+    }
 }
 
 WindowSizeHandler(wParam, lParam, msg, hwnd) {
     global g, Config
+    try {  ; Harden against exceptions that could destabilise state
 
     ; Ignore size messages produced by our own physics/apply pipeline
     if ((g.Has("InternalMoveDepth") && g["InternalMoveDepth"] > 0) ||
@@ -3688,10 +3763,15 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
     }
 
     SetTimerEx(UpdateWindowStates, -Config["ResizeDelay"])
+    } catch as wsErr {
+        DebugLog("WindowSizeHandler — exception: {}", wsErr.Message)
+    }
 }
 
 UpdateWindowStates() {
     global g, Config
+    
+    g["_hbWindowList"] := A_TickCount  ; HealthMonitor heartbeat
     
     ; CRITICAL: Skip rebuilding window list if user is actively dragging a window
     ; This prevents interference with user placement
@@ -3704,14 +3784,32 @@ UpdateWindowStates() {
         return
     
     ; CRITICAL: Skip if any window is currently being snapped by Windows
-    ; Clean up expired snap states first
+    ; Clean up expired snap states first — with type validation and stuck-entry failsafe
+    oldestSnapAge := 0
     for hwnd, expireTime in g["SnapInProgress"].Clone() {
-        if (A_TickCount > expireTime)
+        ; Validate the value is a number; delete garbage entries immediately
+        if (!IsNumber(expireTime) || A_TickCount > expireTime + 0) {
             g["SnapInProgress"].Delete(hwnd)
+            continue
+        }
+        ; Calculate how long this entry has existed (protection is 2000ms)
+        entryAge := A_TickCount - (expireTime - 2000)
+        if (entryAge > oldestSnapAge)
+            oldestSnapAge := entryAge
     }
-    ; Don't update if snap is still in progress
-    if (g["SnapInProgress"].Count > 0)
-        return
+    g["_snapOldestTick"] := oldestSnapAge
+    ; Don't update if snap is still in progress — BUT with a hard 15s failsafe
+    if (g["SnapInProgress"].Count > 0) {
+        if (oldestSnapAge > 15000) {
+            ; Failsafe: snap entries stuck >15s — force-clear to prevent permanent stall
+            DebugLog("SnapFailsafe — {} stuck snap entries (oldest {}ms) force-cleared", g["SnapInProgress"].Count, oldestSnapAge)
+            g["SnapInProgress"] := Map()
+            g["_recoveryCount"] += 1
+            g["_snapFailsafeCount"] += 1
+        } else {
+            return
+        }
+    }
     
     ; Get current monitor info or virtual desktop bounds
     monitor := Config["MultimonitorExpanse"] ? GetVirtualDesktopBounds() : GetCurrentMonitorInfo()
@@ -4818,6 +4916,176 @@ DebugActiveWindow() {
     }
 }
 
+; ═══════════════════════════════════════════════════════════════════════════════
+;  HEALTH MONITOR — autonomous watchdog that detects and recovers from stalls
+; ═══════════════════════════════════════════════════════════════════════════════
+; Runs every 5 seconds. Checks timer heartbeats, stuck drag state, stale
+; SnapInProgress entries, DragActive flag, and memory pressure. Auto-recovers
+; where safe and logs all anomalies so the user can review before restarting.
+
+HealthMonitor() {
+    global g, Config
+    static lastMemClean := 0
+
+    try {
+        g["_hbWatchdog"] := A_TickCount
+        now := A_TickCount
+        anomalies := []
+        recovered := false
+
+        ; --- 1. Timer heartbeat checks ---
+        ; If a timer callback hasn't updated its heartbeat in >2× its period,
+        ; the timer has likely been killed by an unhandled exception.
+
+        physStale := now - g["_hbPhysics"]
+        physMax := Max(Config["PhysicsTimeStep"] * 3, 100)
+        if (physStale > physMax && g["ArrangementActive"]) {
+            anomalies.Push("Physics timer stale (" physStale "ms)")
+            ; Auto-recover: re-register the timer
+            SetTimerEx(CalculateDynamicLayout, Config["PhysicsTimeStep"])
+            recovered := true
+        }
+
+        visualStale := now - g["_hbVisual"]
+        visualMax := Max(Config["VisualTimeStep"] * 3, 100)
+        if (visualStale > visualMax && g["ArrangementActive"]) {
+            anomalies.Push("Visual timer stale (" visualStale "ms)")
+            SetTimerEx(ApplyWindowMovements, Config["VisualTimeStep"])
+            recovered := true
+        }
+
+        windowListStale := now - g["_hbWindowList"]
+        if (windowListStale > 2000 && g["ArrangementActive"]) {
+            anomalies.Push("Window-list timer stale (" windowListStale "ms)")
+            SetTimerEx(UpdateWindowStates, 250)
+            recovered := true
+        }
+
+        ; --- 2. Stuck drag-thread detection ---
+        if (g["_dragThreadActive"]) {
+            dragAge := now - g["_dragThreadStart"]
+            if (dragAge > 30000) {
+                anomalies.Push("Drag thread stuck (" dragAge "ms) — force-resetting")
+                g["_dragThreadActive"] := false
+                g["_dragThreadStart"] := 0
+                ReleaseHighResTimer()
+                recovered := true
+            }
+        }
+
+        ; --- 3. Stale DragActive flag ---
+        ; DragActive should only be true during real LButton-down drags.
+        ; If LButton is up but DragActive is still true, it's stale.
+        if (g["DragActive"] && !GetKeyState("LButton", "P")) {
+            anomalies.Push("DragActive flag stale (LButton not held)")
+            g["DragActive"] := false
+            recovered := true
+        }
+
+        ; --- 4. Stuck SnapInProgress entries ---
+        if (g["SnapInProgress"].Count > 0 && g["_snapOldestTick"] > 15000) {
+            anomalies.Push("SnapInProgress stuck (" g["SnapInProgress"].Count " entries, oldest " g["_snapOldestTick"] "ms)")
+            g["SnapInProgress"] := Map()
+            g["_recoveryCount"] += 1
+            g["_snapFailsafeCount"] += 1
+            recovered := true
+        }
+
+        ; --- 5. Window-list health: log if tracked count changes significantly ---
+        static lastTrackedCount := 0
+        if (Abs(g["Windows"].Length - lastTrackedCount) >= 5) {
+            DebugLog("HealthMonitor — window count changed: {} → {}", lastTrackedCount, g["Windows"].Length)
+            lastTrackedCount := g["Windows"].Length
+        } else if (now - lastMemClean > 60000) {
+            lastMemClean := now
+            lastTrackedCount := g["Windows"].Length
+        }
+
+        ; --- 6. Report ---
+        if (anomalies.Length > 0) {
+            DebugLog("HealthMonitor — {} anomalies detected:", anomalies.Length)
+            for _, msg in anomalies
+                DebugLog("  • {}", msg)
+        }
+        if (recovered) {
+            g["_recoveryCount"] += 1
+            DebugLog("HealthMonitor — auto-recovery performed (total recoveries: {})", g["_recoveryCount"])
+        }
+
+    } catch as hmErr {
+        ; The watchdog itself must never crash — log and continue
+        DebugLog("HealthMonitor — internal exception: {}", hmErr.Message)
+    }
+}
+
+; ═══════════════════════════════════════════════════════════════════════════════
+;  STATUS DASHBOARD — real-time internal-state overlay (Ctrl+Alt+S)
+;  Shows timer health, drag state, snap state, energy, recovery count, etc.
+;  Designed for autonomous user exploration — no need to read source code.
+; ═══════════════════════════════════════════════════════════════════════════════
+
+ShowStatusDashboard(*) {
+    global g, Config
+    now := A_TickCount
+
+    ; Compute health indicators
+    physAge := now - g["_hbPhysics"]
+    physStatus := (physAge < Max(Config["PhysicsTimeStep"] * 2, 50)) ? "🟢 OK" : "🔴 STALE"
+    visualAge := now - g["_hbVisual"]
+    visualStatus := (visualAge < Max(Config["VisualTimeStep"] * 2, 50)) ? "🟢 OK" : "🔴 STALE"
+    wlAge := now - g["_hbWindowList"]
+    wlStatus := (wlAge < 1000) ? "🟢 OK" : "🔴 STALE"
+    wdAge := now - g["_hbWatchdog"]
+    wdStatus := (wdAge < 15000) ? "🟢 OK" : "🔴 STALE"
+
+    dragStatus := g["_dragThreadActive"] ? "⏳ ACTIVE (" (now - g["_dragThreadStart"]) "ms)" : "⚪ idle"
+    dragActiveStatus := g["DragActive"] ? "⚠️ TRUE" : "⚪ false"
+    snapCount := g["SnapInProgress"].Count
+    snapStatus := (snapCount > 0) ? "⏳ " snapCount " entries (oldest " g["_snapOldestTick"] "ms)" : "⚪ clear"
+
+    energy := g["SystemEnergy"]
+    energyBar := ""
+    Loop Round(Min(energy / 10, 20))
+        energyBar .= "█"
+    if (energy > 200)
+        energyBar .= "…"
+
+    ; Build dashboard text
+    text := ""
+    text .= "══════════ FWDE STATUS DASHBOARD ══════════`n`n"
+    text .= "⏱️  TIMER HEALTH`n"
+    text .= "  Physics (CalcDynamicLayout):  " physStatus "  (" physAge "ms ago, period=" Config["PhysicsTimeStep"] "ms)`n"
+    text .= "  Visual  (ApplyMovements):     " visualStatus "  (" visualAge "ms ago, period=" Config["VisualTimeStep"] "ms)`n"
+    text .= "  Windows (UpdateWindowStates): " wlStatus "  (" wlAge "ms ago)`n"
+    text .= "  Watchdog (HealthMonitor):     " wdStatus "  (" wdAge "ms ago)`n`n"
+    text .= "🖱️  DRAG & SNAP STATE`n"
+    text .= "  DragThread:  " dragStatus "`n"
+    text .= "  DragActive:  " dragActiveStatus "`n"
+    text .= "  SnapInProgress: " snapStatus "`n"
+    text .= "  ActiveWindow: 0x" Format("{:X}", g["ActiveWindow"]) "`n`n"
+    text .= "📊  SYSTEM`n"
+    text .= "  Windows tracked:  " g["Windows"].Length "`n"
+    text .= "  Arrangement:       " (g["ArrangementActive"] ? "🟢 ON" : "🔴 OFF") "`n"
+    text .= "  Physics:           " (g["PhysicsEnabled"] ? "🟢 ON" : "🔴 OFF") "`n"
+    text .= "  System energy:     " Format("{:.1f}", energy) "  " energyBar "`n"
+    text .= "  Icon obstacles:    " g["DesktopIconRects"].Length "`n"
+    text .= "  Multi-monitor:     " (Config["MultimonitorExpanse"] ? "🟢 ON" : "🔴 OFF") "`n`n"
+    text .= "🩺  RECOVERY`n"
+    text .= "  Auto-recoveries:  " g["_recoveryCount"] "`n"
+    text .= "  Drag failsafes:   " g["_dragFailsafeCount"] "`n"
+    text .= "  Snap failsafes:   " g["_snapFailsafeCount"] "`n`n"
+    text .= "💡 Ctrl+Alt+D for window debug | Ctrl+Alt+C for log`n"
+    text .= "   Ctrl+Alt+Space toggle arrangement`n"
+
+    ToolTip(text, 10, 10)
+    ; Auto-hide after 20 seconds
+    SetTimerEx(() => ToolTip(,,, 20), -20000)
+
+    DebugLog("StatusDashboard — displayed: {} windows, energy={:.1f}, recoveries={}",
+        g["Windows"].Length, energy, g["_recoveryCount"])
+}
+
+
 ; --- Hotkey to show the menu on right-click of the taskbar ---
 ^!T::ShowTaskbarMenu() ; Ctrl+Alt+T to show the upgraded taskbar menu
 
@@ -4832,9 +5100,13 @@ DebugActiveWindow() {
 ^!A::ForceAddActiveWindow()       ; Ctrl+Alt+A to force add active window
 ^!I::ToggleIconRepulsion()       ; Ctrl+Alt+I to toggle desktop icon repulsion
 ^!C::DumpDebugLog()               ; Ctrl+Alt+C to copy debug log to clipboard
+^!S::ShowStatusDashboard()        ; Ctrl+Alt+S to show real-time status dashboard
 
 ; Auto-dump debug log to clipboard every 15 seconds for easy reporting
 SetTimerEx(DumpDebugLogPeriodic, 15000)
+
+; HealthMonitor watchdog — runs every 5 seconds, autonomously detects and recovers from stalls
+SetTimerEx(HealthMonitor, 5000)
  
 ; Start timers - but respect active window protection
 SetTimerEx(UpdateWindowStates, 250)  ; Window list rebuild ~4 Hz — expensive WinGetList+IsWindowValid cycle

@@ -1,10 +1,9 @@
 ﻿{
   "_metadata": {
     "application": "FWDE",
-    "saved": "20260721092811",
+    "saved": "20260721114504",
     "format": "flat-path-v1"
   },
-  "AnimationDuration": 32,
   "AttractionForce": 0.00045,
   "CollisionOverlapThreshold": 100,
   "Damping": 0.216,
@@ -13,15 +12,12 @@
   "DesktopIconInterRepelRange": 0.7,
   "DesktopIconMargin": 0,
   "DesktopIconPhysics": 1,
-  "DesktopIconRefreshMs": 3000,
-  "DesktopIconRepulsion": 1,
+  "DesktopIconRepulsion": 0,
   "DesktopIconRepulsionForce": 0.112358,
   "DesktopIconSpring": 0.008,
-  "EdgeRepulsionForce": 1.04,
   "ManualGapBonus": 0,
   "ManualLockDuration": 33333,
   "ManualRepulsionMultiplier": 1,
-  "ManualWindowAlpha": 222,
   "MaxIconSpeed": 75,
   "MaxSmallWindowRepulsionBoost": 1.6,
   "MaxSpeed": 120,
@@ -34,8 +30,7 @@
   "PairSeparationOverlapScale": 0.1,
   "PairSmallWindowBoost": 3,
   "ParameterHelpTooltipDuration": 2200,
-  "PhysicsTimeStep": 1,
-  "PhysicsUpdateInterval": 1000,
+  "PhysicsTimeStep": 16,
   "RepulsionForce": 13.31,
   "RepulsionImpulseScale": 4.32,
   "RepulsionRangeMultiplier": 3.069,
@@ -46,12 +41,11 @@
   "SmallWindowReferenceDim": 1200,
   "SmallWindowThresholdH": 591,
   "SmallWindowThresholdW": 614,
-  "Smoothing": 0.5,
   "Stabilization.DampingBoost": 0.12,
   "Stabilization.EnergyThreshold": 0.06,
   "Stabilization.MinSpeedThreshold": 0.369,
   "Stabilization.OverlapTolerance": 120,
   "TooltipDuration": 6767,
   "UserMoveTimeout": 523,
-  "VisualTimeStep": 1
+  "VisualTimeStep": 16
 }

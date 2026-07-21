@@ -48,12 +48,7 @@ ProcessSetPriority("High")
 ; Pre-allocate memory buffers
 #DllLoad "dwmapi.dll" ; Desktop Composition API
 
-
-
-; Pre-allocate memory buffers
 global DebugMode := true
-global g_NoiseBuffer := Buffer(1024)
-global g_PhysicsBuffer := Buffer(4096)
 
 ; This script is the brainchild of:
 ; Human: Flalaski,
@@ -75,7 +70,6 @@ global Config := Map(
     "ManualGapBonus", 0,
     "AttractionForce", 0.00045,   ; Center-seeking pull strength
     "RepulsionForce", 13.31,        ; Strong push to keep windows clearly separated
-    "EdgeRepulsionForce", 1.04,
     "CollisionOverlapThreshold", 100,   ; Higher = only significant overlaps trigger separation (stops bouncing)
     "RepulsionRangeMultiplier", 3.069,   ; Wider repulsion envelope for earlier reaction
     "RepulsionImpulseScale", 4.32,      ; Strong per-step push for rapid overlap release
@@ -166,7 +160,6 @@ global Config := Map(
     "MaxSpeed", 120.0,    ; Limits maximum velocity
     "PhysicsTimeStep", 16,  ; ~60 Hz physics — AHK rounds <10-15ms to nearest multiple anyway
     "VisualTimeStep", 16,   ; ~60 Hz visual updates — matches typical display refresh rate
-    "Smoothing", 0.5,  ; Higher = smoother but more lag (0.0-0.999)
     "Stabilization", Map(
         "MinSpeedThreshold", 0.369,  ; Lower values high-DPI (0.05-0.15) ~ Higher values (0.2-0.5)  low-performance systems
         "EnergyThreshold", 0.06,     ; Lower values (0.05-0.1): Early stabilization, prevents overshooting
@@ -174,15 +167,11 @@ global Config := Map(
         "OverlapTolerance", 120     ; Generous overlap tolerance for natural settling without bouncing
     ),
     "ManualWindowColor", "FF5555",
-    "ManualWindowAlpha", 222,
     "NoiseScale", 5550,
     "NoiseInfluence", 503,
-    "AnimationDuration", 32,    ; Higher = longer animations (try 16-32)
-    "PhysicsUpdateInterval", 1000,
     "ManualRepulsionMultiplier", 1.0,
     "DesktopIconRepulsion", false,       ; OFF by default — users opt in via Ctrl+Alt+I
     "DesktopIconMargin", 0,              ; Extra padding around each icon rect (0 = icon edges only)
-    "DesktopIconRefreshMs", 3000,        ; How often to re-scan desktop icon positions
     "DesktopIconRepulsionForce", 0.112358,     ; Multiplier for icon→window repulsion strength
     "MaxIconSpeed", 75.0,       ; Max per-frame velocity from icon repulsion (px/frame — undamped)
     "DesktopIconPhysics", true,  ; Treat icons as individual physics bodies (mass, velocity, inter-icon forces)
@@ -227,8 +216,14 @@ global g := Map(
     "_recoveryCount", 0,         ; Count of auto-recoveries performed
     "_dragFailsafeCount", 0,     ; Count of drag-thread force-resets
     "_snapFailsafeCount", 0,     ; Count of SnapInProgress force-clears
+    "_draggedHwnd", 0,           ; Cached drag handle, recomputed each physics tick
+    "_menuParent", 0,            ; Cached open-menu parent, recomputed each physics tick
     "_iconZones", [],            ; Clustered icon zones: [{left,top,right,bottom},...]
     "_iconZonesLive", false,     ; true = real ListView data, false = virtual fallback
+    "ForceTransition", 0,         ; TickCount when smooth transition ends (set by state machine)
+    "_perfOn", false,            ; Performance profiling toggle (Ctrl+Alt+F)
+    "_perfFreq", 0,              ; QPC frequency (cached on first use)
+    "_perfData", Map(),          ; key → [total_us, call_count]
     "DesktopIconRects", [],   ; Cached desktop icon obstacle rectangles
     "DesktopIconLastRefresh", A_TickCount  ; TickCount of last icon position scan — pre-set to prevent early scan race
 )
@@ -239,20 +234,52 @@ global g := Map(
 global g_DebugLog := []
 global g_Crashed := false
 
+; Protected entries (startup) are never trimmed — preserved for crash reporting
+global g_DebugProtected := 0
+
 ; Helper wrapper to avoid language server false positives with SetTimer's parameter signature
 SetTimerEx(Func, Period) {
     SetTimer(Func, Period)
 }
 
 DebugLog(msg, values*) {
-    global g_DebugLog
+    global g_DebugLog, g_DebugProtected
     timestamp := Format("{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
         A_YYYY, A_MM, A_DD, A_Hour, A_Min, A_Sec, A_MSec)
     entry := timestamp " | " Format(msg, values*)
     g_DebugLog.Push(entry)
-    ; Keep log trimmed to last 500 entries to avoid memory bloat
-    while (g_DebugLog.Length > 500)
+    ; Keep log trimmed — protect startup entries, only trim older unprotected entries
+    ; g_DebugProtected is set once after startup phase ends (see CalculateDynamicLayout)
+    if (g_DebugProtected > 0 && g_DebugLog.Length > 2000) {
+        ; Trim oldest unprotected entries, keeping the protected block intact
+        excess := g_DebugLog.Length - 2000
+        trimEnd := Min(excess, g_DebugProtected)
+        if (trimEnd > 0) {
+            Loop trimEnd
+                g_DebugLog.RemoveAt(g_DebugProtected + 1)
+        }
+    } else if (g_DebugProtected == 0 && g_DebugLog.Length > 2000) {
+        ; Before protection is set, trim from front as usual
         g_DebugLog.RemoveAt(1)
+    }
+}
+
+; --- Debug persistence: writes to disk file, then clipboard ---
+; The file at %TEMP%\FWDE_debug.log is the authoritative dump.
+; Clipboard is a convenience copy — if it fails, the file still has everything.
+global g_DebugFilePath := A_Temp "\FWDE_debug.log"
+
+_ClipPut(text) {
+    A_Clipboard := text
+}
+
+_WriteDebugFile(text) {
+    global g_DebugFilePath
+    try {
+        if (FileExist(g_DebugFilePath))
+            FileDelete(g_DebugFilePath)
+        FileAppend(text, g_DebugFilePath, "UTF-8")
+    }
 }
 
 ; Register crash handler — copies the full debug log to clipboard when an
@@ -280,29 +307,40 @@ ErrorHandler(exception, mode) {
 
 CopyLogToClipboard() {
     global g_DebugLog
-    text := "FWDE Debug Log — " A_Now "`n" A_DD "/" A_MM "/" A_YYYY " " A_Hour ":" A_Min ":" A_Sec "`n`n"
-    text .= JoinLog(g_DebugLog, "`n")
-    try {
-        A_Clipboard := text
-        ToolTip("⚠️ FWDE crashed! Debug log copied to clipboard.", 10, 10)
-        SetTimerEx(() => ToolTip(), -5000)
-    }
+    text := "=== FWDE CRASH DUMP — " A_Now " ==="
+         . "`n" A_DD "/" A_MM "/" A_YYYY " " A_Hour ":" A_Min ":" A_Sec "`n`n"
+         . JoinLog(g_DebugLog, "`n")
+    _WriteDebugFile(text)
+    _ClipPut(text)
+    ToolTip("⚠️ FWDE crashed! Log: " g_DebugFilePath, 10, 10)
+    SetTimerEx(() => ToolTip(), -8000)
 }
 
-; --- User-facing debug dump: copies the entire debug log to clipboard on demand ---
-; Ctrl+Alt+C or automatic via periodic timer
 DumpDebugLog(auto := false) {
-    global g_DebugLog
+    global g_DebugLog, g, g_DebugFilePath
     text := "FWDE Debug Log — " A_Now "`n" A_DD "/" A_MM "/" A_YYYY " " A_Hour ":" A_Min ":" A_Sec "`n`n"
     text .= "Entries: " g_DebugLog.Length "`n`n"
     text .= JoinLog(g_DebugLog, "`n")
-    try {
-        A_Clipboard := text
-        label := auto ? "📋 Auto-copied debug log to clipboard" : "📋 Debug log copied to clipboard! (Ctrl+V to paste)"
-        ToolTip(label, 10, 10)
-        SetTimerEx(() => ToolTip(), -4000)
-        DebugLog("DumpDebugLog — {} entries copied to clipboard (auto={})", g_DebugLog.Length, auto)
+    if (g["_perfOn"] && g["_perfData"].Count > 0)
+        text .= "`n`n" _PerfReport()
+    ; File is authoritative — always write it first
+    _WriteDebugFile(text)
+    ; Clipboard — NO try, let errors surface. Then verify it actually landed.
+    A_Clipboard := text
+    clipLen := StrLen(A_Clipboard)
+    ; Self-verification: read back both file and clipboard
+    fileVerify := ""
+    try fileVerify := FileRead(g_DebugFilePath, "UTF-8")
+    fileLen := StrLen(fileVerify)
+    textLen := StrLen(text)
+    if (!auto) {
+        ToolTip("📋 " g_DebugLog.Length " entries, " textLen " chars"
+            . "`nFile: " (textLen = fileLen ? "✓" : "✗ MISMATCH(" fileLen ")") "  Clip: " (textLen = clipLen ? "✓" : "✗ (" clipLen ")")
+            . "`n" g_DebugFilePath, 10, 10)
+        SetTimerEx(() => ToolTip(), -6000)
     }
+    DebugLog("DumpDebugLog — {} entries, text={} file={} clip={} (auto={})",
+        g_DebugLog.Length, textLen, fileLen, clipLen, auto)
 }
 
 ; --- Auto-dump debug log every 15 seconds so user can always retrieve it ---
@@ -380,117 +418,17 @@ SetTimerEx(CalculateDynamicLayout, Config["PhysicsTimeStep"]), SetTimerEx(ApplyW
 
 ; --- One-time startup: prime the desktop icon cache and show diagnostic ---
 {
-    DebugLog("Startup — beginning desktop icon scan")
     fresh := GetDesktopIconRects()
     if (fresh.Length > 0)
         g["DesktopIconRects"] := fresh
     g["DesktopIconLastRefresh"] := A_TickCount
     count := g["DesktopIconRects"].Length
+    DebugLog("Startup — desktop icon scan: {} obstacles", count)
     if (DebugMode) {
         SetTimerEx(() => ToolTip(), -4000)
         ToolTip("FWDE: Desktop icon scan — " count " obstacles detected", 10, 40)
     }
-    DebugLog("Startup — desktop icon scan: {} obstacles", count)
-    ; Auto-copy startup scan results for user reporting
-    SetTimerEx(() => DumpDebugLog(true), -2000)  ; Dump after 2 seconds, once icon scan is done
 }
-
-class NoiseAnimator {
-    static permutations := [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,35,11,32,57,177,33,88,237,149,56,87,174,20,125,136,171,168,68,175,74,165,71,134,139,48,27,166,77,146,158,231,83,111,229,122,60,211,133,230,220,105,92,41,55,46,245,40,244,102,143,54,65,25,63,161,1,216,80,73,209,76,132,187,208,89,18,169,200,196,135,130,116,188,159,86,164,100,109,198,173,186,3,64,52,217,226,250,124,123,5,202,38,147,118,126,255,82,85,212,207,206,59,227,47,16,58,17,182,189,28,42,223,183,170,213,119,248,152,2,44,154,163,70,221,153,101,155,167,43,172,9,129,22,39,253,19,98,108,110,79,113,224,232,178,185,112,104,218,246,97,228,251,34,242,193,238,210,144,12,191,179,162,241,81,51,145,235,249,14,239,107,49,192,214,31,181,199,106,157,184,84,204,176,115,121,50,45,127,4,150,254,138,236,205,93,222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180]
-
-
-    static grad3 := [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],[1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],[0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]]
-
-    static F2 := 0.5*(Sqrt(3)-1)
-    static G2 := (3-Sqrt(3))/6
-
-    static noise(x, y) {
-        s := (x + y) * this.F2
-        i := Floor(x + s)
-        j := Floor(y + s)
-
-        t := (i + j) * this.G2
-        X0 := i - t
-        Y0 := j - t
-        x0 := x - X0
-        y0 := y - Y0
-
-        i1 := x0 > y0 ? 1 : 0
-        j1 := x0 > y0 ? 0 : 1
-
-        x1 := x0 - i1 + this.G2
-        y1 := y0 - j1 + this.G2
-        x2 := x0 - 1 + 2*this.G2
-        y2 := y0 - 1 + 2*this.G2
-
-        ii := Mod(i, 256) + 1
-        jj := Mod(j, 256) + 1
-
-        p := this.permutations
-        a := p.Has(ii) ? p[ii] : 0
-        b := p.Has(jj) ? p[jj] : 0
-        aa := p.Has(ii + i1) ? p[ii + i1] : 0
-        ab := p.Has(jj + j1) ? p[jj + j1] : 0
-        ba := p.Has(ii + 1) ? p[ii + 1] : 0
-        bb := p.Has(jj + 1) ? p[jj + 1] : 0
-
-        gi0 := Mod(a + b, 12) + 1
-        gi1 := Mod(aa + ab, 12) + 1
-        gi2 := Mod(ba + bb, 12) + 1
-
-        t0 := 0.5 - x0*x0 - y0*y0
-        n0 := 0
-        if (t0 >= 0) {
-            grad := this.grad3.Has(gi0) ? this.grad3[gi0] : [0,0,0]
-            n0 := t0**4 * (grad[1]*x0 + grad[2]*y0)
-        }
-
-        t1 := 0.5 - x1*x1 - y1*y1
-        n1 := 0
-        if (t1 >= 0) {
-            grad := this.grad3.Has(gi1) ? this.grad3[gi1] : [0,0,0]
-            n1 := t1**4 * (grad[1]*x1 + grad[2]*y1)
-        }
-
-        t2 := 0.5 - x2*x2 - y2*y2
-        n2 := 0
-        if (t2 >= 0) {
-            grad := this.grad3.Has(gi2) ? this.grad3[gi2] : [0,0,0]
-            n2 := t2**4 * (grad[1]*x2 + grad[2]*y2)
-        }
-
-        return 70*(n0 + n1 + n2)
-    }
-}
-
-; Duplicate SafeWinExist definition removed to fix function conflict error.
-
-; Duplicate IsWindowValid definition removed to fix function conflict error.
-
-
-; Duplicate EaseOutCubic removed to fix function conflict error.
-
-
-; Duplicate GetCurrentMonitorInfo() removed to fix function conflict error.
-
-; Duplicate MonitorGetFromPoint definition removed to fix function conflict error.
-
-; Duplicate GetPrimaryMonitorCoordinates() removed to fix function conflict error.
-
-; [REMOVED DUPLICATE] GetVirtualDesktopBounds() function definition removed to resolve conflict.
-
-; [REMOVED DUPLICATE] FindNonOverlappingPosition function definition removed to resolve conflict.
-
-; [REMOVED DUPLICATE] IsOverlapping function definition removed to resolve conflict.
-; [REMOVED DUPLICATE] IsPluginWindow function definition removed to resolve conflict.
-
-; [REMOVED DUPLICATE] IsWindowFloating function definition removed to resolve conflict.
-
-
-
-; [REMOVED DUPLICATE] GetVisibleWindows function definition removed to resolve conflict.
-
-; [REMOVED DUPLICATE] CleanupStaleWindows function definition removed to resolve conflict.
 
 SafeWinExist(hwnd) {
     try {
@@ -1102,6 +1040,7 @@ IsWindowFloating(hwnd) {
 
 GetVisibleWindows(monitor) {
     global Config, g
+    pi := _PerfStart()
     WinList := []
     allWindows := []
     for hwnd in WinGetList() {
@@ -1251,6 +1190,7 @@ GetVisibleWindows(monitor) {
     ; Clean up windows that are no longer valid
     CleanupStaleWindows()
 
+    _PerfEnd("GVW", pi)
     return WinList
 }
 
@@ -1408,6 +1348,7 @@ _BuildIconGrid(lvLeft, lvTop, lvRight, lvBottom, iconCount, spX, spY, margin, li
 
 GetDesktopIconRects() {
     global Config, DebugMode
+    pd := _PerfStart()
     Critical
     rects := []
 
@@ -1488,6 +1429,7 @@ GetDesktopIconRects() {
         g["_iconZones"] := ClusterIconZones(result, 60)
         g["_iconZonesLive"] := true
         DebugLog("IconZones — {} zones from {} icons (live)", g["_iconZones"].Length, result.Length)
+        _PerfEnd("GDR", pd)
         return result
     }
 
@@ -1528,6 +1470,7 @@ GetDesktopIconRects() {
     g["_iconZones"] := SplitVirtualGridIntoZones(lvLeft, lvTop, iconCount, cols, spX, spY, iconH)
     g["_iconZonesLive"] := false
     DebugLog("IconZones — {} zones from {} icons (not live)", g["_iconZones"].Length, result.Length)
+    _PerfEnd("GDR", pd)
     return result
 }
 
@@ -1620,83 +1563,12 @@ CleanupStaleWindows() {
     }
 }
 
-CreateBlurBehindStruct() {
-    bb := Buffer(20)
-    NumPut("UInt", 1, bb, 0)
-    NumPut("Int", 1, bb, 4)
-    NumPut("Ptr", 0, bb, 8)
-    NumPut("Int", 0, bb, 16)
-    return bb.Ptr
-}
-
-ApplyStabilization(win) {
-    static velocityBuffers := Map()
-
-    ; Initialize velocity buffer if needed
-    if (!velocityBuffers.Has(win["hwnd"])) {
-        velocityBuffers[win["hwnd"]] := []
-    }
-    buf := velocityBuffers[win["hwnd"]]
-
-    ; Store current velocity
-    buf.Push(Map("vx", win["vx"], "vy", win["vy"]))
-    if (buf.Length > 5) {
-        buf.RemoveAt(1)
-    }
-
-    ; Calculate averaged velocity
-    avgVx := 0, avgVy := 0
-    for frame in buf {
-        avgVx += frame["vx"]
-        avgVy += frame["vy"]
-    }
-    avgVx /= buf.Length
-    avgVy /= buf.Length
-    avgSpeed := Sqrt(avgVx**2 + avgVy**2)
-
-    minThreshold := Config["Stabilization"]["MinSpeedThreshold"]
-
-    ; Apply smoothed damping
-    if (avgSpeed < minThreshold * 2) {
-        ; Smooth transition curve
-        t := Min(1, avgSpeed / (minThreshold * 2))
-        stabilityFactor := EaseOutCubic(t)
-
-        ; Interpolate between boosted damping and normal damping
-        currentDamping := Lerp(Config["Damping"] - Config["Stabilization"]["DampingBoost"],
-                          Config["Damping"],
-                          stabilityFactor)
-
-        win["vx"] *= currentDamping
-        win["vy"] *= currentDamping
-
-        ; Gradual stop when very slow
-        if (avgSpeed < 0.1) {
-            stopFactor := EaseOutCubic(avgSpeed/0.1)
-            win["vx"] *= stopFactor
-            win["vy"] *= stopFactor
-        }
-    } else {
-        win["vx"] *= Config["Damping"]
-        win["vy"] *= Config["Damping"]
-    }
-
-    ; Snap to target if very close and slow
-    if (avgSpeed < 0.05 &&
-        Abs(win["x"] - win["targetX"]) < 0.5 &&
-        Abs(win["y"] - win["targetY"]) < 0.5) {
-        win["x"] := win["targetX"]
-        win["y"] := win["targetY"]
-        win["vx"] := 0
-        win["vy"] := 0
-    }
-}
-
 ; --- Icon physics: treats desktop icons as individual physics bodies ---
 ; Icons repel each other, spring back to their grid anchors, and recoil when windows push them.
 ; This runs every physics tick, independent of window forces.
 ProcessIconPhysics(icons, windows) {
     global Config
+    pi := _PerfStart()
 
     iconCount := icons.Length
     if (iconCount == 0)
@@ -1824,13 +1696,15 @@ ProcessIconPhysics(icons, windows) {
         iconPhysLogTick := A_TickCount
         DebugLog("IconPhys — {} icons processed, totalV={:.1f}, maxV={:.1f}", iconCount, totalIconV, maxIconV)
     }
+    _PerfEnd("PIP", pi)
 }
 
 CalculateWindowForces(win, allWindows) {
     global g, Config
+    pf := _PerfStart()
 
     ; Use cached menu parent (computed once per tick in CalculateDynamicLayout)
-    menuParent := g["_menuParent"]
+    menuParent := g.Has("_menuParent") ? g["_menuParent"] : 0
     if (menuParent && win["hwnd"] == menuParent) {
         win["vx"] := 0
         win["vy"] := 0
@@ -2082,18 +1956,11 @@ CalculateWindowForces(win, allWindows) {
     win["targetX"] := win["x"] + win["vx"]
     win["targetY"] := win["y"] + win["vy"]
 
+    _PerfEnd("CWF", pf)
+
     ; Apply bounds
     win["targetX"] := Max(monLeft, Min(win["targetX"], monRight))
     win["targetY"] := Max(monTop, Min(win["targetY"], monBottom))
-}
-
-Bezier3(p0, p1, p2, p3, t) {
-    a := Lerp(p0, p1, t)
-    b := Lerp(p1, p2, t)
-    c := Lerp(p2, p3, t)
-    d := Lerp(a, b, t)
-    e := Lerp(b, c, t)
-    return Lerp(d, e, t)
 }
 
 SmoothStep(t) {
@@ -2108,11 +1975,13 @@ ApplyWindowMovements() {
 
     try {  ; Wrap entire timer body — any exception would silently kill this timer in AHK v2
 
+    p := _PerfStart()
+
     g["_hbVisual"] := A_TickCount  ; HealthMonitor heartbeat
 
     ; Suspend movement for parent windows if a dropdown/menu is open
     ; Use cached menu parent (computed once per tick in CalculateDynamicLayout)
-    menuParent := g["_menuParent"]
+    menuParent := g.Has("_menuParent") ? g["_menuParent"] : 0
 
     Critical
 
@@ -2362,6 +2231,10 @@ ApplyWindowMovements() {
             win["y"] := smoothPos[hwnd].y
         }
     }
+    if (moveBatch.Length > 0) {
+        DebugLog("ApplyMovements — {} windows moved this tick", moveBatch.Length)
+    }
+    _PerfEnd("AWM", p)
 
     for move in moveBatch {
         try MoveWindowAPI(move.hwnd, move.x, move.y)
@@ -2479,13 +2352,15 @@ ResolveCollisions(positions) {
 }
 
 CalculateDynamicLayout() {
-    global g, Config
+    global g, Config, g_DebugProtected
     static forceMultipliers := Map("normal", 1.0, "chaos", 0.6)
     static lastState := "normal"
     static transitionTime := 300
     static lastFocusCheck := 0
 
     try {  ; Wrap entire timer body — any exception would silently kill this timer in AHK v2
+
+    p := _PerfStart()
 
     g["_hbPhysics"] := A_TickCount  ; HealthMonitor heartbeat
 
@@ -2494,6 +2369,8 @@ CalculateDynamicLayout() {
     if (!diagLogged && g["Windows"].Length > 0) {
         diagLogged := true
         DebugLog("PhysicsLoop — {} windows tracked, {} icon obstacles loaded", g["Windows"].Length, g["DesktopIconRects"].Length)
+        ; Lock in protected entries — startup logs will never be trimmed
+        g_DebugProtected := g_DebugLog.Length
     }
 
     ; Cache expensive per-tick values ONCE so child functions don't recompute N times
@@ -2574,6 +2451,9 @@ CalculateDynamicLayout() {
     }
     g["SystemEnergy"] := Lerp(g["SystemEnergy"], currentEnergy, 0.1)
 
+    ; Normalise energy to window count for consistent state detection
+    normEnergy := g["SystemEnergy"] / Max(g["Windows"].Length, 1) / 10000
+
     ; --- Icon physics: treat icons as individual bodies (if enabled) ---
     ; Zone repulsion in CalculateWindowForces already provides O(1) obstacle
     ; behaviour per window. Per-icon physics (O(n²) inter-icon + O(n×w) recoil)
@@ -2585,7 +2465,7 @@ CalculateDynamicLayout() {
     }
 
     ; State machine for natural motion transitions
-    newState := (g["SystemEnergy"] > Config["Stabilization"]["EnergyThreshold"] * 2) ? "chaos" : "normal"
+    newState := (normEnergy > Config["Stabilization"]["EnergyThreshold"] * 2) ? "chaos" : "normal"
 
     if (newState != lastState) {
         transitionTime := (newState == "chaos") ? 200 : 800  ; Quick chaos entry, slow stabilization
@@ -2618,15 +2498,56 @@ CalculateDynamicLayout() {
         win["vy"] := Min(Max(win["vy"], -maxSpeed), maxSpeed)
     }
 
+    ; Limit-cycle detection: if energy is stable for >3s with no drag, force-settle
+    ; Prevents indefinite oscillation (one window bouncing between force sources)
+    static settleEnergy := 0.0
+    static settleTick := 0
+    if (normEnergy > 0.001 && normEnergy < 0.5 && g["_draggedHwnd"] == 0 && g["Windows"].Length > 1) {
+        if (Abs(normEnergy - settleEnergy) < 0.0005) {
+            if (settleTick == 0)
+                settleTick := A_TickCount
+            else if (A_TickCount - settleTick > 3000) {
+                ; Energy hasn't changed meaningfully in 3s — force-settle all windows
+                for win in g["Windows"] {
+                    win["vx"] := 0
+                    win["vy"] := 0
+                }
+                ; Drop energy measurement so state can transition to normal
+                g["SystemEnergy"] := 1.0
+                DebugLog("Settle — limit cycle detected, zeroed velocities (energy was {:.4f})", normEnergy)
+                settleTick := 0
+                settleEnergy := 0.0
+            }
+        } else {
+            settleEnergy := normEnergy
+            settleTick := 0
+        }
+    } else {
+        settleEnergy := 0.0
+        settleTick := 0
+    }
+
     ; Gentle collision resolution (no rigid partitioning)
     ; Skip when system is settled (low energy, no drag) — saves ~2.5N² pair checks
     if (g["Windows"].Length > 1 && (g["SystemEnergy"] > 0.5 || g["_draggedHwnd"] != 0)) {
         ResolveFloatingCollisions(g["Windows"])
     }
 
+    ; Periodic tick log (every ~30 ticks ≈ 0.5s at 16ms) — shows engine is alive
+    static tickCounter := 0
+    tickCounter += 1
+    if (Mod(tickCounter, 30) == 0) {
+        dh := g["_draggedHwnd"]
+        DebugLog("Physics tick — {} windows, energy={:.4f}, state={}, dragHwnd=0x{:X}"
+            , g["Windows"].Length, normEnergy
+            , newState
+            , dh ? dh : 0)
+    }
+
     lastState := newState
-    } catch as e {
-        DebugLog("CalculateDynamicLayout timer crashed: {}", e.Message)
+    _PerfEnd("CDL", p)
+    } catch as crashErr {
+        DebugLog("CDL crashed: {} [{}:{}]", crashErr.Message, crashErr.What, crashErr.Line)
         ; Any exception in the physics loop is caught to prevent
         ; the AHK v2 timer from silently stopping forever.
     }
@@ -2640,6 +2561,7 @@ CalculateDynamicLayout() {
 ; to prevent corner/edge stuckness from perfect symmetry.
 ResolveFloatingCollisions(windows) {
     global Config, g
+    pr := _PerfStart()
     
     ; Use cached drag state (computed once per tick in CalculateDynamicLayout)
     draggedHwnd := g["_draggedHwnd"]
@@ -2798,6 +2720,7 @@ ResolveFloatingCollisions(windows) {
         if (!anyChanges)
             break
     }
+    _PerfEnd("RFC", pr)
 }
 
 
@@ -3858,6 +3781,7 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
 
 UpdateWindowStates() {
     global g, Config
+    pu := _PerfStart()
     
     g["_hbWindowList"] := A_TickCount  ; HealthMonitor heartbeat
     
@@ -3903,9 +3827,16 @@ UpdateWindowStates() {
     monitor := Config["MultimonitorExpanse"] ? GetVirtualDesktopBounds() : GetCurrentMonitorInfo()
     ; Update window list
     g["Windows"] := GetVisibleWindows(monitor)
+    ; Log window list refresh periodically (every ~4s at 250ms interval ≈ 16 ticks)
+    static uwsCounter := 0
+    uwsCounter += 1
+    if (Mod(uwsCounter, 16) == 0) {
+        DebugLog("WindowList — {} windows detected on monitor {}", g["Windows"].Length, monitor["Number"])
+    }
     ; Update manual borders and clear expired flags
     UpdateManualBorders()
     ClearManualFlags()
+    _PerfEnd("UWS", pu)
 }
 
 ; --- Improved Taskbar Detection and Context Menu ---
@@ -3979,6 +3910,9 @@ BuildFWDEMenus() {
     DebugTaskbarMenu.Add("🔍 Debug Window Info (Ctrl+Alt+D)", (*) => DebugWindowInfo())
     DebugTaskbarMenu.Add("🔍 Debug Active Window", (*) => DebugActiveWindow())
     DebugTaskbarMenu.Add("➕ Force Add Active Window (Ctrl+Alt+A)", (*) => ForceAddActiveWindow())
+    DebugTaskbarMenu.Add("📋 Copy Debug Log (Ctrl+Alt+C)", (*) => DumpDebugLog())
+    DebugTaskbarMenu.Add("📊 Status Dashboard (Ctrl+Alt+S)", (*) => ShowStatusDashboard())
+    DebugTaskbarMenu.Add("⏱ Toggle Profiling (Ctrl+Alt+F)", (*) => _PerfToggle())
 
     TaskbarMenu.Add("🔧 Debug", DebugTaskbarMenu)
     TaskbarMenu.Add()
@@ -4006,6 +3940,9 @@ BuildFWDEMenus() {
     DebugTrayMenu.Add("🔍 Debug Window Info (Ctrl+Alt+D)", (*) => DebugWindowInfo())
     DebugTrayMenu.Add("🔍 Debug Active Window", (*) => DebugActiveWindow())
     DebugTrayMenu.Add("➕ Force Add Active Window (Ctrl+Alt+A)", (*) => ForceAddActiveWindow())
+    DebugTrayMenu.Add("📋 Copy Debug Log (Ctrl+Alt+C)", (*) => DumpDebugLog())
+    DebugTrayMenu.Add("📊 Status Dashboard (Ctrl+Alt+S)", (*) => ShowStatusDashboard())
+    DebugTrayMenu.Add("⏱ Toggle Profiling (Ctrl+Alt+F)", (*) => _PerfToggle())
 
     A_TrayMenu.Add("🔧 Debug", DebugTrayMenu)
     A_TrayMenu.Add()
@@ -4133,7 +4070,6 @@ ApplyNumericSpecOverrides(spec) {
     static overrides := Map(
         "AttractionForce", Map("min", 0.0, "max", 0.005, "decimals", 6),
         "RepulsionForce", Map("min", 0.01, "max", 20.0, "decimals", 3),
-        "EdgeRepulsionForce", Map("min", 0.01, "max", 10.0, "decimals", 3),
         "RepulsionRangeMultiplier", Map("min", 0.25, "max", 8.0, "decimals", 3),
         "RepulsionImpulseScale", Map("min", 0.01, "max", 10.0, "decimals", 3),
         "PairSeparationBase", Map("min", 0.001, "max", 0.5, "decimals", 4),
@@ -4149,19 +4085,15 @@ ApplyNumericSpecOverrides(spec) {
         "MaxIconSpeed", Map("min", 1.0, "max", 150.0, "decimals", 1),
         "PhysicsTimeStep", Map("min", 1, "max", 50, "decimals", 0),
         "VisualTimeStep", Map("min", 1, "max", 100, "decimals", 0),
-        "Smoothing", Map("min", 0.0, "max", 0.999, "decimals", 3),
         "ParameterHelpTooltipDuration", Map("min", 100, "max", 30000, "decimals", 0),
         "ManualRepulsionMultiplier", Map("min", 0.05, "max", 15.0, "decimals", 3),
         "SeedDiagonalStep", Map("min", 1, "max", 200, "decimals", 0),
         "SeedDiagonalMaxSteps", Map("min", 1, "max", 50, "decimals", 0),
         "SeedJitterRange", Map("min", 0, "max", 100, "decimals", 0),
-        "ManualGapBonus", Map("min", 0, "max", 1000, "decimals", 0),
         "MinMargin", Map("min", 0, "max", 200, "decimals", 0),
         "MinGap", Map("min", 0, "max", 200, "decimals", 0),
         "NoiseScale", Map("min", 100, "max", 20000, "decimals", 0),
         "NoiseInfluence", Map("min", 0, "max", 2000, "decimals", 0),
-        "AnimationDuration", Map("min", 1, "max", 200, "decimals", 0),
-        "PhysicsUpdateInterval", Map("min", 100, "max", 10000, "decimals", 0),
         "ResizeDelay", Map("min", 1, "max", 200, "decimals", 0),
         "TooltipDuration", Map("min", 100, "max", 30000, "decimals", 0),
         "UserMoveTimeout", Map("min", 50, "max", 5000, "decimals", 0),
@@ -4172,7 +4104,6 @@ ApplyNumericSpecOverrides(spec) {
         "Stabilization.DampingBoost", Map("min", 0.0, "max", 1.0, "decimals", 3),
         "Stabilization.OverlapTolerance", Map("min", 0, "max", 500, "decimals", 0),
         "DesktopIconMargin", Map("min", 0, "max", 200, "decimals", 0),
-        "DesktopIconRefreshMs", Map("min", 500, "max", 30000, "decimals", 0),
         "DesktopIconRepulsionForce", Map("min", 0.0, "max", 25.0, "decimals", 1),
         "DesktopIconInterRepelRange", Map("min", 0.1, "max", 3.0, "decimals", 2)
     )
@@ -4485,7 +4416,6 @@ GetParameterDescription(path) {
     static descriptions := Map(
         "AttractionForce", "Center-seeking pull that prevents windows drifting too far away.",
         "RepulsionForce", "Base push strength when windows get close.",
-        "EdgeRepulsionForce", "How strongly windows are pushed away from monitor edges.",
         "RepulsionRangeMultiplier", "How far out repulsion starts acting between windows.",
         "RepulsionImpulseScale", "Per-step push intensity during close interactions.",
         "PairSeparationBase", "Base collision-separation strength when windows overlap.",
@@ -4498,7 +4428,6 @@ GetParameterDescription(path) {
         "SmallWindowThresholdH", "Height threshold used for small-window behavior.",
         "MinMargin", "Minimum margin to keep windows away from monitor boundaries.",
         "MinGap", "Preferred spacing target used by layout placement routines.",
-        "ManualGapBonus", "Extra spacing preference around manually managed windows.",
         "ManualRepulsionMultiplier", "Extra push when interacting with manually moved windows.",
         "ManualLockDuration", "How long a manually moved window stays physics-locked (ms).",
         "UserMoveTimeout", "Cooldown before focused windows rejoin normal physics (ms).",
@@ -4509,9 +4438,6 @@ GetParameterDescription(path) {
         "MaxSpeed", "Maximum velocity cap for floating windows.",
         "PhysicsTimeStep", "Physics tick interval (ms). Lower means more frequent updates.",
         "VisualTimeStep", "Movement apply/render interval (ms). Lower is smoother.",
-        "Smoothing", "Motion smoothing blend factor.",
-        "AnimationDuration", "General animation time used by transitions.",
-        "PhysicsUpdateInterval", "Background physics maintenance interval (ms).",
         "NoiseScale", "Spatial scale for procedural drift/noise effects.",
         "NoiseInfluence", "Strength of procedural drift/noise effects.",
         "MultimonitorExpanse", "Allow windows to float across all monitors instead of current monitor only.",
@@ -5005,6 +4931,78 @@ DebugActiveWindow() {
 }
 
 ; ═══════════════════════════════════════════════════════════════════════════════
+;  PERFORMANCE PROFILING — high-resolution timing for every function
+;  Toggle with Ctrl+Alt+F. Data shown in StatusDashboard (Ctrl+Alt+S).
+;  Uses QueryPerformanceCounter for microsecond resolution.
+; ═══════════════════════════════════════════════════════════════════════════════
+
+_PerfInit() {
+    global g
+    if (g["_perfFreq"] == 0) {
+        f := 0
+        DllCall("QueryPerformanceFrequency", "Int64*", &f)
+        g["_perfFreq"] := f
+    }
+}
+
+; Call at the start of a timed section. Returns start counter.
+_PerfStart() {
+    global g
+    if (!g["_perfOn"])
+        return 0
+    _PerfInit()
+    c := 0
+    DllCall("QueryPerformanceCounter", "Int64*", &c)
+    return c
+}
+
+; Call at the end. key identifies the function/section.
+_PerfEnd(key, start) {
+    global g
+    if (start == 0)
+        return
+    end := 0
+    DllCall("QueryPerformanceCounter", "Int64*", &end)
+    us := (end - start) * 1000000 / g["_perfFreq"]
+    if !g["_perfData"].Has(key)
+        g["_perfData"][key] := [0.0, 0]
+    d := g["_perfData"][key]
+    d[1] += us
+    d[2] += 1
+}
+
+_PerfToggle() {
+    global g
+    try {
+        g["_perfOn"] := !g["_perfOn"]
+        if (g["_perfOn"]) {
+            _PerfInit()
+            ToolTip("Performance profiling: ON", 10, 10)
+            SetTimer () => ToolTip(), -2000
+        } else {
+            g["_perfData"] := Map()
+            ToolTip("Performance profiling: OFF", 10, 10)
+            SetTimer () => ToolTip(), -2000
+        }
+    } catch as e {
+        DebugLog("PerfToggle error: " e.Message)
+        ToolTip("PerfToggle error — see debug log", 10, 10)
+        SetTimer () => ToolTip(), -3000
+    }
+}
+
+_PerfReport() {
+    global g
+    txt := "══════ PERF ══════`n"
+    txt .= Format("{:28s} {:>8s} {:>12s} {:>10s}`n", "Section", "Calls", "Total ms", "Avg µs")
+    for key, d in g["_perfData"] {
+        avg := d[2] > 0 ? d[1] / d[2] : 0
+        txt .= Format("{:28s} {:8d} {:12.2f} {:10.2f}`n", key, d[2], d[1] / 1000, avg)
+    }
+    return txt
+}
+
+; ═══════════════════════════════════════════════════════════════════════════════
 ;  HEALTH MONITOR — autonomous watchdog that detects and recovers from stalls
 ; ═══════════════════════════════════════════════════════════════════════════════
 ; Runs every 5 seconds. Checks timer heartbeats, stuck drag state, stale
@@ -5014,6 +5012,7 @@ DebugActiveWindow() {
 HealthMonitor() {
     global g, Config
     static lastMemClean := 0
+    ph := _PerfStart()
 
     try {
         g["_hbWatchdog"] := A_TickCount
@@ -5080,8 +5079,10 @@ HealthMonitor() {
         }
 
         ; --- 5. Window-list health: log if tracked count changes significantly ---
-        static lastTrackedCount := 0
-        if (Abs(g["Windows"].Length - lastTrackedCount) >= 5) {
+        static lastTrackedCount := -1
+        if (lastTrackedCount == -1) {
+            lastTrackedCount := g["Windows"].Length
+        } else if (Abs(g["Windows"].Length - lastTrackedCount) >= 5) {
             DebugLog("HealthMonitor — window count changed: {} → {}", lastTrackedCount, g["Windows"].Length)
             lastTrackedCount := g["Windows"].Length
         } else if (now - lastMemClean > 60000) {
@@ -5092,6 +5093,8 @@ HealthMonitor() {
         ; --- 6. Icon zone adaptive refresh: retry LV detection periodically ---
         ; Only when using virtual fallback zones (real ListView not yet found)
         static lastIconRetry := 0
+        if (lastIconRetry == 0)
+            lastIconRetry := now  ; prime to prevent immediate first-fire
         if (Config["DesktopIconRepulsion"] && !g["_iconZonesLive"] && now - lastIconRetry > 30000) {
             lastIconRetry := now
             GetDesktopIconRects()  ; internal retry logic handles debouncing
@@ -5108,6 +5111,15 @@ HealthMonitor() {
             DebugLog("HealthMonitor — auto-recovery performed (total recoveries: {})", g["_recoveryCount"])
         }
 
+        ; Always log periodic status heartbeat
+        DebugLog("Health beat — {} windows, energy={:.4f}, drag={}, snap={}, phys={}ms, vis={}ms"
+            , g["Windows"].Length, g["SystemEnergy"] / Max(g["Windows"].Length, 1) / 10000
+            , g["DragActive"] ? "yes" : "no"
+            , g["SnapInProgress"].Count
+            , now - g["_hbPhysics"]
+            , now - g["_hbVisual"])
+
+    _PerfEnd("HLM", ph)
     } catch as hmErr {
         ; The watchdog itself must never crash — log and continue
         DebugLog("HealthMonitor — internal exception: {}", hmErr.Message)
@@ -5140,10 +5152,11 @@ ShowStatusDashboard(*) {
     snapStatus := (snapCount > 0) ? "⏳ " snapCount " entries (oldest " g["_snapOldestTick"] "ms)" : "⚪ clear"
 
     energy := g["SystemEnergy"]
+    normEnergy := energy / Max(g["Windows"].Length, 1) / 10000
     energyBar := ""
-    Loop Round(Min(energy / 10, 20))
+    Loop Round(Min(normEnergy * 100, 20))
         energyBar .= "█"
-    if (energy > 200)
+    if (normEnergy > 0.2)
         energyBar .= "…"
 
     ; Build dashboard text
@@ -5170,8 +5183,15 @@ ShowStatusDashboard(*) {
     text .= "  Auto-recoveries:  " g["_recoveryCount"] "`n"
     text .= "  Drag failsafes:   " g["_dragFailsafeCount"] "`n"
     text .= "  Snap failsafes:   " g["_snapFailsafeCount"] "`n`n"
+
+    ; Performance profiling data
+    if (g["_perfOn"] && g["_perfData"].Count > 0) {
+        text .= _PerfReport()
+        text .= "`n"
+    }
+
     text .= "💡 Ctrl+Alt+D for window debug | Ctrl+Alt+C for log`n"
-    text .= "   Ctrl+Alt+Space toggle arrangement`n"
+    text .= "   Ctrl+Alt+Space toggle arrangement | Ctrl+Alt+F perf`n"
 
     ToolTip(text, 10, 10)
     ; Auto-hide after 20 seconds
@@ -5197,9 +5217,7 @@ ShowStatusDashboard(*) {
 ^!I::ToggleIconRepulsion()       ; Ctrl+Alt+I to toggle desktop icon repulsion
 ^!C::DumpDebugLog()               ; Ctrl+Alt+C to copy debug log to clipboard
 ^!S::ShowStatusDashboard()        ; Ctrl+Alt+S to show real-time status dashboard
-
-; Auto-dump debug log to clipboard every 15 seconds for easy reporting
-SetTimerEx(DumpDebugLogPeriodic, 15000)
+^!F::_PerfToggle()                ; Ctrl+Alt+F to toggle performance profiling
 
 ; HealthMonitor watchdog — runs every 5 seconds, autonomously detects and recovers from stalls
 SetTimerEx(HealthMonitor, 5000)
@@ -5266,40 +5284,10 @@ MoveWindowAPI(hwnd, x, y, w := "", h := "") {
     }
 }
 
-global PartitionGridSize := 400  ; pixels per grid cell (tune for your window sizes)
-
-PartitionWindows(windows) {
-    global PartitionGridSize
-    buckets := Map()
-    for win in windows {
-        gx := Floor(win["x"] / PartitionGridSize)
-        gy := Floor(win["y"] / PartitionGridSize)
-        key := gx "," gy
-        if !buckets.Has(key)
-            buckets[key] := []
-        buckets[key].Push(win)
-        win["_grid"] := [gx, gy]
-    }
-    return buckets
-}
-
 ; Add this Clamp helper function near the top-level (outside any class)
 Clamp(val, min, max) {
     return val < min ? min : val > max ? max : val
 }
-
-
-; Helper function to identify DAW plugin windows
-IsDAWPlugin(win) {
-    try {
-        ; Use the consolidated IsPluginWindow function
-        return IsPluginWindow(win["hwnd"])
-    }
-    catch {
-        return false
-    }
-}
-
 
 ; Helper function to identify Electron-based applications
 IsElectronApp(hwnd) {

@@ -2093,8 +2093,10 @@ ApplyWindowMovements() {
         }
         
         ; === ICON ZONE BARRIER: unconditional, runs before all protections ===
-        if (Config["DesktopIconRepulsion"] && g["_iconZones"].Length > 0
-            && win["monitor"] == MonitorGetPrimary()) {
+        ; Treats icon zones as "pillars" — isolated obstacles with free space
+        ; on ALL four sides. Windows are pushed to the shortest valid side
+        ; that clears the zone, whether that's right, left, down, or up.
+        if (Config["DesktopIconRepulsion"] && g["_iconZones"].Length > 0) {
             try {
                 ; Use GetWindowRect (kernel call, no messages) instead of
                 ; WinGetPos (sends WM_GETMINMAXINFO — can block Electron apps)
@@ -2109,32 +2111,97 @@ ApplyWindowMovements() {
                     continue
                 zxR := zx + zw
                 zyB := zy + zh
-                ; Quick bounds
-                SafeMonitorGetWorkArea(win["monitor"], &bzL, &bzT, &bzR, &bzB)
-                bzRight := bzR - zw
-                bzBottom := bzB - Config["MinMargin"] - zh
-                bzTop := bzT + Config["MinMargin"]
 
-                ; Push RIGHT past all overlapping zone edges. No Y movement
-                ; — the zone is a left-side strip; windows just shift right.
-                maxRightEdge := 0
-                minLeftEdge := 999999
+                ; Screen bounds — use virtual desktop for multimonitor expanse,
+                ; otherwise per-monitor work area
+                if (Config["MultimonitorExpanse"]) {
+                    vb := GetVirtualDesktopBounds()
+                    bzL := vb["Left"]
+                    bzT := vb["Top"]
+                    bzR := vb["Right"]
+                    bzB := vb["Bottom"]
+                } else {
+                    SafeMonitorGetWorkArea(win["monitor"], &bzL, &bzT, &bzR, &bzB)
+                }
+                maxX := bzR - zw
+                maxY := bzB - zh
+
+                ; Union of all overlapping icon zones into one pillar rect
+                pLeft := 999999.0, pRight := -999999.0
+                pTop := 999999.0, pBottom := -999999.0
                 anyOverlap := false
                 for zone in g["_iconZones"] {
                     if (zone["left"] < zxR && zone["right"] > zx && zone["top"] < zyB && zone["bottom"] > zy) {
-                        maxRightEdge := Max(maxRightEdge, zone["right"])
-                        minLeftEdge := Min(minLeftEdge, zone["left"])
+                        pLeft := Min(pLeft, zone["left"])
+                        pRight := Max(pRight, zone["right"])
+                        pTop := Min(pTop, zone["top"])
+                        pBottom := Max(pBottom, zone["bottom"])
                         anyOverlap := true
                     }
                 }
+
                 if (anyOverlap) {
-                    ; Push right past the rightmost zone edge
-                    zx := maxRightEdge
-                    ; If window is at or beyond right screen edge, push left instead
-                    if (zx + zw > bzR)
-                        zx := minLeftEdge - zw
-                    zx := Max(bzL, Min(zx, bzRight))
-                    zy := Max(bzTop, Min(zy, bzBottom))
+                    ; Build list of candidate exit pushes: [newX, newY, dist]
+                    candidates := []
+
+                    ; Push RIGHT: window's left edge at pillar's right edge
+                    nxR := pRight
+                    nyR := zy
+                    distR := nxR - zx  ; + means moving right
+                    if (nxR <= maxX && nyR >= bzT && nyR <= maxY)
+                        candidates.Push(Map("x", nxR, "y", nyR, "dist", Abs(distR), "dir", "R"))
+
+                    ; Push LEFT: window's right edge at pillar's left edge
+                    nxL := pLeft - zw
+                    nyL := zy
+                    distL := zx - nxL  ; + means moving left
+                    if (nxL >= bzL && nyL >= bzT && nyL <= maxY)
+                        candidates.Push(Map("x", nxL, "y", nyL, "dist", Abs(distL), "dir", "L"))
+
+                    ; Push DOWN: window's top edge at pillar's bottom edge
+                    nxD := zx
+                    nyD := pBottom
+                    distD := nyD - zy  ; + means moving down
+                    if (nyD <= maxY && nxD >= bzL && nxD <= maxX)
+                        candidates.Push(Map("x", nxD, "y", nyD, "dist", Abs(distD), "dir", "D"))
+
+                    ; Push UP: window's bottom edge at pillar's top edge
+                    nxU := zx
+                    nyU := pTop - zh
+                    distU := zy - nyU  ; + means moving up
+                    if (nyU >= bzT && nxU >= bzL && nxU <= maxX)
+                        candidates.Push(Map("x", nxU, "y", nyU, "dist", Abs(distU), "dir", "U"))
+
+                    if (candidates.Length > 0) {
+                        ; Pick the candidate with the smallest displacement
+                        best := candidates[1]
+                        for c in candidates {
+                            if (c["dist"] < best["dist"])
+                                best := c
+                        }
+                        zx := best["x"]
+                        zy := best["y"]
+                    } else {
+                        ; No valid full-clear direction — window is too large
+                        ; to fit around the pillar. Push to whichever side
+                        ; has the most room, clamping to screen bounds.
+                        roomRight := bzR - pRight
+                        roomLeft  := pLeft - bzL
+                        roomDown  := bzB - pBottom
+                        roomUp   := pTop - bzT
+                        if (roomRight >= roomLeft && roomRight >= roomDown && roomRight >= roomUp) {
+                            zx := Min(pRight, maxX)
+                        } else if (roomLeft >= roomRight && roomLeft >= roomDown && roomLeft >= roomUp) {
+                            zx := Max(pLeft - zw, bzL)
+                        } else if (roomDown >= roomUp) {
+                            zy := Min(pBottom, maxY)
+                        } else {
+                            zy := Max(pTop - zh, bzT)
+                        }
+                        zx := Max(bzL, Min(zx, maxX))
+                        zy := Max(bzT, Min(zy, maxY))
+                    }
+
                     MoveWindowAPI(win["hwnd"], zx, zy)
                     win["x"] := zx
                     win["y"] := zy

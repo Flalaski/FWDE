@@ -2035,6 +2035,8 @@ ApplyWindowMovements() {
     static lastUpdate := 0
     static lastPositions := Map()
     static smoothPos := Map()
+    ; Throttled ApplyMovements logging — aggregate per-second instead of per-tick
+    static _awmLastLog := 0, _awmTicks := 0, _awmTotalMoves := 0
 
     try {  ; Wrap entire timer body — any exception would silently kill this timer in AHK v2
 
@@ -2294,8 +2296,17 @@ ApplyWindowMovements() {
             win["y"] := smoothPos[hwnd].y
         }
     }
-    if (moveBatch.Length > 0) {
-        DebugLog("ApplyMovements — {} windows moved this tick", moveBatch.Length)
+    ; Throttled: accumulate every call (even zero-move ticks for accuracy),
+    ; flush a single summary line once per second instead of per-tick.
+    _awmTicks += 1
+    if (moveBatch.Length > 0)
+        _awmTotalMoves += moveBatch.Length
+    if (A_TickCount - _awmLastLog >= 1000) {
+        DebugLog("ApplyMovements — {} moves across {} ticks (avg {:.1f}/tick)",
+            _awmTotalMoves, _awmTicks, _awmTicks > 0 ? _awmTotalMoves / _awmTicks : 0)
+        _awmLastLog := A_TickCount
+        _awmTicks := 0
+        _awmTotalMoves := 0
     }
     _PerfEnd("AWM", p)
 

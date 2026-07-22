@@ -20,9 +20,10 @@ FWDE automatically arranges floating windows using physics simulation. Windows r
 \par
 
 \fs24\b Physics Engine\b0\par
-\bullet  Attraction, repulsion, and damping forces\par
+\bullet  Overlap-based repulsion with damping forces\par
 \bullet  Collision avoidance between windows\par
 \bullet  Edge repulsion to fill screen space\par
+\bullet  Limit-cycle detection with automatic settle\par
 \bullet  Configurable update rates and force parameters\par
 \par
 
@@ -50,26 +51,44 @@ FWDE automatically arranges floating windows using physics simulation. Windows r
 \fs24\b Debug Tools\b0\par
 \bullet  Window analysis showing why windows are/aren't managed\par
 \bullet  Pattern matching display\par
-\bullet  Real-time tracking of managed windows\par
-\bullet  Force-add capability for stubborn windows\par
+\bullet  Real-time status dashboard with energy and timer health\par
+\bullet  Crash-safe debug log auto-copied to clipboard\par
+\bullet  Periodic log persistence to disk every 60 seconds\par
 \par
 
 \fs28\b Installation\b0\fs22\par
 \par
 
 \fs24\b Requirements\b0\par
-\bullet  Windows 7/8.1/10/11\par
-\bullet  AutoHotkey v2 (only for building script manually, FWDE.exe in Releases is the app on its own)\par
+\bullet  Windows 10/11 (x64)\par
+\bullet  Windows 7 tested ok\par
 \par
 
-\fs24\b Setup\b0\par
-1. Download \f1 FWDE.ahk\f0\par
-2. Run directly with AutoHotkey v2, or compile to \f1 .exe\f0\par
-3. Modify \f1 Config\f0  map at top of file (optional)\par
+\fs24\b Recommended: Installer (no AutoHotkey required)\b0\par
+1. Download \f1 FWDE_Setup_<version>.exe\f0  from Releases.\par
+2. Run the installer and follow the setup wizard.\par
+3. Optional during install:\par
+\bullet  Create desktop shortcut\par
+\bullet  Run FWDE when you sign in\par
+\par
+FWDE installs per-user (no admin rights) to:\par
+\f1 %AppData%\\FWDE\f0\par
+\par
+Update behavior: existing \f1 FWDE_Config.json\f0  is preserved during upgrades.\par
+Uninstall: from Windows Installed Apps; prompted whether to remove user data.\par
 \par
 
-\fs24\b Compilation\b0\par
-\f1 autohotkey.exe /in FWDE.ahk\f0\par
+\fs24\b Manual: Script workflow (advanced)\b0\par
+Use this only if you want to run/edit the source script directly.\par
+\par
+Requirements:\par
+\bullet  Windows 10/11\par
+\bullet  \cf1\ul AutoHotkey v2\cf0\ulnone\par
+\par
+Steps:\par
+1. Download or clone the repository.\par
+2. Run \f1 FWDE.ahk\f0  with AutoHotkey v2.\par
+3. Edit \f1 FWDE_Config.json\f0  for your settings.\par
 \par
 
 \fs28\b Usage\b0\fs22\par
@@ -93,7 +112,10 @@ The system starts automatically when launched. Windows matching detection patter
 \f1 Ctrl+Alt+L\f0\intbl\cell Lock/Unlock Active Window\intbl\cell\row
 \f1 Ctrl+Alt+T\f0\intbl\cell Show Taskbar Menu\intbl\cell\row
 \f1 Ctrl+Alt+D\f0\intbl\cell Debug Window Info\intbl\cell\row
-\f1 Ctrl+Alt+I\f0\intbl\cell Debug Active Window\intbl\cell\row
+\f1 Ctrl+Alt+I\f0\intbl\cell Toggle Icon Repulsion\intbl\cell\row
+\f1 Ctrl+Alt+C\f0\intbl\cell Copy Debug Log to Clipboard\intbl\cell\row
+\f1 Ctrl+Alt+S\f0\intbl\cell Status Dashboard\intbl\cell\row
+\f1 Ctrl+Alt+F\f0\intbl\cell Toggle Performance Profiling\intbl\cell\row
 \f1 Ctrl+Alt+A\f0\intbl\cell Force Add Active Window\intbl\cell\row
 \pard\sa200\sl276\slmult1\par
 
@@ -145,7 +167,9 @@ Settings are in the \f1 Config\f0  map at the top of \f1 FWDE.ahk\f0 .\par
 
 \fs24\b Tools\b0\par
 \bullet  \f1 Ctrl+Alt+D\f0  - Show all tracked/untracked windows with details\par
-\bullet  \f1 Ctrl+Alt+I\f0  - Analyze active window (why managed/not managed)\par
+\bullet  \f1 Ctrl+Alt+S\f0  - Real-time status dashboard (energy, drag state, timer health)\par
+\bullet  \f1 Ctrl+Alt+C\f0  - Copy full debug log to clipboard\par
+\bullet  \f1 Ctrl+Alt+F\f0  - Toggle performance profiling overlay\par
 \bullet  \f1 Ctrl+Alt+A\f0  - Manually add window to physics\par
 \par
 
@@ -154,7 +178,7 @@ Settings are in the \f1 Config\f0  map at the top of \f1 FWDE.ahk\f0 .\par
 \b Windows not moving\b0\par
 1. Check arrangement: \f1 Ctrl+Alt+Space\f0  (must be ON)\par
 2. Check physics: \f1 Ctrl+Alt+P\f0  (must be ON)\par
-3. Debug window: \f1 Ctrl+Alt+I\f0  on the window\par
+3. Debug window: \f1 Ctrl+Alt+D\f0  on the window\par
 4. Force add: \f1 Ctrl+Alt+A\f0  if detection failed\par
 \par
 \b Too much movement\b0\par
@@ -171,7 +195,7 @@ Settings are in the \f1 Config\f0  map at the top of \f1 FWDE.ahk\f0 .\par
 \bullet  Check detection: \f1 Ctrl+Alt+D\f0  shows monitor assignments\par
 \par
 \b Window not detected\b0\par
-\bullet  Check patterns: \f1 Ctrl+Alt+I\f0  shows which patterns match\par
+\bullet  Check patterns: \f1 Ctrl+Alt+D\f0  shows which patterns match\par
 \bullet  Add to \f1 ForceFloatProcesses\f0 : Add process name to config\par
 \bullet  Force add: \f1 Ctrl+Alt+A\f0  for immediate inclusion\par
 \par
@@ -202,10 +226,11 @@ Settings are in the \f1 Config\f0  map at the top of \f1 FWDE.ahk\f0 .\par
 \fs28\b Technical Details\b0\fs22\par
 \par
 \b Physics Engine\b0\par
-\bullet  Custom attraction/repulsion force model\par
+\bullet  Overlap-based repulsion force model (no center-attraction)\par
 \bullet  Velocity integration with damping\par
 \bullet  Per-frame collision detection\par
-\bullet  Boundary enforcement\par
+\bullet  Limit-cycle detection with automatic settle\par
+\bullet  Boundary enforcement with soft edge repulsion\par
 \par
 \b Window Detection\b0\par
 \bullet  Multi-pattern matching (process, class, title, style)\par
@@ -217,5 +242,24 @@ Settings are in the \f1 Config\f0  map at the top of \f1 FWDE.ahk\f0 .\par
 \bullet  Per-monitor physics calculations\par
 \bullet  Optional cross-monitor mode\par
 \bullet  Virtual desktop bounds\par
+\bullet  Monitor-aware positioning\par
 \par
+\b Performance\b0\par
+\bullet  Adaptive update rates\par
+\bullet  High-resolution timer for drag operations\par
+\bullet  Resource management (timer acquisition/release)\par
+\bullet  Lock state tracking with expiration\par
+\par
+
+\fs28\b License\b0\fs22\par
+\par
+FWDE is distributed under \b CC0 1.0 Universal\b0  (public domain dedication).\par
+See the \f1 LICENSE\f0  file included with this software for the full legal text.\par
+\par
+
+\fs28\b Credits\b0\fs22\par
+\par
+Created by Flalaski with AI assistance (Copilot, DeepSeek, Gemini).\par
+AutoHotkey v2 community for the platform.\par
+}
 }

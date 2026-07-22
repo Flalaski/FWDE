@@ -17,9 +17,10 @@ Get the latest installer from Releases:
 ## Features
 
 ### Physics Engine
-- Attraction, repulsion, and damping forces
+- Overlap-based repulsion with damping forces
 - Collision avoidance between windows
 - Edge repulsion to fill screen space
+- Limit-cycle detection with automatic settle
 - Configurable update rates and force parameters
 
 ### Multi-Monitor Support
@@ -44,6 +45,8 @@ Get the latest installer from Releases:
 - Window analysis showing why windows are/aren't managed
 - Pattern matching display
 - Real-time tracking of managed windows
+- Crash-safe debug log auto-copied to clipboard
+- Periodic log persistence to disk every 60 seconds
 - Force-add capability for stubborn windows
 
 ## Installation
@@ -102,7 +105,10 @@ The system starts automatically when launched. Windows matching detection patter
 | `Ctrl+Alt+L` | Lock/Unlock Active Window |
 | `Ctrl+Alt+T` | Show Taskbar Menu |
 | `Ctrl+Alt+D` | Debug Window Info |
-| `Ctrl+Alt+I` | Debug Active Window |
+| `Ctrl+Alt+I` | Toggle Icon Repulsion |
+| `Ctrl+Alt+C` | Copy Debug Log to Clipboard |
+| `Ctrl+Alt+S` | Status Dashboard |
+| `Ctrl+Alt+F` | Toggle Performance Profiling |
 | `Ctrl+Alt+A` | Force Add Active Window |
 
 ## Configuration
@@ -155,7 +161,9 @@ Settings are in the `Config` map at the top of `FWDE.ahk`.
 
 ### Tools
 - `Ctrl+Alt+D` - Show all tracked/untracked windows with details
-- `Ctrl+Alt+I` - Analyze active window (why managed/not managed)
+- `Ctrl+Alt+S` - Real-time status dashboard (energy, drag state, timer health)
+- `Ctrl+Alt+C` - Copy full debug log to clipboard
+- `Ctrl+Alt+F` - Toggle performance profiling overlay
 - `Ctrl+Alt+A` - Manually add window to physics
 
 ### Troubleshooting
@@ -180,7 +188,7 @@ Settings are in the `Config` map at the top of `FWDE.ahk`.
 - Check detection: `Ctrl+Alt+D` shows monitor assignments
 
 **Window not detected**
-- Check patterns: `Ctrl+Alt+I` shows which patterns match
+- Check patterns: `Ctrl+Alt+D` shows which patterns match
 - Add to `ForceFloatProcesses`: Add process name to config
 - Force add: `Ctrl+Alt+A` for immediate inclusion
 
@@ -234,14 +242,16 @@ Settings are in the `Config` map at the top of `FWDE.ahk`.
 
 ## Recent Changes
 
-- Enhanced window detection (fixed fullscreen detection for browsers/editors)
-- Added common applications to default patterns (Firefox, Chrome, Cursor, VS Code, Office)
+- Crash-safe debug logging with automatic clipboard copy and periodic disk persistence
+- HealthMonitor watchdog with autonomous stall detection and recovery
+- Multi-pass chain-effect collision resolution for realistic window cascading
+- Overlap-based repulsion physics (redesigned from center-attraction model)
+- Status Dashboard (`Ctrl+Alt+S`) with real-time timer health and energy metrics
+- Performance profiling overlay (`Ctrl+Alt+F`)
+- Desktop icon repulsion toggle (`Ctrl+Alt+I`)
 - Lock auto-extends during active drag to prevent timeout mid-interaction
-- Lock state awareness: physics knows when lock expires and transitions cleanly
-- Multimonitor expanse mode (renamed from "seamless float")
-- Visual border for locked windows (red, 5px offset)
-- Debug tools for pattern matching and window analysis
-- Performance tuning (increased repulsion, reduced attraction, better edge positioning)
+- Multimonitor expanse mode for cross-monitor window floating
+- Enhanced window detection for browsers, editors, DAW plugins, and Office apps
 
 ## License
 

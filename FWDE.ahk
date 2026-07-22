@@ -271,29 +271,50 @@ global g_DebugFilePath := A_ScriptDir "\FWDE_debug.log"
 
 _ClipPut(text) {
     ; Win32 CF_UNICODETEXT — copies directly from AHK's native UTF-16 buffer.
-    size := (StrLen(text) + 1) * 2
-    hMem := DllCall("GlobalAlloc", "UInt", 0x0042, "UPtr", size, "Ptr")
-    if (!hMem)
-        return _ClipPutFallback(text)
-    pMem := DllCall("GlobalLock", "Ptr", hMem, "Ptr")
-    if (!pMem) {
-        DllCall("GlobalFree", "Ptr", hMem)
-        return _ClipPutFallback(text)
-    }
-    DllCall("RtlMoveMemory", "Ptr", pMem, "Ptr", StrPtr(text), "UPtr", size)
-    DllCall("GlobalUnlock", "Ptr", hMem)
-    if (!DllCall("OpenClipboard", "Ptr", A_ScriptHwnd)) {
-        DllCall("GlobalFree", "Ptr", hMem)
-        return _ClipPutFallback(text)
-    }
-    DllCall("EmptyClipboard")
-    if (!DllCall("SetClipboardData", "UInt", 13, "Ptr", hMem)) {
+    ; Retries up to 5 times if clipboard is locked by another process.
+    Loop 5 {
+        size := (StrLen(text) + 1) * 2
+        hMem := DllCall("GlobalAlloc", "UInt", 0x0042, "UPtr", size, "Ptr")
+        if (!hMem) {
+            if (A_Index < 5) {
+                Sleep(50)
+                continue
+            }
+            return _ClipPutFallback(text)
+        }
+        pMem := DllCall("GlobalLock", "Ptr", hMem, "Ptr")
+        if (!pMem) {
+            DllCall("GlobalFree", "Ptr", hMem)
+            if (A_Index < 5) {
+                Sleep(50)
+                continue
+            }
+            return _ClipPutFallback(text)
+        }
+        DllCall("RtlMoveMemory", "Ptr", pMem, "Ptr", StrPtr(text), "UPtr", size)
+        DllCall("GlobalUnlock", "Ptr", hMem)
+        if (!DllCall("OpenClipboard", "Ptr", A_ScriptHwnd)) {
+            DllCall("GlobalFree", "Ptr", hMem)
+            if (A_Index < 5) {
+                Sleep(50)
+                continue
+            }
+            return _ClipPutFallback(text)
+        }
+        DllCall("EmptyClipboard")
+        if (!DllCall("SetClipboardData", "UInt", 13, "Ptr", hMem)) {
+            DllCall("CloseClipboard")
+            DllCall("GlobalFree", "Ptr", hMem)
+            if (A_Index < 5) {
+                Sleep(50)
+                continue
+            }
+            return _ClipPutFallback(text)
+        }
         DllCall("CloseClipboard")
-        DllCall("GlobalFree", "Ptr", hMem)
-        return _ClipPutFallback(text)
+        return true
     }
-    DllCall("CloseClipboard")
-    return true
+    return _ClipPutFallback(text)
 }
 
 _ClipPutFallback(text) {
@@ -341,8 +362,20 @@ CopyLogToClipboard() {
     text := "=== FWDE CRASH DUMP — " A_Now " ==="
          . "`n" A_DD "/" A_MM "/" A_YYYY " " A_Hour ":" A_Min ":" A_Sec "`n`n"
          . JoinLog(g_DebugLog, "`n")
+    ; File is authoritative — always write first, before attempting clipboard
     _WriteDebugFile(text)
-    _ClipPut(text)
+    ; Aggressive retry: crash path — try up to 15 times with 100ms delays.
+    ; Clipboard may be locked by the app that triggered the crash.
+    Loop 15 {
+        if (_ClipPut(text)) {
+            ToolTip("⚠️ FWDE crashed! Log: " g_DebugFilePath, 10, 10)
+            SetTimerEx(() => ToolTip(), -8000)
+            return
+        }
+        Sleep(100)
+    }
+    ; Final fallback: try A_Clipboard directly
+    try A_Clipboard := text
     ToolTip("⚠️ FWDE crashed! Log: " g_DebugFilePath, 10, 10)
     SetTimerEx(() => ToolTip(), -8000)
 }
@@ -5251,6 +5284,10 @@ ShowStatusDashboard(*) {
 
 ; HealthMonitor watchdog — runs every 5 seconds, autonomously detects and recovers from stalls
 SetTimerEx(HealthMonitor, 5000)
+
+; Periodic debug dump to disk + clipboard — keeps the log always fresh and retrievable
+; Runs every 60 seconds so the clipboard always has a recent copy of the debug log
+SetTimerEx(DumpDebugLogPeriodic, 60000)
  
 ; Start timers - but respect active window protection
 SetTimerEx(UpdateWindowStates, 250)  ; Window list rebuild ~4 Hz — expensive WinGetList+IsWindowValid cycle
@@ -5265,10 +5302,14 @@ OnMessage(0x0005, WindowSizeHandler)
 
 OnExit(*) {
     global g_TimerResolutionRefs, g_Crashed
+    ; Always dump the debug log on exit — file + clipboard.
+    ; Use DumpDebugLog for the standard format (not crash-dump header).
     if (g_Crashed) {
-        ; If we crashed, OnError already copied the log.
-        ; This is just a safety net in case OnError was not triggered.
+        ; OnError already called CopyLogToClipboard, but call again as safety net
         CopyLogToClipboard()
+    } else {
+        ; Normal exit: still copy the full log to clipboard so user can retrieve it
+        DumpDebugLog(true)
     }
     for hwnd in g["ManualWindows"]
         RemoveManualWindowBorder(hwnd)

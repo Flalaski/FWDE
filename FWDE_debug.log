@@ -1,184 +1,232 @@
-﻿FWDE Debug Log — 20260722084913
-22/07/2026 08:49:13
+﻿FWDE Debug Log — 20260722085042
+22/07/2026 08:50:41
 
-Entries: 179
+Entries: 227
 
-2026-07-22 08:48:13.370 | Startup — desktop icon scan: 0 obstacles
-2026-07-22 08:48:13.400 | ApplyMovements — 0 moves across 1 ticks (avg 0.0/tick)
-2026-07-22 08:48:13.438 | PhysicsLoop — 5 windows tracked, 0 icon obstacles loaded
-2026-07-22 08:48:14.155 | Physics tick — 5 windows, energy=0.1614, state=chaos, dragHwnd=0x0
-2026-07-22 08:48:14.404 | ApplyMovements — 21 moves across 40 ticks (avg 0.5/tick)
-2026-07-22 08:48:14.905 | Physics tick — 4 windows, energy=0.1046, state=normal, dragHwnd=0x0
-2026-07-22 08:48:15.404 | ApplyMovements — 48 moves across 40 ticks (avg 1.2/tick)
-2026-07-22 08:48:15.685 | Physics tick — 4 windows, energy=0.0982, state=normal, dragHwnd=0x0
-2026-07-22 08:48:16.402 | ApplyMovements — 23 moves across 39 ticks (avg 0.6/tick)
-2026-07-22 08:48:16.433 | Physics tick — 4 windows, energy=0.1019, state=normal, dragHwnd=0x0
-2026-07-22 08:48:17.167 | WindowList — 4 windows detected on monitor 1
-2026-07-22 08:48:17.195 | Physics tick — 4 windows, energy=0.1021, state=normal, dragHwnd=0x0
-2026-07-22 08:48:17.412 | ApplyMovements — 1 moves across 38 ticks (avg 0.0/tick)
-2026-07-22 08:48:17.936 | Physics tick — 4 windows, energy=0.1021, state=normal, dragHwnd=0x0
-2026-07-22 08:48:18.400 | ApplyMovements — 0 moves across 33 ticks (avg 0.0/tick)
-2026-07-22 08:48:18.402 | Health beat — 4 windows, energy=0.1021, drag=no, snap=0, phys=16ms, vis=0ms
-2026-07-22 08:48:18.853 | Physics tick — 4 windows, energy=0.1021, state=normal, dragHwnd=0x0
-2026-07-22 08:48:19.401 | ApplyMovements — 0 moves across 32 ticks (avg 0.0/tick)
-2026-07-22 08:48:19.559 | Settle — limit cycle detected, zeroed velocities (energy was 0.1021)
-2026-07-22 08:48:19.683 | Physics tick — 4 windows, energy=0.0408, state=normal, dragHwnd=0x0
-2026-07-22 08:48:20.404 | ApplyMovements — 5 moves across 39 ticks (avg 0.1/tick)
-2026-07-22 08:48:20.437 | Physics tick — 4 windows, energy=0.0613, state=normal, dragHwnd=0x0
-2026-07-22 08:48:21.163 | WindowList — 4 windows detected on monitor 1
-2026-07-22 08:48:21.191 | Physics tick — 4 windows, energy=0.0572, state=normal, dragHwnd=0x0
-2026-07-22 08:48:21.409 | ApplyMovements — 6 moves across 40 ticks (avg 0.1/tick)
-2026-07-22 08:48:21.939 | Physics tick — 4 windows, energy=0.0575, state=normal, dragHwnd=0x0
-2026-07-22 08:48:22.411 | ApplyMovements — 3 moves across 40 ticks (avg 0.1/tick)
-2026-07-22 08:48:22.693 | Physics tick — 4 windows, energy=0.0578, state=normal, dragHwnd=0x0
-2026-07-22 08:48:23.409 | ApplyMovements — 3 moves across 40 ticks (avg 0.1/tick)
-2026-07-22 08:48:23.410 | Health beat — 4 windows, energy=0.0581, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-22 08:48:23.440 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:24.196 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:24.412 | ApplyMovements — 0 moves across 39 ticks (avg 0.0/tick)
-2026-07-22 08:48:24.942 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:25.151 | WindowList — 4 windows detected on monitor 1
-2026-07-22 08:48:25.416 | ApplyMovements — 0 moves across 35 ticks (avg 0.0/tick)
-2026-07-22 08:48:25.699 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:25.744 | Settle — limit cycle detected, zeroed velocities (energy was 0.0581)
-2026-07-22 08:48:26.446 | Physics tick — 4 windows, energy=0.0550, state=normal, dragHwnd=0x0
-2026-07-22 08:48:26.447 | ApplyMovements — 0 moves across 37 ticks (avg 0.0/tick)
-2026-07-22 08:48:27.215 | Physics tick — 4 windows, energy=0.0580, state=normal, dragHwnd=0x0
-2026-07-22 08:48:27.467 | ApplyMovements — 0 moves across 39 ticks (avg 0.0/tick)
-2026-07-22 08:48:27.966 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:28.406 | Health beat — 4 windows, energy=0.0581, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-22 08:48:28.467 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:28.715 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:29.182 | WindowList — 4 windows detected on monitor 1
-2026-07-22 08:48:29.466 | ApplyMovements — 0 moves across 34 ticks (avg 0.0/tick)
-2026-07-22 08:48:29.529 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:30.261 | Settle — limit cycle detected, zeroed velocities (energy was 0.0581)
-2026-07-22 08:48:30.277 | Physics tick — 4 windows, energy=0.0054, state=normal, dragHwnd=0x0
-2026-07-22 08:48:30.466 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:31.030 | Physics tick — 4 windows, energy=0.0558, state=normal, dragHwnd=0x0
-2026-07-22 08:48:31.469 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:31.785 | Physics tick — 4 windows, energy=0.0580, state=normal, dragHwnd=0x0
-2026-07-22 08:48:32.474 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:32.537 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:33.174 | WindowList — 4 windows detected on monitor 1
-2026-07-22 08:48:33.283 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:33.406 | Health beat — 4 windows, energy=0.0581, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-22 08:48:33.470 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:34.031 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:34.468 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:34.762 | Settle — limit cycle detected, zeroed velocities (energy was 0.0581)
-2026-07-22 08:48:34.778 | Physics tick — 4 windows, energy=0.0054, state=normal, dragHwnd=0x0
-2026-07-22 08:48:35.476 | ApplyMovements — 0 moves across 39 ticks (avg 0.0/tick)
-2026-07-22 08:48:35.537 | Physics tick — 4 windows, energy=0.0558, state=normal, dragHwnd=0x0
-2026-07-22 08:48:36.289 | Physics tick — 4 windows, energy=0.0580, state=normal, dragHwnd=0x0
-2026-07-22 08:48:36.476 | ApplyMovements — 0 moves across 37 ticks (avg 0.0/tick)
-2026-07-22 08:48:37.035 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:37.178 | WindowList — 4 windows detected on monitor 1
-2026-07-22 08:48:37.473 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:37.787 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:38.400 | Health beat — 4 windows, energy=0.0581, drag=no, snap=0, phys=16ms, vis=0ms
-2026-07-22 08:48:38.477 | ApplyMovements — 0 moves across 39 ticks (avg 0.0/tick)
-2026-07-22 08:48:38.539 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:39.264 | Settle — limit cycle detected, zeroed velocities (energy was 0.0581)
-2026-07-22 08:48:39.280 | Physics tick — 4 windows, energy=0.0054, state=normal, dragHwnd=0x0
-2026-07-22 08:48:39.478 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:40.039 | Physics tick — 4 windows, energy=0.0558, state=normal, dragHwnd=0x0
-2026-07-22 08:48:40.492 | ApplyMovements — 0 moves across 36 ticks (avg 0.0/tick)
-2026-07-22 08:48:40.785 | Physics tick — 4 windows, energy=0.0580, state=normal, dragHwnd=0x0
-2026-07-22 08:48:41.174 | WindowList — 4 windows detected on monitor 1
-2026-07-22 08:48:41.483 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:41.528 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:42.280 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:42.481 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:43.029 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:43.403 | Health beat — 4 windows, energy=0.0581, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-22 08:48:43.481 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:43.761 | Settle — limit cycle detected, zeroed velocities (energy was 0.0581)
-2026-07-22 08:48:43.776 | Physics tick — 4 windows, energy=0.0054, state=normal, dragHwnd=0x0
-2026-07-22 08:48:44.479 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:44.526 | Physics tick — 4 windows, energy=0.0558, state=normal, dragHwnd=0x0
-2026-07-22 08:48:45.180 | WindowList — 4 windows detected on monitor 1
-2026-07-22 08:48:45.289 | Physics tick — 4 windows, energy=0.0580, state=normal, dragHwnd=0x0
-2026-07-22 08:48:45.492 | ApplyMovements — 0 moves across 37 ticks (avg 0.0/tick)
-2026-07-22 08:48:46.040 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:46.479 | ApplyMovements — 0 moves across 35 ticks (avg 0.0/tick)
-2026-07-22 08:48:46.776 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:47.491 | ApplyMovements — 0 moves across 37 ticks (avg 0.0/tick)
-2026-07-22 08:48:47.537 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:48.265 | Settle — limit cycle detected, zeroed velocities (energy was 0.0581)
-2026-07-22 08:48:48.280 | Physics tick — 4 windows, energy=0.0054, state=normal, dragHwnd=0x0
-2026-07-22 08:48:48.406 | Health beat — 4 windows, energy=0.0269, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-22 08:48:48.482 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:49.072 | Physics tick — 4 windows, energy=0.0558, state=normal, dragHwnd=0x0
-2026-07-22 08:48:49.166 | WindowList — 4 windows detected on monitor 1
-2026-07-22 08:48:49.493 | ApplyMovements — 0 moves across 36 ticks (avg 0.0/tick)
-2026-07-22 08:48:49.817 | Physics tick — 4 windows, energy=0.0580, state=normal, dragHwnd=0x0
-2026-07-22 08:48:50.489 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:50.566 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:51.318 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:51.490 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:52.064 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:52.483 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:52.779 | Settle — limit cycle detected, zeroed velocities (energy was 0.0581)
-2026-07-22 08:48:52.811 | Physics tick — 4 windows, energy=0.0054, state=normal, dragHwnd=0x0
-2026-07-22 08:48:53.182 | WindowList — 4 windows detected on monitor 1
-2026-07-22 08:48:53.402 | Health beat — 4 windows, energy=0.0534, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-22 08:48:53.495 | ApplyMovements — 0 moves across 36 ticks (avg 0.0/tick)
-2026-07-22 08:48:53.601 | Physics tick — 4 windows, energy=0.0558, state=normal, dragHwnd=0x0
-2026-07-22 08:48:54.348 | Physics tick — 4 windows, energy=0.0580, state=normal, dragHwnd=0x0
-2026-07-22 08:48:54.519 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:55.097 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:55.519 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:55.847 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:56.516 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:56.594 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:48:57.174 | WindowList — 4 windows detected on monitor 1
-2026-07-22 08:48:57.313 | Settle — limit cycle detected, zeroed velocities (energy was 0.0581)
-2026-07-22 08:48:57.345 | Physics tick — 4 windows, energy=0.0054, state=normal, dragHwnd=0x0
-2026-07-22 08:48:57.518 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:58.096 | Physics tick — 4 windows, energy=0.0558, state=normal, dragHwnd=0x0
-2026-07-22 08:48:58.409 | Health beat — 4 windows, energy=0.0575, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-22 08:48:58.518 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:58.845 | Physics tick — 4 windows, energy=0.0580, state=normal, dragHwnd=0x0
-2026-07-22 08:48:59.516 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:48:59.594 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:49:00.341 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:49:00.515 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:49:01.095 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:49:01.175 | WindowList — 4 windows detected on monitor 1
-2026-07-22 08:49:01.517 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:49:01.813 | Settle — limit cycle detected, zeroed velocities (energy was 0.0581)
-2026-07-22 08:49:01.845 | Physics tick — 4 windows, energy=0.0054, state=normal, dragHwnd=0x0
-2026-07-22 08:49:02.515 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:49:02.592 | Physics tick — 4 windows, energy=0.0558, state=normal, dragHwnd=0x0
-2026-07-22 08:49:03.341 | Physics tick — 4 windows, energy=0.0580, state=normal, dragHwnd=0x0
-2026-07-22 08:49:03.403 | Health beat — 4 windows, energy=0.0580, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-22 08:49:03.512 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:49:04.103 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:49:04.526 | ApplyMovements — 0 moves across 31 ticks (avg 0.0/tick)
-2026-07-22 08:49:04.840 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:49:05.201 | WindowList — 4 windows detected on monitor 1
-2026-07-22 08:49:05.528 | ApplyMovements — 0 moves across 38 ticks (avg 0.0/tick)
-2026-07-22 08:49:05.590 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:49:06.309 | Settle — limit cycle detected, zeroed velocities (energy was 0.0581)
-2026-07-22 08:49:06.341 | Physics tick — 4 windows, energy=0.0054, state=normal, dragHwnd=0x0
-2026-07-22 08:49:06.527 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:49:07.102 | Physics tick — 4 windows, energy=0.0558, state=normal, dragHwnd=0x0
-2026-07-22 08:49:07.539 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:49:07.848 | Physics tick — 4 windows, energy=0.0580, state=normal, dragHwnd=0x0
-2026-07-22 08:49:08.406 | Health beat — 4 windows, energy=0.0581, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-22 08:49:08.534 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:49:08.596 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:49:09.203 | WindowList — 4 windows detected on monitor 1
-2026-07-22 08:49:09.344 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:49:09.534 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:49:10.096 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
-2026-07-22 08:49:10.530 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:49:10.811 | Settle — limit cycle detected, zeroed velocities (energy was 0.0581)
-2026-07-22 08:49:10.843 | Physics tick — 4 windows, energy=0.0054, state=normal, dragHwnd=0x0
-2026-07-22 08:49:11.528 | ApplyMovements — 0 moves across 40 ticks (avg 0.0/tick)
-2026-07-22 08:49:11.589 | Physics tick — 4 windows, energy=0.0558, state=normal, dragHwnd=0x0
-2026-07-22 08:49:12.357 | Physics tick — 4 windows, energy=0.0703, state=normal, dragHwnd=0x0
-2026-07-22 08:49:12.526 | ApplyMovements — 19 moves across 36 ticks (avg 0.5/tick)
-2026-07-22 08:49:13.116 | Physics tick — 4 windows, energy=0.1305, state=chaos, dragHwnd=0x0
-2026-07-22 08:49:13.211 | WindowList — 4 windows detected on monitor 1
+2026-07-22 08:49:41.966 | Startup — desktop icon scan: 0 obstacles
+2026-07-22 08:49:41.008 | PhysicsLoop — 4 windows tracked, 0 icon obstacles loaded
+2026-07-22 08:49:42.010 | ApplyMovements — 0 moves across 1 ticks (avg 0.0/tick)
+2026-07-22 08:49:42.461 | Physics tick — 4 windows, energy=0.0972, state=normal, dragHwnd=0x0
+2026-07-22 08:49:42.931 | Physics tick — 4 windows, energy=0.1019, state=normal, dragHwnd=0x0
+2026-07-22 08:49:43.024 | ApplyMovements — 7 moves across 65 ticks (avg 0.1/tick)
+2026-07-22 08:49:43.392 | Physics tick — 4 windows, energy=0.0836, state=normal, dragHwnd=0x0
+2026-07-22 08:49:43.859 | Physics tick — 4 windows, energy=0.0585, state=normal, dragHwnd=0x0
+2026-07-22 08:49:44.014 | ApplyMovements — 7 moves across 64 ticks (avg 0.1/tick)
+2026-07-22 08:49:44.339 | Physics tick — 4 windows, energy=0.0579, state=normal, dragHwnd=0x0
+2026-07-22 08:49:44.853 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:45.010 | ApplyMovements — 2 moves across 60 ticks (avg 0.0/tick)
+2026-07-22 08:49:45.315 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:45.771 | WindowList — 4 windows detected on monitor 1
+2026-07-22 08:49:45.785 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:46.019 | ApplyMovements — 0 moves across 65 ticks (avg 0.0/tick)
+2026-07-22 08:49:46.253 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:46.719 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:46.984 | Settle — limit cycle detected, zeroed velocities (energy was 0.0581)
+2026-07-22 08:49:46.001 | Health beat — 4 windows, energy=0.0054, drag=no, snap=0, phys=0ms, vis=0ms
+2026-07-22 08:49:47.016 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:49:47.186 | Physics tick — 4 windows, energy=0.0432, state=normal, dragHwnd=0x0
+2026-07-22 08:49:47.657 | Physics tick — 4 windows, energy=0.0574, state=normal, dragHwnd=0x0
+2026-07-22 08:49:48.019 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:49:48.128 | Physics tick — 4 windows, energy=0.0580, state=normal, dragHwnd=0x0
+2026-07-22 08:49:48.594 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:49.011 | ApplyMovements — 0 moves across 63 ticks (avg 0.0/tick)
+2026-07-22 08:49:49.074 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:49.545 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:49.766 | WindowList — 4 windows detected on monitor 1
+2026-07-22 08:49:50.013 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:50.013 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:49:50.480 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:50.932 | Settle — limit cycle detected, zeroed velocities (energy was 0.0581)
+2026-07-22 08:49:50.978 | Physics tick — 4 windows, energy=0.0154, state=normal, dragHwnd=0x0
+2026-07-22 08:49:50.009 | ApplyMovements — 0 moves across 62 ticks (avg 0.0/tick)
+2026-07-22 08:49:51.440 | Physics tick — 4 windows, energy=0.0563, state=normal, dragHwnd=0x0
+2026-07-22 08:49:51.907 | Physics tick — 4 windows, energy=0.0580, state=normal, dragHwnd=0x0
+2026-07-22 08:49:52.000 | Health beat — 4 windows, energy=0.0580, drag=no, snap=0, phys=0ms, vis=0ms
+2026-07-22 08:49:52.015 | ApplyMovements — 0 moves across 65 ticks (avg 0.0/tick)
+2026-07-22 08:49:52.374 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:52.841 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:53.010 | ApplyMovements — 0 moves across 63 ticks (avg 0.0/tick)
+2026-07-22 08:49:53.321 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:53.776 | WindowList — 4 windows detected on monitor 1
+2026-07-22 08:49:53.790 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:54.023 | ApplyMovements — 0 moves across 65 ticks (avg 0.0/tick)
+2026-07-22 08:49:54.256 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:54.725 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:54.857 | Settle — limit cycle detected, zeroed velocities (energy was 0.0581)
+2026-07-22 08:49:55.022 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:49:55.193 | Physics tick — 4 windows, energy=0.0517, state=normal, dragHwnd=0x0
+2026-07-22 08:49:55.659 | Physics tick — 4 windows, energy=0.0578, state=normal, dragHwnd=0x0
+2026-07-22 08:49:56.014 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:49:56.123 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:56.590 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:57.000 | Health beat — 4 windows, energy=0.0581, drag=no, snap=0, phys=0ms, vis=0ms
+2026-07-22 08:49:57.014 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:49:57.059 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:57.553 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:57.774 | WindowList — 4 windows detected on monitor 1
+2026-07-22 08:49:58.022 | Physics tick — 4 windows, energy=0.0581, state=normal, dragHwnd=0x0
+2026-07-22 08:49:58.022 | ApplyMovements — 0 moves across 63 ticks (avg 0.0/tick)
+2026-07-22 08:49:58.485 | Physics tick — 4 windows, energy=0.0758, state=normal, dragHwnd=0x0
+2026-07-22 08:49:58.950 | Physics tick — 4 windows, energy=0.0795, state=normal, dragHwnd=0x0
+2026-07-22 08:49:59.018 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:49:59.425 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:49:59.895 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:00.023 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:00.368 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:00.833 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:01.023 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:01.304 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:01.770 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:01.789 | WindowList — 4 windows detected on monitor 1
+2026-07-22 08:50:02.003 | Health beat — 4 windows, energy=0.0796, drag=no, snap=0, phys=0ms, vis=0ms
+2026-07-22 08:50:02.017 | Settle — limit cycle detected, zeroed velocities (energy was 0.0796)
+2026-07-22 08:50:02.018 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:02.236 | Physics tick — 4 windows, energy=0.0611, state=normal, dragHwnd=0x0
+2026-07-22 08:50:02.705 | Physics tick — 4 windows, energy=0.0788, state=normal, dragHwnd=0x0
+2026-07-22 08:50:03.019 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:03.177 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:03.643 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:04.018 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:04.113 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:04.579 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:05.016 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:05.046 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:05.512 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:05.790 | WindowList — 4 windows detected on monitor 1
+2026-07-22 08:50:06.006 | Settle — limit cycle detected, zeroed velocities (energy was 0.0796)
+2026-07-22 08:50:06.006 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:06.022 | ApplyMovements — 0 moves across 63 ticks (avg 0.0/tick)
+2026-07-22 08:50:06.470 | Physics tick — 4 windows, energy=0.0762, state=normal, dragHwnd=0x0
+2026-07-22 08:50:06.936 | Physics tick — 4 windows, energy=0.0795, state=normal, dragHwnd=0x0
+2026-07-22 08:50:07.000 | Health beat — 4 windows, energy=0.0795, drag=no, snap=0, phys=0ms, vis=0ms
+2026-07-22 08:50:07.015 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:07.404 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:07.874 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:08.016 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:08.341 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:08.808 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:09.014 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:09.278 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:09.747 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:09.778 | WindowList — 4 windows detected on monitor 1
+2026-07-22 08:50:09.978 | Settle — limit cycle detected, zeroed velocities (energy was 0.0796)
+2026-07-22 08:50:09.026 | ApplyMovements — 0 moves across 62 ticks (avg 0.0/tick)
+2026-07-22 08:50:10.291 | Physics tick — 4 windows, energy=0.0661, state=normal, dragHwnd=0x0
+2026-07-22 08:50:10.774 | Physics tick — 4 windows, energy=0.0790, state=normal, dragHwnd=0x0
+2026-07-22 08:50:11.035 | ApplyMovements — 0 moves across 62 ticks (avg 0.0/tick)
+2026-07-22 08:50:11.238 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:11.703 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:11.998 | Health beat — 4 windows, energy=0.0796, drag=no, snap=0, phys=0ms, vis=0ms
+2026-07-22 08:50:11.028 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:12.168 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:12.645 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:13.036 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:13.115 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:13.586 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:13.792 | WindowList — 4 windows detected on monitor 1
+2026-07-22 08:50:14.010 | Settle — limit cycle detected, zeroed velocities (energy was 0.0796)
+2026-07-22 08:50:14.027 | ApplyMovements — 0 moves across 61 ticks (avg 0.0/tick)
+2026-07-22 08:50:14.090 | Physics tick — 4 windows, energy=0.0318, state=normal, dragHwnd=0x0
+2026-07-22 08:50:14.566 | Physics tick — 4 windows, energy=0.0776, state=normal, dragHwnd=0x0
+2026-07-22 08:50:15.034 | Physics tick — 4 windows, energy=0.0795, state=normal, dragHwnd=0x0
+2026-07-22 08:50:15.034 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:15.509 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:15.973 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:16.034 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:16.438 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:16.904 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:16.998 | Health beat — 4 windows, energy=0.0796, drag=no, snap=0, phys=0ms, vis=0ms
+2026-07-22 08:50:16.028 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:17.371 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:17.798 | WindowList — 4 windows detected on monitor 1
+2026-07-22 08:50:17.841 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:17.997 | Settle — limit cycle detected, zeroed velocities (energy was 0.0796)
+2026-07-22 08:50:17.028 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:18.324 | Physics tick — 4 windows, energy=0.0698, state=normal, dragHwnd=0x0
+2026-07-22 08:50:18.837 | Physics tick — 4 windows, energy=0.0792, state=normal, dragHwnd=0x0
+2026-07-22 08:50:19.039 | ApplyMovements — 0 moves across 61 ticks (avg 0.0/tick)
+2026-07-22 08:50:19.303 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:19.768 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:20.031 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:20.235 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:20.702 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:21.028 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:21.167 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:21.638 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:21.798 | WindowList — 4 windows detected on monitor 1
+2026-07-22 08:50:21.999 | Health beat — 4 windows, energy=0.0796, drag=no, snap=0, phys=0ms, vis=0ms
+2026-07-22 08:50:21.029 | Settle — limit cycle detected, zeroed velocities (energy was 0.0796)
+2026-07-22 08:50:22.030 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:22.108 | Physics tick — 4 windows, energy=0.0318, state=normal, dragHwnd=0x0
+2026-07-22 08:50:22.577 | Physics tick — 4 windows, energy=0.0776, state=normal, dragHwnd=0x0
+2026-07-22 08:50:23.038 | ApplyMovements — 0 moves across 56 ticks (avg 0.0/tick)
+2026-07-22 08:50:23.177 | Physics tick — 4 windows, energy=0.0795, state=normal, dragHwnd=0x0
+2026-07-22 08:50:23.643 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:24.033 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:24.111 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:24.580 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:25.031 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:25.047 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:25.517 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:25.907 | WindowList — 4 windows detected on monitor 1
+2026-07-22 08:50:25.982 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:25.031 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:26.138 | Settle — limit cycle detected, zeroed velocities (energy was 0.0796)
+2026-07-22 08:50:26.463 | Physics tick — 4 windows, energy=0.0698, state=normal, dragHwnd=0x0
+2026-07-22 08:50:26.938 | Physics tick — 4 windows, energy=0.0792, state=normal, dragHwnd=0x0
+2026-07-22 08:50:27.007 | Health beat — 4 windows, energy=0.0793, drag=no, snap=0, phys=0ms, vis=0ms
+2026-07-22 08:50:27.037 | ApplyMovements — 0 moves across 63 ticks (avg 0.0/tick)
+2026-07-22 08:50:27.409 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:27.874 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:28.031 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:28.344 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:28.811 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:29.035 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:29.283 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:29.748 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:29.904 | WindowList — 4 windows detected on monitor 1
+2026-07-22 08:50:30.029 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:30.136 | Settle — limit cycle detected, zeroed velocities (energy was 0.0796)
+2026-07-22 08:50:30.228 | Physics tick — 4 windows, energy=0.0318, state=normal, dragHwnd=0x0
+2026-07-22 08:50:30.696 | Physics tick — 4 windows, energy=0.0584, state=normal, dragHwnd=0x0
+2026-07-22 08:50:31.038 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:31.164 | Physics tick — 4 windows, energy=0.0577, state=normal, dragHwnd=0x0
+2026-07-22 08:50:31.629 | Physics tick — 4 windows, energy=0.0576, state=normal, dragHwnd=0x0
+2026-07-22 08:50:32.003 | Health beat — 4 windows, energy=0.0576, drag=no, snap=0, phys=0ms, vis=0ms
+2026-07-22 08:50:32.033 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:32.094 | Physics tick — 4 windows, energy=0.0576, state=normal, dragHwnd=0x0
+2026-07-22 08:50:32.563 | Physics tick — 4 windows, energy=0.0576, state=normal, dragHwnd=0x0
+2026-07-22 08:50:33.030 | Physics tick — 4 windows, energy=0.0576, state=normal, dragHwnd=0x0
+2026-07-22 08:50:33.030 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:33.497 | Physics tick — 4 windows, energy=0.0576, state=normal, dragHwnd=0x0
+2026-07-22 08:50:33.932 | WindowList — 4 windows detected on monitor 1
+2026-07-22 08:50:33.993 | Physics tick — 4 windows, energy=0.0576, state=normal, dragHwnd=0x0
+2026-07-22 08:50:33.009 | Settle — limit cycle detected, zeroed velocities (energy was 0.0576)
+2026-07-22 08:50:34.026 | ApplyMovements — 0 moves across 62 ticks (avg 0.0/tick)
+2026-07-22 08:50:34.454 | Physics tick — 4 windows, energy=0.0549, state=normal, dragHwnd=0x0
+2026-07-22 08:50:34.924 | Physics tick — 4 windows, energy=0.0575, state=normal, dragHwnd=0x0
+2026-07-22 08:50:35.034 | ApplyMovements — 0 moves across 65 ticks (avg 0.0/tick)
+2026-07-22 08:50:35.390 | Physics tick — 4 windows, energy=0.0576, state=normal, dragHwnd=0x0
+2026-07-22 08:50:35.857 | Physics tick — 4 windows, energy=0.0576, state=normal, dragHwnd=0x0
+2026-07-22 08:50:36.030 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:36.354 | Physics tick — 4 windows, energy=0.0576, state=normal, dragHwnd=0x0
+2026-07-22 08:50:36.824 | Physics tick — 4 windows, energy=0.0576, state=normal, dragHwnd=0x0
+2026-07-22 08:50:37.011 | Health beat — 4 windows, energy=0.0576, drag=no, snap=0, phys=16ms, vis=0ms
+2026-07-22 08:50:37.025 | ApplyMovements — 0 moves across 60 ticks (avg 0.0/tick)
+2026-07-22 08:50:37.321 | Physics tick — 4 windows, energy=0.0576, state=normal, dragHwnd=0x0
+2026-07-22 08:50:37.785 | Physics tick — 4 windows, energy=0.0576, state=normal, dragHwnd=0x0
+2026-07-22 08:50:37.938 | WindowList — 4 windows detected on monitor 1
+2026-07-22 08:50:37.949 | Settle — limit cycle detected, zeroed velocities (energy was 0.0576)
+2026-07-22 08:50:38.032 | ApplyMovements — 0 moves across 65 ticks (avg 0.0/tick)
+2026-07-22 08:50:38.251 | Physics tick — 4 windows, energy=0.0498, state=normal, dragHwnd=0x0
+2026-07-22 08:50:38.720 | Physics tick — 4 windows, energy=0.0573, state=normal, dragHwnd=0x0
+2026-07-22 08:50:39.033 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:39.189 | Physics tick — 4 windows, energy=0.0587, state=normal, dragHwnd=0x0
+2026-07-22 08:50:39.653 | Physics tick — 4 windows, energy=0.0787, state=normal, dragHwnd=0x0
+2026-07-22 08:50:40.030 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-22 08:50:40.122 | Physics tick — 4 windows, energy=0.0796, state=normal, dragHwnd=0x0
+2026-07-22 08:50:40.606 | Physics tick — 4 windows, energy=0.0922, state=normal, dragHwnd=0x0
+2026-07-22 08:50:41.030 | ApplyMovements — 33 moves across 61 ticks (avg 0.5/tick)
+2026-07-22 08:50:41.118 | Physics tick — 5 windows, energy=0.2164, state=chaos, dragHwnd=0x0
+2026-07-22 08:50:41.575 | Physics tick — 5 windows, energy=0.2310, state=chaos, dragHwnd=0x0
+2026-07-22 08:50:41.954 | WindowList — 5 windows detected on monitor 1

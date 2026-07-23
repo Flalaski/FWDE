@@ -66,7 +66,7 @@ Edit line 5 in `installer.iss`:
 Edit lines 6-7 in `installer.iss`:
 ```pascal
 #define MyAppPublisher "Your Name"
-#define MyAppURL "https://github.com/yourusername/FWDE"
+#define MyAppURL "https://github.com/Flalaski/FWDE"
 ```
 
 ### Adding More Files

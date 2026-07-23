@@ -1279,27 +1279,13 @@ _GetClassNameSafe(hwnd) {
     return StrGet(clsBuf)
 }
 
-; Find a SysListView32 under hParent using only GetWindow (reads linked list, zero messages)
+; Find a SysListView32 under hParent using FindWindowEx (single kernel call,
+; searches all descendants recursively, zero window messages, safe for Explorer).
 _FindLV(hParent) {
     if (!hParent)
         return 0
-    hChild := DllCall("GetWindow", "Ptr", hParent, "UInt", 5, "Ptr")
-    loop 100 {
-        if (!hChild)
-            break
-        if (_GetClassNameSafe(hChild) = "SysListView32")
-            return hChild
-        hGrand := DllCall("GetWindow", "Ptr", hChild, "UInt", 5, "Ptr")
-        loop 50 {
-            if (!hGrand)
-                break
-            if (_GetClassNameSafe(hGrand) = "SysListView32")
-                return hGrand
-            hGrand := DllCall("GetWindow", "Ptr", hGrand, "UInt", 2, "Ptr")
-        }
-        hChild := DllCall("GetWindow", "Ptr", hChild, "UInt", 2, "Ptr")
-    }
-    return 0
+    ; FindWindowEx with null hWndAfter searches the entire descendant tree
+    return DllCall("FindWindowEx", "Ptr", hParent, "Ptr", 0, "Str", "SysListView32", "Ptr", 0, "Ptr")
 }
 
 ; Find desktop ListView through any available safe path (zero messages).

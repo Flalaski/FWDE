@@ -479,8 +479,14 @@ if (g["ArrangementActive"])
 ; Start physics and visual timers
 SetTimerEx(CalculateDynamicLayout, Config["PhysicsTimeStep"]), SetTimerEx(ApplyWindowMovements, Config["VisualTimeStep"])
 
-; --- One-time startup: prime the desktop icon cache and show diagnostic ---
-{
+; --- Deferred startup: prime the desktop icon cache after shell initialization ---
+; Desktop ListView may not exist yet at script start (shell still initializing).
+; Defer by 2.5s to give Progman/WorkerW windows time to materialize.
+; If icon repulsion is OFF, the scan is a no-op cost anyway.
+SetTimerEx(DoStartupIconScan, -2500)
+
+DoStartupIconScan() {
+    global g, DebugMode
     fresh := GetDesktopIconRects()
     if (fresh.Length > 0)
         g["DesktopIconRects"] := fresh
@@ -1296,36 +1302,43 @@ _FindLV(hParent) {
     return 0
 }
 
-; Find desktop ListView through any available safe path (zero messages)
+; Find desktop ListView through any available safe path (zero messages).
+; Includes a lightweight internal retry: the desktop shell may not be ready on first
+; attempt, especially during startup or after session unlock / virtual-desktop switches.
 _FindDesktopLV() {
-    ; Try Progman
-    hProgman := DllCall("FindWindow", "Str", "Progman", "Ptr", 0, "Ptr")
-    if (hProgman) {
-        result := _FindLV(hProgman)
-        if (result)
-            return result
-    }
-    ; Try WorkerW windows
-    hWorkerW := DllCall("FindWindow", "Str", "WorkerW", "Ptr", 0, "Ptr")
-    while (hWorkerW) {
-        result := _FindLV(hWorkerW)
-        if (result)
-            return result
-        hWorkerW := DllCall("GetWindow", "Ptr", hWorkerW, "UInt", 2, "Ptr")
-    }
-    ; Try COM Shell.Application
-    try {
-        shell := ComObject("Shell.Application")
-        for w in shell.Windows {
-            try {
-                hwnd := w.HWND
-                if (hwnd) {
-                    result := _FindLV(hwnd)
-                    if (result)
-                        return result
+    loop 2 {  ; One immediate attempt, one retry after 200ms
+        ; Try Progman
+        hProgman := DllCall("FindWindow", "Str", "Progman", "Ptr", 0, "Ptr")
+        if (hProgman) {
+            result := _FindLV(hProgman)
+            if (result)
+                return result
+        }
+        ; Try WorkerW windows
+        hWorkerW := DllCall("FindWindow", "Str", "WorkerW", "Ptr", 0, "Ptr")
+        while (hWorkerW) {
+            result := _FindLV(hWorkerW)
+            if (result)
+                return result
+            hWorkerW := DllCall("GetWindow", "Ptr", hWorkerW, "UInt", 2, "Ptr")
+        }
+        ; Try COM Shell.Application
+        try {
+            shell := ComObject("Shell.Application")
+            for w in shell.Windows {
+                try {
+                    hwnd := w.HWND
+                    if (hwnd) {
+                        result := _FindLV(hwnd)
+                        if (result)
+                            return result
+                    }
                 }
             }
         }
+
+        if (A_Index < 2)
+            Sleep(200)
     }
     return 0
 }
@@ -4287,9 +4300,7 @@ CollectParameterSpecsRecursive(mapRef, prefix := "") {
             continue
         }
 
-        if !(val is Number)
-            continue
-
+        ; Check booleans BEFORE the Number gate — AHK v2 true/false are not Numbers
         if (ShouldTreatAsBoolean(path)) {
             specs.Push(Map(
                 "path", path,
@@ -4297,9 +4308,13 @@ CollectParameterSpecsRecursive(mapRef, prefix := "") {
                 "type", "bool",
                 "default", !!val
             ))
-        } else {
-            specs.Push(BuildNumericParamSpec(path, val))
+            continue
         }
+
+        if !(val is Number)
+            continue
+
+        specs.Push(BuildNumericParamSpec(path, val))
     }
     return specs
 }
@@ -5238,7 +5253,13 @@ HealthMonitor() {
             lastIconRetry := now  ; prime to prevent immediate first-fire
         if (Config["DesktopIconRepulsion"] && !g["_iconZonesLive"] && now - lastIconRetry > 30000) {
             lastIconRetry := now
-            GetDesktopIconRects()  ; internal retry logic handles debouncing
+            fresh := GetDesktopIconRects()
+            if (fresh.Length > 0) {
+                g["DesktopIconRects"] := fresh
+                g["DesktopIconLastRefresh"] := A_TickCount
+                DebugLog("IconRetry — LV found after fallback, {} obstacles, {} zones",
+                    fresh.Length, g["_iconZones"].Length)
+            }
         }
 
         ; --- 7. Report ---

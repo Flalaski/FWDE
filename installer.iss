@@ -1,7 +1,7 @@
 ; FWDE installer
 
 #define MyAppName "FWDE"
-#define MyAppVersion "1.260723"
+#define MyAppVersion "1.260724"
 #define MyAppPublisher "Flalaski"
 #define MyAppURL "https://flalaski.com"
 #define MyAppExeName "FWDE.exe"

@@ -214,6 +214,7 @@ global g := Map(
     "_hbWatchdog", A_TickCount,  ; Heartbeat: last HealthMonitor tick
     "_snapOldestTick", 0,        ; TickCount of oldest SnapInProgress entry
     "_recoveryCount", 0,         ; Count of auto-recoveries performed
+    "_settleCooldown", 0,        ; TickCount when settle cooldown expires (0 = no cooldown)
     "_dragFailsafeCount", 0,     ; Count of drag-thread force-resets
     "_snapFailsafeCount", 0,     ; Count of SnapInProgress force-clears
     "_draggedHwnd", 0,           ; Cached drag handle, recomputed each physics tick
@@ -2640,9 +2641,12 @@ CalculateDynamicLayout() {
 
     ; Limit-cycle detection: if energy is stable for >3s with no drag, force-settle
     ; Prevents indefinite oscillation (one window bouncing between force sources)
+    ; After settling, a cooldown (~10s) prevents immediate re-triggering while
+    ; the direct overlap resolution has time to take effect.
     static settleEnergy := 0.0
     static settleTick := 0
-    if (normEnergy > 0.001 && normEnergy < 0.5 && g["_draggedHwnd"] == 0 && g["Windows"].Length > 1) {
+    settleCooldownActive := (g["_settleCooldown"] != 0 && A_TickCount < g["_settleCooldown"])
+    if (!settleCooldownActive && normEnergy > 0.001 && normEnergy < 0.5 && g["_draggedHwnd"] == 0 && g["Windows"].Length > 1) {
         if (Abs(normEnergy - settleEnergy) < 0.0005) {
             if (settleTick == 0)
                 settleTick := A_TickCount
@@ -2654,7 +2658,20 @@ CalculateDynamicLayout() {
                 }
                 ; Drop energy measurement so state can transition to normal
                 g["SystemEnergy"] := 1.0
-                DebugLog("Settle — limit cycle detected, zeroed velocities (energy was {:.4f})", normEnergy)
+
+                ; CRITICAL: Also resolve overlaps directly — zeroing velocities alone
+                ; leaves windows overlapping, which immediately regenerates energy on
+                ; the next tick. Direct position adjustment breaks the settle→rebuild loop.
+                anyResolved := ResolveOverlapsDirect(g["Windows"])
+
+                ; Set cooldown to prevent immediate re-triggering (~10s).
+                ; This gives the resolved state time to stabilize.
+                g["_settleCooldown"] := A_TickCount + 10000
+
+                if (anyResolved)
+                    DebugLog("Settle — limit cycle detected, zeroed velocities + direct overlap resolution applied (energy was {:.4f})", normEnergy)
+                else
+                    DebugLog("Settle — limit cycle detected, zeroed velocities (energy was {:.4f}, no overlaps to resolve directly)", normEnergy)
                 settleTick := 0
                 settleEnergy := 0.0
             }
@@ -2669,7 +2686,10 @@ CalculateDynamicLayout() {
 
     ; Gentle collision resolution (no rigid partitioning)
     ; Skip when system is settled (low energy, no drag) — saves ~2.5N² pair checks
-    if (g["Windows"].Length > 1 && (g["SystemEnergy"] > 0.5 || g["_draggedHwnd"] != 0)) {
+    ; Uses normalized energy threshold: raw SystemEnergy / windowCount / 10000 > EnergyThreshold * 0.5
+    ; This replaces the old raw > 0.5 check which was always true at any non-trivial energy level.
+    resolveThreshold := Config["Stabilization"]["EnergyThreshold"] * Max(g["Windows"].Length, 1) * 5000
+    if (g["Windows"].Length > 1 && (g["SystemEnergy"] > resolveThreshold || g["_draggedHwnd"] != 0)) {
         ResolveFloatingCollisions(g["Windows"])
     }
 
@@ -2861,6 +2881,160 @@ ResolveFloatingCollisions(windows) {
             break
     }
     _PerfEnd("RFC", pr)
+}
+
+; ────────────────────────────────────────────────────────────────────────────────
+;  DIRECT OVERLAP RESOLUTION — called after a limit-cycle settle to physically
+;  separate overlapping windows by adjusting their positions (not velocities).
+;  This breaks the settle→rebuild cycle by ensuring windows no longer overlap
+;  after velocities are zeroed, so the next force calculation starts from a
+;  clean state instead of immediately regenerating energy.
+; ────────────────────────────────────────────────────────────────────────────────
+ResolveOverlapsDirect(windows) {
+    global Config, g
+    pr := _PerfStart()
+
+    ; Use cached drag state (computed once per tick in CalculateDynamicLayout)
+    draggedHwnd := g["_draggedHwnd"]
+    isDragging := (draggedHwnd != 0)
+
+    ; Pre-compute protection state for all windows
+    protection := Map()
+    for win in windows {
+        try {
+            if (WinGetMinMax("ahk_id " win["hwnd"]) != 0 || IsFullscreenWindow(win["hwnd"])) {
+                protection[win["hwnd"]] := "skip"
+                continue
+            }
+        } catch {
+            protection[win["hwnd"]] := "skip"
+            continue
+        }
+
+        isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
+        isActive := (win["hwnd"] == g["ActiveWindow"])
+        isBeingSnapped := g["SnapInProgress"].Has(win["hwnd"]) && A_TickCount < g["SnapInProgress"][win["hwnd"]]
+
+        if (isManuallyLocked || (isActive && !isDragging) || isBeingSnapped)
+            protection[win["hwnd"]] := "protected"
+        else
+            protection[win["hwnd"]] := "free"
+    }
+
+    ; Use a tighter overlap threshold than the normal physics tolerance
+    ; to ensure windows are truly separated after a settle.
+    ; Config["CollisionOverlapThreshold"] is ~100px for chain-effect triggers;
+    ; we use half that (50px) to resolve moderate overlaps decisively.
+    resolveThreshold := Max(10, Config["CollisionOverlapThreshold"] // 2)
+
+    anyMoved := false
+    maxPasses := 5
+
+    ; Multi-pass to handle chain overlaps: pushing A away from B
+    ; might cause A to overlap C — iterate until stable.
+    loop maxPasses {
+        passMadeChanges := false
+
+        for i, win1 in windows {
+            if (protection[win1["hwnd"]] == "skip")
+                continue
+
+            isProtected1 := (protection[win1["hwnd"]] == "protected")
+            if (isProtected1)
+                continue  ; Skip fully-protected windows entirely
+
+            for j, win2 in windows {
+                if (i >= j)
+                    continue
+
+                if (protection[win2["hwnd"]] == "skip")
+                    continue
+
+                isProtected2 := (protection[win2["hwnd"]] == "protected")
+                if (isProtected1 && isProtected2)
+                    continue
+
+                ; Calculate current overlap
+                overlapX := Max(0, Min(win1["x"] + win1["width"], win2["x"] + win2["width"]) - Max(win1["x"], win2["x"]))
+                overlapY := Max(0, Min(win1["y"] + win1["height"], win2["y"] + win2["height"]) - Max(win1["y"], win2["y"]))
+
+                if (overlapX > resolveThreshold && overlapY > resolveThreshold) {
+                    ; Calculate center-to-center direction
+                    c1x := win1["x"] + win1["width"] / 2
+                    c1y := win1["y"] + win1["height"] / 2
+                    c2x := win2["x"] + win2["width"] / 2
+                    c2y := win2["y"] + win2["height"] / 2
+
+                    dx := c1x - c2x
+                    dy := c1y - c2y
+
+                    ; Choose separation axis: push along the axis with LESS overlap
+                    ; (the path of least resistance), using the overlap center direction
+                    ; to decide push sign.
+                    if (overlapX <= overlapY) {
+                        ; Separate horizontally
+                        pushDir := (dx >= 0) ? 1 : -1
+                        pushDist := overlapX - resolveThreshold + 10  ; +10px margin for clean break
+                        pushX := pushDir * Max(pushDist, overlapX + 1)
+                        pushY := 0
+                    } else {
+                        ; Separate vertically
+                        pushDir := (dy >= 0) ? 1 : -1
+                        pushDist := overlapY - resolveThreshold + 10
+                        pushY := pushDir * Max(pushDist, overlapY + 1)
+                        pushX := 0
+                    }
+
+                    ; Apply push — distribute based on protection state, split equally if both free
+                    if (!isProtected1 && !isProtected2) {
+                        win1["x"] += pushX / 2
+                        win1["y"] += pushY / 2
+                        win2["x"] -= pushX / 2
+                        win2["y"] -= pushY / 2
+                    } else if (!isProtected1) {
+                        win1["x"] += pushX
+                        win1["y"] += pushY
+                    } else {
+                        win2["x"] -= pushX
+                        win2["y"] -= pushY
+                    }
+
+                    passMadeChanges := true
+                }
+            }
+        }
+
+        if (!passMadeChanges)
+            break
+
+        anyMoved := true
+    }
+
+    ; Clamp all free windows to monitor bounds after position adjustments
+    for win in windows {
+        if (protection[win["hwnd"]] == "skip")
+            continue
+
+        try {
+            if (Config["MultimonitorExpanse"]) {
+                vb := GetVirtualDesktopBounds()
+                mL := vb["Left"]
+                mT := vb["Top"]
+                mR := vb["Right"]
+                mB := vb["Bottom"]
+            } else {
+                SafeMonitorGetWorkArea(win["monitor"], &mL, &mT, &mR, &mB)
+            }
+
+            win["x"] := Max(mL + Config["MinMargin"], Min(win["x"], mR - win["width"] - Config["MinMargin"]))
+            win["y"] := Max(mT + Config["MinMargin"], Min(win["y"], mB - win["height"] - Config["MinMargin"]))
+        } catch {
+            continue
+        }
+    }
+
+    _PerfEnd("ROD", pr)
+    return anyMoved
 }
 
 

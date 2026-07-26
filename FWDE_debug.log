@@ -1,220 +1,220 @@
-﻿FWDE Debug Log — 20260726102738
-26/07/2026 10:27:38
+﻿FWDE Debug Log — 20260726104647
+26/07/2026 10:46:47
 
 Entries: 215
 
-2026-07-26 10:26:38.647 | ApplyMovements — 0 moves across 1 ticks (avg 0.0/tick)
-2026-07-26 10:26:38.653 | PhysicsLoop — 6 windows tracked, 0 icon obstacles loaded
-2026-07-26 10:26:39.066 | Physics tick — 6 windows, energy=0.4551, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:39.535 | Physics tick — 6 windows, energy=0.4492, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:39.641 | ApplyMovements — 78 moves across 66 ticks (avg 1.2/tick)
-2026-07-26 10:26:39.998 | Physics tick — 6 windows, energy=0.4489, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:40.468 | Physics tick — 6 windows, energy=0.4489, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:40.642 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:26:40.938 | Physics tick — 6 windows, energy=0.4488, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:41.079 | Startup — desktop icon scan: 0 obstacles
-2026-07-26 10:26:41.440 | Physics tick — 6 windows, energy=0.4488, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:41.645 | ApplyMovements — 0 moves across 62 ticks (avg 0.0/tick)
-2026-07-26 10:26:41.927 | Physics tick — 6 windows, energy=0.3964, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:42.393 | Physics tick — 6 windows, energy=0.3163, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:42.397 | WindowList — 6 windows detected on monitor 1
-2026-07-26 10:26:42.648 | ApplyMovements — 61 moves across 63 ticks (avg 1.0/tick)
-2026-07-26 10:26:42.866 | Physics tick — 6 windows, energy=0.3041, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:43.337 | Physics tick — 6 windows, energy=0.3049, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:43.635 | ApplyMovements — 25 moves across 63 ticks (avg 0.4/tick)
-2026-07-26 10:26:43.638 | Health beat — 6 windows, energy=0.3056, drag=no, snap=0, phys=15ms, vis=0ms
-2026-07-26 10:26:43.807 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:44.312 | Physics tick — 6 windows, energy=0.3067, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:45.131 | ApplyMovements — 9 moves across 59 ticks (avg 0.2/tick)
-2026-07-26 10:26:45.328 | Physics tick — 6 windows, energy=0.3071, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:45.798 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:46.125 | ApplyMovements — 2 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:26:46.280 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:46.761 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:46.874 | WindowList — 6 windows detected on monitor 1
-2026-07-26 10:26:47.137 | ApplyMovements — 0 moves across 62 ticks (avg 0.0/tick)
-2026-07-26 10:26:47.295 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:47.778 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:48.136 | ApplyMovements — 0 moves across 63 ticks (avg 0.0/tick)
-2026-07-26 10:26:48.245 | Settle — limit cycle detected, zeroed velocities + direct overlap resolution applied (energy was 0.3073)
-2026-07-26 10:26:48.275 | Physics tick — 6 windows, energy=0.0380, state=normal, dragHwnd=0x0
-2026-07-26 10:26:48.642 | Health beat — 6 windows, energy=0.2818, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-26 10:26:48.765 | Physics tick — 6 windows, energy=0.2955, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:49.141 | ApplyMovements — 52 moves across 65 ticks (avg 0.8/tick)
-2026-07-26 10:26:49.233 | Physics tick — 6 windows, energy=0.3055, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:49.749 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:50.138 | ApplyMovements — 1 moves across 60 ticks (avg 0.0/tick)
-2026-07-26 10:26:50.248 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:50.721 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:50.895 | WindowList — 6 windows detected on monitor 1
-2026-07-26 10:26:51.146 | ApplyMovements — 0 moves across 63 ticks (avg 0.0/tick)
-2026-07-26 10:26:51.191 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:51.656 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:52.123 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:52.154 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:26:52.639 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:53.108 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:53.159 | ApplyMovements — 0 moves across 62 ticks (avg 0.0/tick)
-2026-07-26 10:26:53.578 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:53.641 | Health beat — 6 windows, energy=0.3059, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-26 10:26:54.092 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:54.155 | ApplyMovements — 0 moves across 61 ticks (avg 0.0/tick)
-2026-07-26 10:26:54.563 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:54.913 | WindowList — 6 windows detected on monitor 1
-2026-07-26 10:26:55.029 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:55.153 | ApplyMovements — 0 moves across 62 ticks (avg 0.0/tick)
-2026-07-26 10:26:55.528 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:56.105 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:56.153 | ApplyMovements — 0 moves across 61 ticks (avg 0.0/tick)
-2026-07-26 10:26:56.576 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:57.093 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:57.156 | ApplyMovements — 0 moves across 61 ticks (avg 0.0/tick)
-2026-07-26 10:26:57.591 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:58.066 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:58.165 | ApplyMovements — 0 moves across 62 ticks (avg 0.0/tick)
-2026-07-26 10:26:58.532 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:58.642 | Health beat — 6 windows, energy=0.3059, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-26 10:26:58.915 | WindowList — 6 windows detected on monitor 1
-2026-07-26 10:26:58.999 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:59.158 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:26:59.470 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:26:59.942 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:00.163 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:00.409 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:00.880 | Physics tick — 6 windows, energy=0.3059, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:01.160 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:01.286 | Settle — limit cycle detected, zeroed velocities + direct overlap resolution applied (energy was 0.3059)
-2026-07-26 10:27:01.347 | Physics tick — 6 windows, energy=0.0936, state=normal, dragHwnd=0x0
-2026-07-26 10:27:01.821 | Physics tick — 6 windows, energy=0.2992, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:02.162 | ApplyMovements — 46 moves across 64 ticks (avg 0.7/tick)
-2026-07-26 10:27:02.289 | Physics tick — 6 windows, energy=0.3070, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:02.760 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:02.920 | WindowList — 6 windows detected on monitor 1
-2026-07-26 10:27:03.154 | ApplyMovements — 0 moves across 63 ticks (avg 0.0/tick)
-2026-07-26 10:27:03.227 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:03.651 | Health beat — 6 windows, energy=0.3073, drag=no, snap=0, phys=16ms, vis=16ms
-2026-07-26 10:27:03.698 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:04.151 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:04.166 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:04.633 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:05.100 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:05.163 | ApplyMovements — 0 moves across 65 ticks (avg 0.0/tick)
-2026-07-26 10:27:05.568 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:06.039 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:06.164 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:06.506 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:06.948 | WindowList — 6 windows detected on monitor 1
-2026-07-26 10:27:06.975 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:07.165 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:07.444 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:07.917 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:08.159 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:08.378 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:08.658 | Health beat — 6 windows, energy=0.3073, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-26 10:27:08.848 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:09.163 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:09.319 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:09.792 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:10.151 | ApplyMovements — 0 moves across 65 ticks (avg 0.0/tick)
-2026-07-26 10:27:10.281 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:10.757 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:10.963 | WindowList — 6 windows detected on monitor 1
-2026-07-26 10:27:11.163 | ApplyMovements — 0 moves across 65 ticks (avg 0.0/tick)
-2026-07-26 10:27:11.225 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:11.694 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:12.160 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:12.160 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:12.627 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:13.098 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:13.161 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:13.567 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:13.663 | Health beat — 6 windows, energy=0.3073, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-26 10:27:14.038 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:14.162 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:14.318 | Settle — limit cycle detected, zeroed velocities + direct overlap resolution applied (energy was 0.3073)
-2026-07-26 10:27:14.505 | Physics tick — 6 windows, energy=0.2220, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:14.958 | WindowList — 6 windows detected on monitor 1
-2026-07-26 10:27:14.968 | Physics tick — 6 windows, energy=0.3044, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:15.158 | ApplyMovements — 48 moves across 64 ticks (avg 0.8/tick)
-2026-07-26 10:27:15.441 | Physics tick — 6 windows, energy=0.3076, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:15.917 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:16.165 | ApplyMovements — 1 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:16.381 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:16.851 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:17.166 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:17.322 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:17.790 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:18.164 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:18.257 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:18.663 | Health beat — 6 windows, energy=0.3078, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-26 10:27:18.723 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:18.978 | WindowList — 6 windows detected on monitor 1
-2026-07-26 10:27:19.160 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:19.194 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:19.662 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:20.129 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:20.160 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:20.596 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:21.064 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:21.159 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:21.531 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:22.002 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:22.160 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:22.472 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:22.935 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:22.969 | WindowList — 6 windows detected on monitor 1
-2026-07-26 10:27:23.155 | ApplyMovements — 0 moves across 62 ticks (avg 0.0/tick)
-2026-07-26 10:27:23.439 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:23.656 | Health beat — 6 windows, energy=0.3078, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-26 10:27:23.911 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:24.153 | ApplyMovements — 0 moves across 62 ticks (avg 0.0/tick)
-2026-07-26 10:27:24.401 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:24.867 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:25.151 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:25.340 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:25.811 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:26.156 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:26.283 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:26.754 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:26.976 | WindowList — 6 windows detected on monitor 1
-2026-07-26 10:27:27.159 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:27.221 | Physics tick — 6 windows, energy=0.3078, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:27.364 | Settle — limit cycle detected, zeroed velocities + direct overlap resolution applied (energy was 0.3078)
-2026-07-26 10:27:27.694 | Physics tick — 6 windows, energy=0.2761, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:28.159 | Physics tick — 6 windows, energy=0.3066, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:28.160 | ApplyMovements — 50 moves across 64 ticks (avg 0.8/tick)
-2026-07-26 10:27:28.630 | Physics tick — 6 windows, energy=0.3073, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:28.659 | Health beat — 6 windows, energy=0.3073, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-26 10:27:29.098 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:29.163 | ApplyMovements — 3 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:29.566 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:30.032 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:30.165 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:30.505 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:30.973 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:30.976 | WindowList — 6 windows detected on monitor 1
-2026-07-26 10:27:31.162 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:31.439 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:31.915 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:32.159 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:32.379 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:32.851 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:33.151 | ApplyMovements — 0 moves across 63 ticks (avg 0.0/tick)
-2026-07-26 10:27:33.326 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:33.656 | Health beat — 6 windows, energy=0.3072, drag=no, snap=0, phys=0ms, vis=0ms
-2026-07-26 10:27:33.812 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:34.155 | ApplyMovements — 0 moves across 59 ticks (avg 0.0/tick)
-2026-07-26 10:27:34.355 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:34.853 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:34.981 | WindowList — 6 windows detected on monitor 1
-2026-07-26 10:27:35.151 | ApplyMovements — 0 moves across 61 ticks (avg 0.0/tick)
-2026-07-26 10:27:35.324 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:35.827 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:36.155 | ApplyMovements — 0 moves across 62 ticks (avg 0.0/tick)
-2026-07-26 10:27:36.296 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:36.771 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:37.161 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
-2026-07-26 10:27:37.240 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:37.710 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
-2026-07-26 10:27:38.151 | ApplyMovements — 0 moves across 63 ticks (avg 0.0/tick)
-2026-07-26 10:27:38.183 | Physics tick — 6 windows, energy=0.3072, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:47.205 | ApplyMovements — 0 moves across 1 ticks (avg 0.0/tick)
+2026-07-26 10:45:47.208 | PhysicsLoop — 6 windows tracked, 0 icon obstacles loaded
+2026-07-26 10:45:47.651 | Physics tick — 6 windows, energy=0.3386, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:48.137 | Physics tick — 6 windows, energy=0.3535, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:48.206 | ApplyMovements — 9 moves across 66 ticks (avg 0.1/tick)
+2026-07-26 10:45:48.599 | Physics tick — 6 windows, energy=0.3541, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:49.065 | Physics tick — 6 windows, energy=0.3541, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:49.206 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-26 10:45:49.537 | Physics tick — 6 windows, energy=0.3541, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:49.695 | Startup — desktop icon scan: 0 obstacles
+2026-07-26 10:45:50.053 | Physics tick — 6 windows, energy=0.3541, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:50.206 | ApplyMovements — 7 moves across 61 ticks (avg 0.1/tick)
+2026-07-26 10:45:50.557 | Physics tick — 6 windows, energy=0.3376, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:50.985 | WindowList — 6 windows detected on monitor 1
+2026-07-26 10:45:50.026 | Physics tick — 6 windows, energy=0.3088, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:51.199 | ApplyMovements — 104 moves across 64 ticks (avg 1.6/tick)
+2026-07-26 10:45:51.495 | Physics tick — 6 windows, energy=0.2875, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:51.951 | Physics tick — 6 windows, energy=0.2818, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:52.208 | ApplyMovements — 65 moves across 65 ticks (avg 1.0/tick)
+2026-07-26 10:45:52.209 | Health beat — 6 windows, energy=0.2824, drag=no, snap=0, phys=0ms, vis=0ms
+2026-07-26 10:45:52.424 | Physics tick — 6 windows, energy=0.2840, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:52.904 | Physics tick — 6 windows, energy=0.2891, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:53.201 | ApplyMovements — 61 moves across 64 ticks (avg 1.0/tick)
+2026-07-26 10:45:53.373 | Physics tick — 6 windows, energy=0.5164, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:53.903 | Physics tick — 5 windows, energy=0.2630, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:54.201 | ApplyMovements — 79 moves across 63 ticks (avg 1.3/tick)
+2026-07-26 10:45:54.375 | Physics tick — 5 windows, energy=0.2147, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:54.846 | Physics tick — 6 windows, energy=0.4062, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:54.991 | WindowList — 6 windows detected on monitor 1
+2026-07-26 10:45:55.210 | ApplyMovements — 73 moves across 64 ticks (avg 1.1/tick)
+2026-07-26 10:45:55.318 | Physics tick — 6 windows, energy=0.5250, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:55.783 | Physics tick — 6 windows, energy=0.5272, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:56.208 | ApplyMovements — 85 moves across 64 ticks (avg 1.3/tick)
+2026-07-26 10:45:56.255 | Physics tick — 6 windows, energy=0.5304, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:56.730 | Physics tick — 6 windows, energy=0.5323, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:57.203 | Physics tick — 6 windows, energy=0.5248, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:57.204 | ApplyMovements — 139 moves across 63 ticks (avg 2.2/tick)
+2026-07-26 10:45:57.206 | Health beat — 6 windows, energy=0.5248, drag=no, snap=0, phys=0ms, vis=0ms
+2026-07-26 10:45:57.707 | Physics tick — 7 windows, energy=0.6447, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:58.211 | ApplyMovements — 140 moves across 66 ticks (avg 2.1/tick)
+2026-07-26 10:45:58.234 | Physics tick — 7 windows, energy=0.5693, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:58.710 | Physics tick — 8 windows, energy=1.2000, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:59.075 | WindowList — 9 windows detected on monitor 1
+2026-07-26 10:45:59.199 | ApplyMovements — 75 moves across 62 ticks (avg 1.2/tick)
+2026-07-26 10:45:59.244 | Physics tick — 9 windows, energy=2.5689, state=chaos, dragHwnd=0x0
+2026-07-26 10:45:59.740 | Physics tick — 9 windows, energy=2.8492, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:00.209 | ApplyMovements — 88 moves across 64 ticks (avg 1.4/tick)
+2026-07-26 10:46:00.223 | Physics tick — 9 windows, energy=2.9155, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:00.721 | Physics tick — 9 windows, energy=2.8790, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:01.206 | Physics tick — 9 windows, energy=2.8577, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:01.207 | ApplyMovements — 11 moves across 65 ticks (avg 0.2/tick)
+2026-07-26 10:46:01.731 | Physics tick — 9 windows, energy=2.8490, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:02.207 | ApplyMovements — 1 moves across 68 ticks (avg 0.0/tick)
+2026-07-26 10:46:02.207 | Health beat — 9 windows, energy=2.8487, drag=no, snap=0, phys=16ms, vis=0ms
+2026-07-26 10:46:02.216 | Physics tick — 9 windows, energy=2.8487, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:02.703 | Physics tick — 9 windows, energy=2.8487, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:03.054 | WindowList — 8 windows detected on monitor 1
+2026-07-26 10:46:03.207 | ApplyMovements — 7 moves across 64 ticks (avg 0.1/tick)
+2026-07-26 10:46:03.222 | Physics tick — 8 windows, energy=1.3786, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:03.686 | Physics tick — 8 windows, energy=0.5810, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:04.191 | Physics tick — 8 windows, energy=0.5471, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:04.209 | ApplyMovements — 6 moves across 62 ticks (avg 0.1/tick)
+2026-07-26 10:46:04.660 | Physics tick — 8 windows, energy=0.6118, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:05.133 | Physics tick — 8 windows, energy=0.6795, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:05.205 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-26 10:46:05.592 | Physics tick — 7 windows, energy=0.4148, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:06.063 | Physics tick — 7 windows, energy=0.3268, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:06.213 | ApplyMovements — 83 moves across 64 ticks (avg 1.3/tick)
+2026-07-26 10:46:06.543 | Physics tick — 7 windows, energy=0.3269, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:07.005 | Physics tick — 7 windows, energy=0.3478, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:07.089 | WindowList — 7 windows detected on monitor 1
+2026-07-26 10:46:07.198 | Health beat — 7 windows, energy=0.3886, drag=no, snap=0, phys=16ms, vis=16ms
+2026-07-26 10:46:07.226 | ApplyMovements — 11 moves across 65 ticks (avg 0.2/tick)
+2026-07-26 10:46:07.476 | Physics tick — 7 windows, energy=0.4027, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:07.948 | Physics tick — 7 windows, energy=0.4050, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:08.216 | ApplyMovements — 0 moves across 63 ticks (avg 0.0/tick)
+2026-07-26 10:46:08.419 | Physics tick — 7 windows, energy=0.4051, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:08.905 | Physics tick — 7 windows, energy=0.4051, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:09.218 | ApplyMovements — 0 moves across 63 ticks (avg 0.0/tick)
+2026-07-26 10:46:09.376 | Physics tick — 7 windows, energy=0.4051, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:09.723 | DebugWindowInfo — 12 windows (7 tracked, 3 untracked) copied to clipboard
+2026-07-26 10:46:09.989 | Physics tick — 7 windows, energy=0.4051, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:10.224 | ApplyMovements — 0 moves across 56 ticks (avg 0.0/tick)
+2026-07-26 10:46:10.456 | Physics tick — 7 windows, energy=0.4051, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:10.926 | Physics tick — 7 windows, energy=0.4051, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:10.969 | Settle — limit cycle detected, zeroed velocities + direct overlap resolution applied (energy was 0.4051)
+2026-07-26 10:46:11.209 | WindowList — 7 windows detected on monitor 1
+2026-07-26 10:46:11.221 | ApplyMovements — 16 moves across 64 ticks (avg 0.2/tick)
+2026-07-26 10:46:11.393 | Physics tick — 7 windows, energy=0.3890, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:11.867 | Physics tick — 7 windows, energy=0.4142, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:12.215 | Health beat — 7 windows, energy=0.4152, drag=no, snap=0, phys=15ms, vis=15ms
+2026-07-26 10:46:12.226 | ApplyMovements — 6 moves across 64 ticks (avg 0.1/tick)
+2026-07-26 10:46:12.331 | Physics tick — 7 windows, energy=0.4152, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:12.797 | Physics tick — 7 windows, energy=0.4153, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:13.218 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-26 10:46:13.265 | Physics tick — 7 windows, energy=0.4153, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:13.734 | Physics tick — 7 windows, energy=0.4153, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:14.202 | Physics tick — 7 windows, energy=0.4153, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:14.233 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-26 10:46:14.735 | Physics tick — 7 windows, energy=0.4465, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:15.210 | Physics tick — 7 windows, energy=0.4563, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:15.212 | WindowList — 7 windows detected on monitor 1
+2026-07-26 10:46:15.240 | ApplyMovements — 1 moves across 61 ticks (avg 0.0/tick)
+2026-07-26 10:46:15.675 | Physics tick — 7 windows, energy=0.4331, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:16.142 | Physics tick — 7 windows, energy=0.4164, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:16.236 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-26 10:46:16.611 | Physics tick — 7 windows, energy=0.4157, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:17.094 | Physics tick — 7 windows, energy=0.4156, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:17.217 | Health beat — 7 windows, energy=0.4156, drag=no, snap=0, phys=0ms, vis=0ms
+2026-07-26 10:46:17.249 | ApplyMovements — 0 moves across 63 ticks (avg 0.0/tick)
+2026-07-26 10:46:17.627 | Physics tick — 7 windows, energy=0.4156, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:18.095 | Physics tick — 7 windows, energy=0.4156, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:18.253 | ApplyMovements — 0 moves across 63 ticks (avg 0.0/tick)
+2026-07-26 10:46:18.564 | Physics tick — 7 windows, energy=0.4156, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:19.033 | Physics tick — 7 windows, energy=0.4156, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:19.210 | WindowList — 7 windows detected on monitor 1
+2026-07-26 10:46:19.253 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-26 10:46:19.499 | Physics tick — 7 windows, energy=0.4156, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:20.018 | Physics tick — 7 windows, energy=0.4334, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:20.245 | ApplyMovements — 27 moves across 64 ticks (avg 0.4/tick)
+2026-07-26 10:46:20.500 | Physics tick — 7 windows, energy=0.4703, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:20.996 | Physics tick — 7 windows, energy=0.4540, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:21.246 | ApplyMovements — 33 moves across 64 ticks (avg 0.5/tick)
+2026-07-26 10:46:21.466 | Physics tick — 7 windows, energy=0.4545, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:21.949 | Physics tick — 7 windows, energy=0.4189, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:22.231 | Health beat — 7 windows, energy=0.4134, drag=no, snap=0, phys=16ms, vis=16ms
+2026-07-26 10:46:22.247 | ApplyMovements — 9 moves across 66 ticks (avg 0.1/tick)
+2026-07-26 10:46:22.466 | Physics tick — 7 windows, energy=0.4126, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:22.938 | Physics tick — 7 windows, energy=0.4123, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:23.234 | WindowList — 7 windows detected on monitor 1
+2026-07-26 10:46:23.249 | ApplyMovements — 0 moves across 61 ticks (avg 0.0/tick)
+2026-07-26 10:46:23.423 | Physics tick — 7 windows, energy=0.4123, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:23.889 | Physics tick — 7 windows, energy=0.4123, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:24.249 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-26 10:46:24.360 | Physics tick — 7 windows, energy=0.4123, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:24.843 | Physics tick — 7 windows, energy=0.4269, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:25.267 | ApplyMovements — 1 moves across 62 ticks (avg 0.0/tick)
+2026-07-26 10:46:25.404 | Physics tick — 7 windows, energy=0.4129, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:25.874 | Physics tick — 7 windows, energy=0.4123, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:26.263 | ApplyMovements — 0 moves across 61 ticks (avg 0.0/tick)
+2026-07-26 10:46:26.359 | Physics tick — 7 windows, energy=0.4123, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:26.828 | Physics tick — 7 windows, energy=0.4123, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:27.236 | Health beat — 7 windows, energy=0.4123, drag=no, snap=0, phys=0ms, vis=0ms
+2026-07-26 10:46:27.254 | WindowList — 7 windows detected on monitor 1
+2026-07-26 10:46:27.267 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-26 10:46:27.298 | Physics tick — 7 windows, energy=0.4123, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:27.764 | Physics tick — 7 windows, energy=0.4123, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:28.233 | Physics tick — 7 windows, energy=0.4123, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:28.266 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-26 10:46:28.684 | Settle — limit cycle detected, zeroed velocities + direct overlap resolution applied (energy was 0.4123)
+2026-07-26 10:46:28.733 | Physics tick — 7 windows, energy=0.0814, state=normal, dragHwnd=0x0
+2026-07-26 10:46:29.201 | Physics tick — 7 windows, energy=0.4016, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:29.264 | ApplyMovements — 11 moves across 61 ticks (avg 0.2/tick)
+2026-07-26 10:46:29.698 | Physics tick — 7 windows, energy=0.4119, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:30.166 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:30.275 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-26 10:46:30.635 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:31.102 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:31.277 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-26 10:46:31.279 | WindowList — 7 windows detected on monitor 1
+2026-07-26 10:46:31.575 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:32.076 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:32.232 | Health beat — 7 windows, energy=0.4124, drag=no, snap=0, phys=16ms, vis=0ms
+2026-07-26 10:46:32.279 | ApplyMovements — 0 moves across 60 ticks (avg 0.0/tick)
+2026-07-26 10:46:32.608 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:33.080 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:33.282 | ApplyMovements — 0 moves across 62 ticks (avg 0.0/tick)
+2026-07-26 10:46:33.545 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:34.032 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:34.278 | ApplyMovements — 0 moves across 61 ticks (avg 0.0/tick)
+2026-07-26 10:46:34.528 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:34.997 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:35.278 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-26 10:46:35.280 | WindowList — 7 windows detected on monitor 1
+2026-07-26 10:46:35.462 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:35.929 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:36.289 | ApplyMovements — 0 moves across 66 ticks (avg 0.0/tick)
+2026-07-26 10:46:36.415 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:36.886 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:37.243 | Health beat — 7 windows, energy=0.4124, drag=no, snap=0, phys=0ms, vis=0ms
+2026-07-26 10:46:37.289 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-26 10:46:37.352 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:37.820 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:38.288 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:38.289 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-26 10:46:38.758 | Physics tick — 7 windows, energy=0.4124, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:39.236 | Physics tick — 7 windows, energy=0.4315, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:39.280 | ApplyMovements — 4 moves across 66 ticks (avg 0.1/tick)
+2026-07-26 10:46:39.309 | WindowList — 7 windows detected on monitor 1
+2026-07-26 10:46:39.708 | Physics tick — 7 windows, energy=0.4900, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:40.195 | Physics tick — 7 windows, energy=0.4917, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:40.288 | ApplyMovements — 12 moves across 65 ticks (avg 0.2/tick)
+2026-07-26 10:46:40.664 | Physics tick — 7 windows, energy=0.3761, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:41.143 | Physics tick — 7 windows, energy=0.3263, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:41.292 | ApplyMovements — 85 moves across 64 ticks (avg 1.3/tick)
+2026-07-26 10:46:41.605 | Physics tick — 7 windows, energy=0.3178, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:42.079 | Physics tick — 7 windows, energy=0.3736, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:42.234 | Health beat — 7 windows, energy=0.3966, drag=no, snap=0, phys=0ms, vis=0ms
+2026-07-26 10:46:42.298 | ApplyMovements — 55 moves across 64 ticks (avg 0.9/tick)
+2026-07-26 10:46:42.549 | Physics tick — 7 windows, energy=0.4079, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:43.018 | Physics tick — 7 windows, energy=0.4093, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:43.297 | ApplyMovements — 9 moves across 64 ticks (avg 0.1/tick)
+2026-07-26 10:46:43.331 | WindowList — 7 windows detected on monitor 1
+2026-07-26 10:46:43.484 | Physics tick — 7 windows, energy=0.4093, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:43.953 | Physics tick — 7 windows, energy=0.4093, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:44.299 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-26 10:46:44.425 | Physics tick — 7 windows, energy=0.4093, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:44.895 | Physics tick — 7 windows, energy=0.4093, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:45.303 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-26 10:46:45.366 | Physics tick — 7 windows, energy=0.4093, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:45.833 | Settle — limit cycle detected, zeroed velocities + direct overlap resolution applied (energy was 0.4093)
+2026-07-26 10:46:45.833 | Physics tick — 7 windows, energy=0.4093, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:46.302 | Physics tick — 7 windows, energy=0.3906, state=chaos, dragHwnd=0x0
+2026-07-26 10:46:46.303 | ApplyMovements — 0 moves across 64 ticks (avg 0.0/tick)
+2026-07-26 10:46:46.771 | Physics tick — 7 windows, energy=0.4085, state=chaos, dragHwnd=0x0

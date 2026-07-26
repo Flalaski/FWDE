@@ -81,7 +81,8 @@ global Config := Map(
     "SmallWindowThresholdW", 614,
     "SmallWindowThresholdH", 591,
     "UserMoveTimeout", 523,        ; How long to keep focused window still after interaction (ms)
-    "ManualLockDuration", 33333,     ; How long manual window locks last (ms) - about 33 seconds
+    "MoveLockTimeout", 1500,         ; How long a dragged/resized window stays physics-locked (ms)
+    "ManualLockDuration", 33333,     ; How long explicit user window locks last (ms) - about 33 seconds
     "ResizeDelay", 20,
     "TooltipDuration", 6767,
     "ParameterHelpTooltipDuration", 2200,
@@ -1876,7 +1877,8 @@ CalculateWindowForces(win, allWindows) {
     }
 
     ; Only sleep physics for truly isolated windows that are already settled.
-    if (!hasCollision && !isOutOfBounds && !hasNearbyInfluence && Abs(win["vx"]) < 0.1 && Abs(win["vy"]) < 0.1) {
+    ; During an active drag, never sleep — ensures instant repulsion on nearby windows.
+    if (g["_draggedHwnd"] == 0 && !hasCollision && !isOutOfBounds && !hasNearbyInfluence && Abs(win["vx"]) < 0.1 && Abs(win["vy"]) < 0.1) {
         win["vx"] := 0
         win["vy"] := 0
         ; Clear target position so window stays exactly where it is
@@ -2330,6 +2332,9 @@ ApplyWindowMovements() {
         ; Increase smoothing for less jitter
         ; Use less smoothing for Electron apps to make them more responsive
         alpha := IsElectronApp(hwnd) ? 0.45 : 0.18  ; Higher alpha = more responsive movement
+        ; During an active drag, boost responsiveness for instant visual repulsion
+        if (g["_draggedHwnd"] != 0)
+            alpha := Max(alpha, 0.65)
         smoothPos[hwnd].x := smoothPos[hwnd].x + (newX - smoothPos[hwnd].x) * alpha
         smoothPos[hwnd].y := smoothPos[hwnd].y + (newY - smoothPos[hwnd].y) * alpha
 
@@ -3046,12 +3051,15 @@ ResolveOverlapsDirect(windows) {
 
 
 ;;MANUAL WINDOW HANDLING
-AddManualWindowBorder(hwnd) {
+AddManualWindowBorder(hwnd, expireTime := "") {
     global Config, g
     try {
         ; Skip if already exists
         if (g["ManualWindows"].Has(hwnd))
             return
+
+        if (expireTime == "")
+            expireTime := A_TickCount + Config["ManualLockDuration"]
 
         WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
 
@@ -3069,7 +3077,7 @@ AddManualWindowBorder(hwnd) {
         ; Store reference
         g["ManualWindows"][hwnd] := Map(
             "gui", borderGui,
-            "expire", A_TickCount + Config["ManualLockDuration"]
+            "expire", expireTime
         )
 
     } catch as Err {
@@ -4024,9 +4032,10 @@ WindowMoveHandler(wParam, lParam, msg, hwnd) {
 
     ; Don't auto-lock Electron apps - they update their UI frequently
     if (!IsElectronApp(hwnd)) {
-        targetWin["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
+        lockExpire := A_TickCount + Config["MoveLockTimeout"]
+        targetWin["ManualLock"] := lockExpire
         targetWin["IsManual"] := true
-        AddManualWindowBorder(hwnd)
+        AddManualWindowBorder(hwnd, lockExpire)
     }
 
     SetTimerEx(UpdateWindowStates, -Config["ResizeDelay"])
@@ -4082,11 +4091,12 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
 
         ; Don't auto-lock Electron apps - they update their UI frequently
         if (!IsElectronApp(hwnd)) {
-            targetWin["ManualLock"] := A_TickCount + Config["ManualLockDuration"]
+            lockExpire := A_TickCount + Config["MoveLockTimeout"]
+            targetWin["ManualLock"] := lockExpire
             targetWin["IsManual"] := true
             targetWin["vx"] := 0
             targetWin["vy"] := 0
-            AddManualWindowBorder(hwnd)
+            AddManualWindowBorder(hwnd, lockExpire)
         }
         targetWin["monitor"] := monNum
     }
@@ -4418,6 +4428,7 @@ ApplyNumericSpecOverrides(spec) {
         "ResizeDelay", Map("min", 1, "max", 200, "decimals", 0),
         "TooltipDuration", Map("min", 100, "max", 30000, "decimals", 0),
         "UserMoveTimeout", Map("min", 50, "max", 5000, "decimals", 0),
+        "MoveLockTimeout", Map("min", 100, "max", 5000, "decimals", 0),
         "ManualLockDuration", Map("min", 1000, "max", 120000, "decimals", 0),
         "ManualWindowAlpha", Map("min", 0, "max", 255, "decimals", 0),
         "Stabilization.MinSpeedThreshold", Map("min", 0.0, "max", 5.0, "decimals", 3),
@@ -4752,7 +4763,8 @@ GetParameterDescription(path) {
         "MinMargin", "Minimum margin to keep windows away from monitor boundaries.",
         "MinGap", "Preferred spacing target used by layout placement routines.",
         "ManualRepulsionMultiplier", "Extra push when interacting with manually moved windows.",
-        "ManualLockDuration", "How long a manually moved window stays physics-locked (ms).",
+        "ManualLockDuration", "How long a user-locked window stays physics-locked (ms) — Ctrl+Alt+L.",
+        "MoveLockTimeout", "How long a dragged/resized window stays physics-locked before settling (ms).",
         "UserMoveTimeout", "Cooldown before focused windows rejoin normal physics (ms).",
         "ResizeDelay", "Delay before resize/move events trigger state refresh (ms).",
         "TooltipDuration", "Duration for the standard status tooltip messages (ms).",

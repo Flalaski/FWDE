@@ -30,7 +30,7 @@
   "PairSeparationOverlapScale": 0.1,
   "PairSmallWindowBoost": 3,
   "ParameterHelpTooltipDuration": 2200,
-  "PhysicsTimeStep": 1,
+  "PhysicsTimeStep": 16,
   "RepulsionForce": 13.31,
   "RepulsionImpulseScale": 4.32,
   "RepulsionRangeMultiplier": 3.069,
@@ -47,5 +47,5 @@
   "Stabilization.OverlapTolerance": 120,
   "TooltipDuration": 6767,
   "UserMoveTimeout": 523,
-  "VisualTimeStep": 1
+  "VisualTimeStep": 16
 }

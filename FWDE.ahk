@@ -1803,13 +1803,10 @@ CalculateWindowForces(win, allWindows) {
     wasJustUnlocked := (win.Has("LockLostAt") && (A_TickCount - win["LockLostAt"]) < 100)
     isBeingSnapped := g["SnapInProgress"].Has(win["hwnd"]) && A_TickCount < g["SnapInProgress"][win["hwnd"]]
 
-    ; Protected windows: no physics
+    ; Protected windows: zero velocity at the end, BUT still calculate forces
+    ; so OTHER windows can feel repulsion from this window (prevents corner-stuck
+    ; scenario where two protected windows never compute mutual repulsion).
     isProtected := (isManuallyLocked || isActiveWindow || (isRecentlyMoved && isCurrentlyFocused) || isBeingSnapped || wasJustUnlocked) && !isDraggedWindow
-    if (isProtected) {
-        win["vx"] := 0
-        win["vy"] := 0
-        return
-    }
     
     ; Clean up LockLostAt marker after transition period
     if (wasJustUnlocked) {
@@ -2033,6 +2030,17 @@ CalculateWindowForces(win, allWindows) {
     ; Apply bounds
     win["targetX"] := Max(monLeft, Min(win["targetX"], monRight))
     win["targetY"] := Max(monTop, Min(win["targetY"], monBottom))
+
+    ; Protected windows: zero velocity AFTER full force calculation so other
+    ; windows still receive repulsion push from this window (prevents corner-stuck).
+    if (isProtected) {
+        win["vx"] := 0
+        win["vy"] := 0
+        if (win.Has("targetX"))
+            win.Delete("targetX")
+        if (win.Has("targetY"))
+            win.Delete("targetY")
+    }
 }
 
 SmoothStep(t) {

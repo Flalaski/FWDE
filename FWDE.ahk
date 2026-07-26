@@ -335,12 +335,12 @@ _WriteDebugFile(text) {
     }
 }
 
-; Register crash handler — copies the full debug log to clipboard when an
-; unhandled error terminates the script, so you don't lose diagnostics.
+; Register crash handler — saves the full debug log to FWDE_debug.log on
+; unhandled errors. Clipboard is never touched automatically; use Ctrl+Alt+C.
 OnError(ErrorHandler, -1)  ; priority -1 = run after other handlers
 
 ErrorHandler(exception, mode) {
-    global g_DebugLog, g_Crashed
+    global g_DebugLog, g_Crashed, g_DebugFilePath
     g_Crashed := true
     if (mode != 0)  ; not a throw — it's an unhandled error
         return
@@ -355,30 +355,19 @@ ErrorHandler(exception, mode) {
         g_DebugLog.Push("  " frame.File " :: " frame.Function " (line " frame.Line ")")
     }
     g_DebugLog.Push("=====================")
-    CopyLogToClipboard()
+    ; Write crash dump to file only — never steal clipboard automatically
+    _SaveCrashDumpToFile()
+    ToolTip("⚠️ FWDE crashed! Log: " g_DebugFilePath, 10, 10)
+    SetTimerEx(() => ToolTip(), -8000)
 }
 
-CopyLogToClipboard() {
-    global g_DebugLog
+; Save crash dump to file — no clipboard. Clipboard is only for manual Ctrl+Alt+C.
+_SaveCrashDumpToFile() {
+    global g_DebugLog, g_DebugFilePath
     text := "=== FWDE CRASH DUMP — " A_Now " ==="
          . "`n" A_DD "/" A_MM "/" A_YYYY " " A_Hour ":" A_Min ":" A_Sec "`n`n"
          . JoinLog(g_DebugLog, "`n")
-    ; File is authoritative — always write first, before attempting clipboard
     _WriteDebugFile(text)
-    ; Aggressive retry: crash path — try up to 15 times with 100ms delays.
-    ; Clipboard may be locked by the app that triggered the crash.
-    Loop 15 {
-        if (_ClipPut(text)) {
-            ToolTip("⚠️ FWDE crashed! Log: " g_DebugFilePath, 10, 10)
-            SetTimerEx(() => ToolTip(), -8000)
-            return
-        }
-        Sleep(100)
-    }
-    ; Final fallback: try A_Clipboard directly
-    try A_Clipboard := text
-    ToolTip("⚠️ FWDE crashed! Log: " g_DebugFilePath, 10, 10)
-    SetTimerEx(() => ToolTip(), -8000)
 }
 
 DumpDebugLog(auto := false) {
@@ -407,12 +396,30 @@ DumpDebugLog(auto := false) {
         g_DebugLog.Length, textLen, fileLen, clipOk ? "ok" : "FAIL", auto)
 }
 
-; --- Auto-dump debug log every 15 seconds so user can always retrieve it ---
+; --- Write debug log to file only (no clipboard) ---
+; Used by the periodic timer so automatic dumps never steal the user's clipboard.
+; Manual DumpDebugLog (Ctrl+Alt+C) still copies to clipboard as expected.
+FlushDebugLogToFile() {
+    global g_DebugLog, g, g_DebugFilePath
+    text := "FWDE Debug Log — " A_Now "`n" A_DD "/" A_MM "/" A_YYYY " " A_Hour ":" A_Min ":" A_Sec "`n`n"
+    text .= "Entries: " g_DebugLog.Length "`n`n"
+    text .= JoinLog(g_DebugLog, "`n")
+    if (g["_perfOn"] && g["_perfData"].Count > 0)
+        text .= "`n`n" _PerfReport()
+    ; Write to file only — no clipboard access
+    _WriteDebugFile(text)
+    DebugLog("FlushDebugLogToFile — {} entries, {} chars written",
+        g_DebugLog.Length, StrLen(text))
+}
+
+; --- Periodic debug log flush to file (every 60 seconds) ---
+; Writes the in-memory log to FWDE_debug.log without touching the clipboard.
+; The clipboard is only used for manual DumpDebugLog (Ctrl+Alt+C) and crash recovery.
 DumpDebugLogPeriodic() {
     static lastAutoDump := 0
     if (A_TickCount - lastAutoDump > 60000) {
         lastAutoDump := A_TickCount
-        DumpDebugLog(true)
+        FlushDebugLogToFile()
     }
 }
 
@@ -5095,6 +5102,11 @@ DebugWindowInfo() {
     ; Show tooltip with debug info
     ToolTip(debugMsg)
     SetTimerEx(() => ToolTip(), -10000)  ; Hide after 10 seconds
+
+    ; Copy to clipboard — this is a manual hotkey (Ctrl+Alt+D), so clipboard is intentional
+    _ClipPut(debugMsg)
+    DebugLog("DebugWindowInfo — {} windows ({} tracked, {} untracked) copied to clipboard",
+        allWindows.Length, trackedWindows.Length, untrackedWindows.Length)
 }
 
 ; --- Force add active window to tracking ---
@@ -5544,8 +5556,8 @@ ShowStatusDashboard(*) {
 ; HealthMonitor watchdog — runs every 5 seconds, autonomously detects and recovers from stalls
 SetTimerEx(HealthMonitor, 5000)
 
-; Periodic debug dump to disk + clipboard — keeps the log always fresh and retrievable
-; Runs every 60 seconds so the clipboard always has a recent copy of the debug log
+; Periodic debug flush to disk (no clipboard) — keeps the log file always fresh
+; Automatic dumps never steal the user's clipboard. Use Ctrl+Alt+C for clipboard copy.
 SetTimerEx(DumpDebugLogPeriodic, 60000)
  
 ; Start timers - but respect active window protection
@@ -5561,14 +5573,13 @@ OnMessage(0x0005, WindowSizeHandler)
 
 OnExit(*) {
     global g_TimerResolutionRefs, g_Crashed
-    ; Always dump the debug log on exit — file + clipboard.
-    ; Use DumpDebugLog for the standard format (not crash-dump header).
+    ; Flush debug log to file only on exit — never steal clipboard automatically.
+    ; Use Ctrl+Alt+C for manual clipboard copy.
     if (g_Crashed) {
-        ; OnError already called CopyLogToClipboard, but call again as safety net
-        CopyLogToClipboard()
+        ; OnError already wrote the crash dump; flush again for any final entries
+        _SaveCrashDumpToFile()
     } else {
-        ; Normal exit: still copy the full log to clipboard so user can retrieve it
-        DumpDebugLog(true)
+        FlushDebugLogToFile()
     }
     for hwnd in g["ManualWindows"]
         RemoveManualWindowBorder(hwnd)

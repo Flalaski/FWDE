@@ -5022,6 +5022,10 @@ ToggleDebugMode() {
 DebugWindowInfo() {
     global g, Config
     
+    ; Clear any stale tooltip first to prevent self-detection during window scan
+    ToolTip()
+    Sleep(50)  ; Yield so Windows destroys the tooltip window before we scan
+    
     ; Get all visible windows
     allWindows := []
     trackedWindows := []
@@ -5048,6 +5052,11 @@ DebugWindowInfo() {
             processName := WinGetProcessName("ahk_id " hwnd)
             
             if (title == "" || title == "Program Manager")
+                continue
+            
+            ; Skip AHK ToolTip windows to prevent feedback loop
+            ; DebugWindowInfo creates a ToolTip, and WinGetList would find it next time
+            if (winClass = "tooltips_class32")
                 continue
                 
             isPlugin := IsPluginWindow(hwnd)

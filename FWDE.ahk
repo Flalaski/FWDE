@@ -74,48 +74,30 @@ global Config := Map(
     "RepulsionRangeMultiplier", 3.069,   ; Wider repulsion envelope for earlier reaction
     "RepulsionImpulseScale", 4.32,      ; Strong per-step push for rapid overlap release
     "SmallWindowReferenceDim", 1200,   ; Reference dimension for small-window classification
-    "MaxSmallWindowRepulsionBoost", 1.6,
+    "MaxSmallWindowRepulsionBoost", 3.5,
     "PairSeparationBase", 0.08,        ; Base overlap separation force
-    "PairSeparationOverlapScale", 0.1,
+    "PairSeparationOverlapScale", 5.933,
     "PairSmallWindowBoost", 3.0,
     "SmallWindowThresholdW", 614,
     "SmallWindowThresholdH", 591,
     "UserMoveTimeout", 523,        ; How long to keep focused window still after interaction (ms)
-    "MoveLockTimeout", 1500,         ; How long a dragged/resized window stays physics-locked (ms)
-    "ManualLockDuration", 33333,     ; How long explicit user window locks last (ms) - about 33 seconds
+    "MoveLockTimeout", 100,           ; How long a dragged/resized window stays physics-locked (ms)
+    "ManualLockDuration", 22156,     ; How long explicit user window locks last (ms)
     "ResizeDelay", 20,
     "TooltipDuration", 6767,
     "ParameterHelpTooltipDuration", 2200,
     "MultimonitorExpanse", false,   ; Toggle for multi-monitor expanse (seamless floating)
-    "FloatStyles",  0x00C00000 | 0x00040000 | 0x00080000 | 0x00020000 | 0x00010000,
+    "FloatStyles",  0x80000000,  ; WS_POPUP only — floating/popup windows without standard chrome
     "FloatClassPatterns", [
         "Vst.*",         ; VST plugins
         "JS.*",          ; JS plugins
         ".*Plugin.*",    ; Generic plugin windows
         ".*Float.*",     ; Windows with "Float" in class
         ".*Dock.*",      ; Dockable windows
-        "#32770",        ; Dialog boxes
         "ConsoleWindowClass",  ; CMD/Console windows
-        "TextToSpeechWndClass", ; <-- Added for speak.exe main window
-        "MozillaWindowClass",  ; Firefox browser
-        "Chrome_WidgetWin_1",  ; Chrome browser
-        "ApplicationFrameWindow", ; Edge/UWP apps
+        "TextToSpeechWndClass", ; speak.exe main window
         "SunAwtFrame",          ; Java applications
-        "Notepad",              ; Notepad
-        "Notepad++",            ; Notepad++
-        "Code.exe",             ; VS Code
-        "Cursor.exe",           ; Cursor
-        "devenv.exe",           ; Visual Studio
         "XamlExplorerHost",     ; XAML applications
-        "CabinetWClass",        ; File Explorer
-        "OpusApp",              ; Microsoft Word
-        "XLMAIN",               ; Microsoft Excel
-        "PPTFrameClass",        ; Microsoft PowerPoint
-        "rctrl_renwnd32",       ; Microsoft Outlook
-        "TaskManagerWindow",    ; Task Manager
-        "RegEdit_RegEdit",      ; Registry Editor
-        "MMCMainFrame",         ; MMC snap-ins (Event Viewer, Services, etc.)
-        "CalcFrame",            ; Classic Calculator
         "TApplication",         ; Delphi applications
         "wxWindowClassNR"       ; wxWidgets applications
     ],
@@ -142,23 +124,13 @@ global Config := Map(
         "DTDEMO.exe",       ; Dectalk TTS
         "speak.exe",     ; legacy speak.exe
         "speak",         ; legacy speak
-        "speak.EXE",     ; <-- Added for uppercase variant
-        "firefox.exe",   ; Firefox browser
-        "chrome.exe",    ; Chrome browser
-        "msedge.exe",    ; Edge browser
-        "code.exe",      ; VS Code
-        "cursor.exe",    ; Cursor editor
-        "notepad.exe",   ; Notepad
-        "notepad++.exe", ; Notepad++
-        "devenv.exe",    ; Visual Studio
-        "explorer.exe",  ; File Explorer
-        "winword.exe",   ; Microsoft Word
-        "excel.exe",     ; Microsoft Excel
-        "powerpnt.exe",  ; Microsoft PowerPoint
-        "outlook.exe"    ; Microsoft Outlook
+        "speak.EXE"      ; uppercase variant
+    ],
+    "ForceTrackProcesses", [  ; These ALWAYS get tracked, overriding all float checks
+        "WinXShell_x64.exe"
     ],
     "Damping", 0.216,    ; 1.0 = no damping, 0.0 = full stop (use 0.001-1.0)
-    "MaxSpeed", 120.0,    ; Limits maximum velocity
+    "MaxSpeed", 240.0,    ; Limits maximum velocity
     "PhysicsTimeStep", 16,  ; ~60 Hz physics — AHK rounds <10-15ms to nearest multiple anyway
     "VisualTimeStep", 16,   ; ~60 Hz visual updates — matches typical display refresh rate
     "Stabilization", Map(
@@ -169,12 +141,12 @@ global Config := Map(
     ),
     "ManualWindowColor", "FF5555",
     "NoiseScale", 5550,
-    "NoiseInfluence", 503,
+    "NoiseInfluence", 859,
     "ManualRepulsionMultiplier", 1.0,
     "DesktopIconRepulsion", false,       ; OFF by default — users opt in via Ctrl+Alt+I
     "DesktopIconMargin", 0,              ; Extra padding around each icon rect (0 = icon edges only)
     "DesktopIconRepulsionForce", 0.112358,     ; Multiplier for icon→window repulsion strength
-    "MaxIconSpeed", 75.0,       ; Max per-frame velocity from icon repulsion (px/frame — undamped)
+    "MaxIconSpeed", 93.7,       ; Max per-frame velocity from icon repulsion (px/frame — undamped)
     "DesktopIconPhysics", true,  ; Treat icons as individual physics bodies (mass, velocity, inter-icon forces)
     "DesktopIconSpring", 0.008,  ; Spring constant pulling icons back to grid anchor (0=static, 0.01=snappy)
     "DesktopIconDamping", 0.65,  ; Icon velocity damping (0=no damping, 1=instant stop)
@@ -1059,6 +1031,15 @@ IsWindowFloating(hwnd) {
         style := WinGetStyle("ahk_id " hwnd)
         exStyle := WinGetExStyle("ahk_id " hwnd)
 
+        ; 0. Force-track override: these processes always get tracked regardless of style/class
+        procNoExt := StrLower(StrReplace(processName, ".exe", ""))
+        for pattern in Config["ForceTrackProcesses"] {
+            patNoExt := StrLower(StrReplace(pattern, ".exe", ""))
+            if (procNoExt == patNoExt) {
+                return false
+            }
+        }
+
         ; Debug output - remove after testing if not needed
         ; OutputDebug("Window Check - Class: " winClass " | Process: " processName " | Title: " title)
 
@@ -1132,16 +1113,13 @@ GetVisibleWindows(monitor) {
             if (w == 0 || h == 0)
                 continue
 
-            ; Special handling for plugin windows
-            isPlugin := IsPluginWindow(hwnd)
-
-            ; Force include plugin windows or check floating status
-            if (isPlugin || IsWindowFloating(hwnd)) {
+            ; Track non-floating windows for physics management
+            ; Floating windows (DAWs, terminals, plugins, tool windows) are excluded
+            if (!IsWindowFloating(hwnd)) {
                 allWindows.Push(Map(
                     "hwnd", hwnd,
                     "x", x, "y", y,
                     "width", w, "height", h,
-                    "isPlugin", isPlugin,
                     "lastSeen", A_TickCount
                 ))
             }
@@ -1181,7 +1159,7 @@ GetVisibleWindows(monitor) {
                         break
                     }
                 }
-                includeWindow := (winMonitor == monitor["Number"] || isTracked || window["isPlugin"])
+                includeWindow := (winMonitor == monitor["Number"] || isTracked)
             }
 
             if (includeWindow) {
@@ -1233,7 +1211,6 @@ GetVisibleWindows(monitor) {
                     "targetX", existingWin ? existingWin["targetX"] : window["x"],
                     "targetY", existingWin ? existingWin["targetY"] : window["y"],
                     "monitor", winMonitor,
-                    "isPlugin", window["isPlugin"],
                     "lastSeen", window["lastSeen"],
                 )
                 
@@ -2669,7 +2646,7 @@ CalculateDynamicLayout() {
                     win["vy"] := 0
                 }
                 ; Drop energy measurement so state can transition to normal
-                g["SystemEnergy"] := 1.0
+                g["SystemEnergy"] := 0
 
                 ; CRITICAL: Also resolve overlaps directly — zeroing velocities alone
                 ; leaves windows overlapping, which immediately regenerates energy on
@@ -2696,11 +2673,10 @@ CalculateDynamicLayout() {
         settleTick := 0
     }
 
-    ; Gentle collision resolution (no rigid partitioning)
-    ; Skip when system is settled (low energy, no drag) — saves ~2.5N² pair checks
-    ; Uses normalized energy threshold: raw SystemEnergy / windowCount / 10000 > EnergyThreshold * 0.5
-    ; This replaces the old raw > 0.5 check which was always true at any non-trivial energy level.
-    resolveThreshold := Config["Stabilization"]["EnergyThreshold"] * Max(g["Windows"].Length, 1) * 5000
+    ; Collision resolution — runs whenever windows overlap with any energy,
+    ; or during drag. The old 5000× multiplier made this unreachable with
+    ; fewer than ~10 active windows (SystemEnergy maxes at ~perWindow × N).
+    resolveThreshold := Config["Stabilization"]["EnergyThreshold"] * Max(g["Windows"].Length, 1) * 50
     if (g["Windows"].Length > 1 && (g["SystemEnergy"] > resolveThreshold || g["_draggedHwnd"] != 0)) {
         ResolveFloatingCollisions(g["Windows"])
     }
@@ -2763,8 +2739,13 @@ ResolveFloatingCollisions(windows) {
         isActive := (win["hwnd"] == g["ActiveWindow"])
         isBeingSnapped := g["SnapInProgress"].Has(win["hwnd"]) && A_TickCount < g["SnapInProgress"][win["hwnd"]]
         
-        if (isManuallyLocked || (isActive && !isDragging) || isBeingSnapped)
+        ; Semiprotected: active window moves at reduced force (50%) so both
+        ; sides participate in separation instead of the active window being
+        ; a brick wall that squeezes non-active windows against screen edges.
+        if (isManuallyLocked || isBeingSnapped)
             protection[win["hwnd"]] := "protected"
+        else if (isActive && !isDragging)
+            protection[win["hwnd"]] := "semiprotected"
         else
             protection[win["hwnd"]] := "free"
     }
@@ -2794,7 +2775,7 @@ ResolveFloatingCollisions(windows) {
                 continue
             
             isProtected1 := (protection[win1["hwnd"]] == "protected")
-            
+            isSemiProtected1 := (protection[win1["hwnd"]] == "semiprotected")
             ; Apply a virtual position offset based on accumulated velocity
             ; so subsequent passes can detect new collisions caused by prior pushes.
             probeX1 := win1["x"] + win1["vx"] * 0.3
@@ -2808,8 +2789,9 @@ ResolveFloatingCollisions(windows) {
                     continue
                 
                 isProtected2 := (protection[win2["hwnd"]] == "protected")
+                isSemiProtected2 := (protection[win2["hwnd"]] == "semiprotected")
                 
-                ; No need to process if both windows are protected.
+                ; No need to process if both windows are fully protected.
                 if (isProtected1 && isProtected2)
                     continue
                 
@@ -2875,13 +2857,15 @@ ResolveFloatingCollisions(windows) {
                     }
 
                     if (!isProtected1) {
-                        win1["vx"] += dx * separationForce / dist
-                        win1["vy"] += dy * separationForce / dist
+                        forceScale := isSemiProtected1 ? 0.5 : 1.0
+                        win1["vx"] += dx * separationForce * forceScale / dist
+                        win1["vy"] += dy * separationForce * forceScale / dist
                         anyChanges := true
                     }
                     if (!isProtected2) {
-                        win2["vx"] -= dx * separationForce / dist
-                        win2["vy"] -= dy * separationForce / dist
+                        forceScale := isSemiProtected2 ? 0.5 : 1.0
+                        win2["vx"] -= dx * separationForce * forceScale / dist
+                        win2["vy"] -= dy * separationForce * forceScale / dist
                         anyChanges := true
                     }
                 }
@@ -2927,8 +2911,13 @@ ResolveOverlapsDirect(windows) {
         isActive := (win["hwnd"] == g["ActiveWindow"])
         isBeingSnapped := g["SnapInProgress"].Has(win["hwnd"]) && A_TickCount < g["SnapInProgress"][win["hwnd"]]
 
-        if (isManuallyLocked || (isActive && !isDragging) || isBeingSnapped)
+        ; Semiprotected: active window moves at reduced force (50%) so both
+        ; sides participate in separation instead of the active window being
+        ; a brick wall that squeezes non-active windows against screen edges.
+        if (isManuallyLocked || isBeingSnapped)
             protection[win["hwnd"]] := "protected"
+        else if (isActive && !isDragging)
+            protection[win["hwnd"]] := "semiprotected"
         else
             protection[win["hwnd"]] := "free"
     }
@@ -2952,6 +2941,7 @@ ResolveOverlapsDirect(windows) {
                 continue
 
             isProtected1 := (protection[win1["hwnd"]] == "protected")
+            isSemiProtected1 := (protection[win1["hwnd"]] == "semiprotected")
             if (isProtected1)
                 continue  ; Skip fully-protected windows entirely
 
@@ -2963,6 +2953,7 @@ ResolveOverlapsDirect(windows) {
                     continue
 
                 isProtected2 := (protection[win2["hwnd"]] == "protected")
+                isSemiProtected2 := (protection[win2["hwnd"]] == "semiprotected")
                 if (isProtected1 && isProtected2)
                     continue
 
@@ -2997,12 +2988,18 @@ ResolveOverlapsDirect(windows) {
                         pushX := 0
                     }
 
-                    ; Apply push — distribute based on protection state, split equally if both free
+                    ; Apply push — distribute based on protection state
+                    ; Each window moves proportionally to its mobility:
+                    ;   free = 1.0x, semiprotected = 0.5x
+                    m1 := isSemiProtected1 ? 0.5 : 1.0
+                    m2 := isSemiProtected2 ? 0.5 : 1.0
+                    
                     if (!isProtected1 && !isProtected2) {
-                        win1["x"] += pushX / 2
-                        win1["y"] += pushY / 2
-                        win2["x"] -= pushX / 2
-                        win2["y"] -= pushY / 2
+                        totalM := m1 + m2
+                        win1["x"] += pushX * m1 / totalM
+                        win1["y"] += pushY * m1 / totalM
+                        win2["x"] -= pushX * m2 / totalM
+                        win2["y"] -= pushY * m2 / totalM
                     } else if (!isProtected1) {
                         win1["x"] += pushX
                         win1["y"] += pushY

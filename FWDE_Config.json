@@ -1,7 +1,7 @@
 ﻿{
   "_metadata": {
     "application": "FWDE",
-    "saved": "20260722084926",
+    "saved": "20260726143709",
     "format": "flat-path-v1"
   },
   "AttractionForce": 0.00045,
@@ -23,6 +23,7 @@
   "MaxSpeed": 215.8,
   "MinGap": 0,
   "MinMargin": 0,
+  "MoveLockTimeout": 1500,
   "MultimonitorExpanse": 0,
   "NoiseInfluence": 904,
   "NoiseScale": 13510,
@@ -30,7 +31,7 @@
   "PairSeparationOverlapScale": 0.1,
   "PairSmallWindowBoost": 3,
   "ParameterHelpTooltipDuration": 2200,
-  "PhysicsTimeStep": 16,
+  "PhysicsTimeStep": 1,
   "RepulsionForce": 13.31,
   "RepulsionImpulseScale": 4.32,
   "RepulsionRangeMultiplier": 3.069,
@@ -47,5 +48,5 @@
   "Stabilization.OverlapTolerance": 120,
   "TooltipDuration": 6767,
   "UserMoveTimeout": 523,
-  "VisualTimeStep": 16
+  "VisualTimeStep": 1
 }

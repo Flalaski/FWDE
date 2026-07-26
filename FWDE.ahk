@@ -1803,10 +1803,13 @@ CalculateWindowForces(win, allWindows) {
     wasJustUnlocked := (win.Has("LockLostAt") && (A_TickCount - win["LockLostAt"]) < 100)
     isBeingSnapped := g["SnapInProgress"].Has(win["hwnd"]) && A_TickCount < g["SnapInProgress"][win["hwnd"]]
 
-    ; Protected windows: zero velocity at the end, BUT still calculate forces
-    ; so OTHER windows can feel repulsion from this window (prevents corner-stuck
-    ; scenario where two protected windows never compute mutual repulsion).
+    ; Protected windows: no physics
     isProtected := (isManuallyLocked || isActiveWindow || (isRecentlyMoved && isCurrentlyFocused) || isBeingSnapped || wasJustUnlocked) && !isDraggedWindow
+    if (isProtected) {
+        win["vx"] := 0
+        win["vy"] := 0
+        return
+    }
     
     ; Clean up LockLostAt marker after transition period
     if (wasJustUnlocked) {
@@ -1875,11 +1878,7 @@ CalculateWindowForces(win, allWindows) {
 
     ; Only sleep physics for truly isolated windows that are already settled.
     ; During an active drag, never sleep — ensures instant repulsion on nearby windows.
-    ; During settle cooldown, relax the sleep threshold — settled windows should
-    ; stay put unless dragged, preventing the settle→rebuild feedback loop.
-    settleCool := (g["_settleCooldown"] != 0 && A_TickCount < g["_settleCooldown"])
-    sleepThreshold := settleCool ? 0.5 : 0.1
-    if (g["_draggedHwnd"] == 0 && !hasCollision && !isOutOfBounds && !hasNearbyInfluence && Abs(win["vx"]) < sleepThreshold && Abs(win["vy"]) < sleepThreshold) {
+    if (g["_draggedHwnd"] == 0 && !hasCollision && !isOutOfBounds && !hasNearbyInfluence && Abs(win["vx"]) < 0.1 && Abs(win["vy"]) < 0.1) {
         win["vx"] := 0
         win["vy"] := 0
         ; Clear target position so window stays exactly where it is
@@ -2034,17 +2033,6 @@ CalculateWindowForces(win, allWindows) {
     ; Apply bounds
     win["targetX"] := Max(monLeft, Min(win["targetX"], monRight))
     win["targetY"] := Max(monTop, Min(win["targetY"], monBottom))
-
-    ; Protected windows: zero velocity AFTER full force calculation so other
-    ; windows still receive repulsion push from this window (prevents corner-stuck).
-    if (isProtected) {
-        win["vx"] := 0
-        win["vy"] := 0
-        if (win.Has("targetX"))
-            win.Delete("targetX")
-        if (win.Has("targetY"))
-            win.Delete("targetY")
-    }
 }
 
 SmoothStep(t) {
@@ -2680,11 +2668,8 @@ CalculateDynamicLayout() {
                     win["vx"] := 0
                     win["vy"] := 0
                 }
-                ; Drop energy measurement so state can transition to normal —
-                ; MUST be 0, not 1.0. Setting it to 1.0 was perpetuating the
-                ; settle→rebuild cycle by making normEnergy stay high enough
-                ; that force calculations never truly slept.
-                g["SystemEnergy"] := 0
+                ; Drop energy measurement so state can transition to normal
+                g["SystemEnergy"] := 1.0
 
                 ; CRITICAL: Also resolve overlaps directly — zeroing velocities alone
                 ; leaves windows overlapping, which immediately regenerates energy on
@@ -5603,10 +5588,6 @@ UpdateWindowStates()
 
 ; Start physics calculations but only AFTER ensuring manual locks are respected
 SetTimerEx(CalculateDynamicLayout, Config["PhysicsTimeStep"])      ; Only need this once
-
-; Auto-load saved user settings — restores Config from FWDE_Config.json at startup.
-; Must run AFTER timers are registered so SyncRuntimeFromConfig can adjust periods.
-LoadUserParameterSettings()
 
 OnMessage(0x0003, WindowMoveHandler)
 OnMessage(0x0005, WindowSizeHandler)

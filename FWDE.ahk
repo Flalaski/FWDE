@@ -39,6 +39,535 @@ GetOpenDropdownMenuParent() {
     }
     return 0
 }
+
+; ═══════════════════════════════════════════════════════════════════════════════
+;  OWNED-POPUP COHESION — browser permission bubbles & similar overlays
+;
+;  Chromium browsers (Chrome / Edge / Brave / Opera …) render permission prompts
+;  ("Allow access to location?", notifications, camera/mic, …) as SEPARATE
+;  OS-level owned popup windows (e.g. "Chrome Legacy Window", class
+;  Chrome_WidgetWin_1/0). Because these windows have a title and are visible,
+;  FWDE previously tracked them as INDEPENDENT physics bodies: repulsion pushed
+;  them around while Chrome simultaneously re-anchored them to the host browser
+;  window. The two writers fought → the popup sat at a stale offset → clicks on
+;  its buttons missed.
+;
+;  Fix — three coordinated mechanisms:
+;    1. DETECT    IsOwnedInteractivePopup() recognises owned, visible,
+;                 popup-like windows that must stay glued to their owner.
+;    2. REGISTER  ScanOwnedPopups() keeps g["_popupRegistry"] (popup → owner)
+;                 fresh; GetVisibleWindows excludes popups from independent
+;                 physics so nothing fights the browser's own anchoring.
+;    3. BEHAVE    SyncOwnedPopups() re-applies the owner's exact movement delta
+;                 to each popup in the same tick (lockstep, no smoothing),
+;                 while g["_popupOwners"] freezes host physics so the popup and
+;                 its buttons stay stable and clickable.
+; ═══════════════════════════════════════════════════════════════════════════════
+
+; Returns the owner hwnd of a top-level window (GW_OWNER = 4), or 0.
+GetWindowOwner(hwnd) {
+    try {
+        return DllCall("GetWindow", "Ptr", hwnd, "UInt", 4, "Ptr")
+    } catch {
+        return 0
+    }
+}
+
+; True if hwnd is an owned, visible, popup-like window that must be glued to its
+; owner: browser permission bubbles, "Chrome Legacy Window", owned dialogs, and
+; generic small caption-less overlays owned by another top-level window.
+IsOwnedInteractivePopup(hwnd) {
+    try {
+        if (!SafeWinExist(hwnd))
+            return false
+        owner := GetWindowOwner(hwnd)
+        if (!owner || owner == hwnd || !SafeWinExist(owner))
+            return false
+        ; Must be a live, visible, non-minimized/maximized window.
+        try {
+            if (WinGetMinMax("ahk_id " hwnd) != 0)
+                return false
+            if (!(WinGetStyle("ahk_id " hwnd) & 0x10000000))  ; WS_VISIBLE
+                return false
+        } catch {
+            return false
+        }
+        ; Never treat FWDE's own windows as foreign popups.
+        if (_IsSelfWindow(hwnd))
+            return false
+        style := WinGetStyle("ahk_id " hwnd)
+        exStyle := WinGetExStyle("ahk_id " hwnd)
+        title := WinGetTitle("ahk_id " hwnd)
+        winClass := WinGetClass("ahk_id " hwnd)
+
+        ; Never classify system chrome / helper windows.
+        skipClasses := [
+            "tooltips_class32", "#32768", "IME", "MSCTFIME UI",
+            "DV2ControlHost", "Windows.UI.Core.CoreWindow",
+            "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "Progman", "WorkerW",
+            "CiceroUIWndFrame", "NotifyIconOverflowWindow", "BaseBar", "SysShadow"
+        ]
+        for c in skipClasses {
+            if (winClass == c)
+                return false
+        }
+
+        isTool := (exStyle & 0x80) != 0          ; WS_EX_TOOLWINDOW
+        hasCaption := (style & 0x00C00000) != 0  ; WS_CAPTION
+        isPopupStyle := (style & 0x80000000) != 0 ; WS_POPUP
+
+        ; 1) Chromium permission bubble — the exact reported case.
+        if (title == "Chrome Legacy Window")
+            return true
+
+        ; 2) Chromium-family owned windows that are popup-styled and lack a
+        ;    standard caption (permission bubbles, legacy prompts, mini dialogs).
+        if ((winClass == "Chrome_WidgetWin_1" || winClass == "Chrome_WidgetWin_0")
+            && !isTool && isPopupStyle && !hasCaption) {
+            WinGetPos(,, &w, &h, "ahk_id " hwnd)
+            if (w > 0 && h > 0 && w <= 1000 && h <= 800)
+                return true
+        }
+
+        ; 3) Firefox owned dialogs and other owned modal dialogs.
+        if ((winClass == "MozillaDialogClass" || winClass == "#32770")
+            && !isTool && !hasCaption) {
+            return true
+        }
+
+        ; 4) Generic: any owned, visible, small, popup-styled, caption-less
+        ;    window is an overlay that must follow its owner.
+        if (isPopupStyle && !hasCaption && !isTool) {
+            WinGetPos(,, &w, &h, "ahk_id " hwnd)
+            if (w > 0 && h > 0 && w <= 900 && h <= 700)
+                return true
+        }
+
+        return false
+    } catch {
+        return false
+    }
+}
+
+; Re-scan all top-level windows and refresh g["_popupRegistry"] (popup → owner).
+; Throttled by g["_popupScanTick"] — safe to run at a few Hz alongside the
+; existing per-tick dropdown scan.
+ScanOwnedPopups() {
+    global g, Config
+    try {
+        now := A_TickCount
+        if (now - g["_popupScanTick"] < Config["PopupScanIntervalMs"])
+            return
+        reg := g["_popupRegistry"]
+        seen := Map()
+        for hwnd in WinGetList() {
+            if (!IsOwnedInteractivePopup(hwnd))
+                continue
+            owner := GetWindowOwner(hwnd)
+            if (!owner || !SafeWinExist(owner))
+                continue
+            if (!reg.Has(hwnd) || reg[hwnd] != owner)
+                reg[hwnd] := owner
+            seen[hwnd] := true
+        }
+        ; Prune popups that closed, were destroyed, or lost their owner.
+        for hwnd in reg.Clone() {
+            if (!seen.Has(hwnd) || !IsOwnedInteractivePopup(hwnd)) {
+                reg.Delete(hwnd)
+                DebugLog("PopupScan — popup 0x{:X} left ({} tracked)", hwnd, reg.Count)
+            }
+        }
+        g["_popupScanTick"] := now
+    } catch as e {
+        DebugLog("ScanOwnedPopups error: {}", e.Message)
+    }
+}
+
+; Returns a Map of managed hwnds that currently host a live owned popup — the
+; set of windows physics must freeze while an interactive popup is open.
+GetPopupOwnerSet() {
+    global g
+    owners := Map()
+    try {
+        for popupHwnd, owner in g["_popupRegistry"] {
+            if (!owner || !SafeWinExist(owner) || !SafeWinExist(popupHwnd))
+                continue
+            for win in g["Windows"] {
+                if (win["hwnd"] == owner) {
+                    owners[owner] := true
+                    break
+                }
+            }
+        }
+    } catch {
+    }
+    return owners
+}
+
+; Move every registered popup by the exact delta its owner moved since the last
+; sync. Reads real window rects (kernel-only, no window messages), so this
+; covers physics moves, user drags, and external moves alike — the popup tracks
+; its host 1:1 with no smoothing lag and no independent physics interference.
+SyncOwnedPopups(hwndPos) {
+    global g, Config
+    try {
+        reg := g["_popupRegistry"]
+        if (reg.Count == 0)
+            return
+        prev := g["_popupPrevOwnerPos"]
+        popupMoves := []
+        activeOwners := Map()
+        for popupHwnd, owner in reg {
+            activeOwners[owner] := true
+            if (!SafeWinExist(owner) || !SafeWinExist(popupHwnd))
+                continue
+            ; Current owner position — fresh rect, path-independent.
+            owr := Buffer(16, 0)
+            if (!DllCall("GetWindowRect", "Ptr", owner, "Ptr", owr))
+                continue
+            ox := NumGet(owr, 0, "Int")
+            oy := NumGet(owr, 4, "Int")
+            ; Current popup position.
+            pwr := Buffer(16, 0)
+            if (!DllCall("GetWindowRect", "Ptr", popupHwnd, "Ptr", pwr))
+                continue
+            px := NumGet(pwr, 0, "Int")
+            py := NumGet(pwr, 4, "Int")
+            if (prev.Has(owner)) {
+                dx := ox - prev[owner].x
+                dy := oy - prev[owner].y
+                ; Only react to real movement; the 4000px guard prevents a
+                ; teleport from stale history (e.g. arrangement toggled off/on).
+                if ((Abs(dx) >= 0.5 || Abs(dy) >= 0.5) && Abs(dx) < 4000 && Abs(dy) < 4000)
+                    popupMoves.Push(Map("hwnd", popupHwnd, "x", px + dx, "y", py + dy))
+            }
+            prev[owner] := { x: ox, y: oy }
+        }
+        ; Drop delta history for owners that no longer host popups.
+        for owner in prev.Clone() {
+            if (!activeOwners.Has(owner))
+                prev.Delete(owner)
+        }
+        if (popupMoves.Length > 0) {
+            for m in popupMoves {
+                try MoveWindowAPI(m["hwnd"], Round(m["x"]), Round(m["y"]))
+            }
+            DebugLog("PopupSync — {} popup(s) followed owner delta", popupMoves.Length)
+        }
+    } catch as e {
+        DebugLog("SyncOwnedPopups error: {}", e.Message)
+    }
+}
+
+; ═══════════════════════════════════════════════════════════════════════════════
+;  SAME-APP COMPANION COHESION — decorate/overlay layers (e.g. DarkTide launcher)
+;
+;  Some apps (notably WPF launchers) split their UI into a MAIN window plus a
+;  decorative overlay layer, created as TWO separate top-level windows from the
+;  SAME process — e.g. the Warhammer 40K DarkTide launcher:
+;     "Launcher" (HwndWrapper[launcher.exe;;…])  1280x900  ← main
+;     "Alpha"    (HwndWrapper[launcher.exe;;…])  1280x870  ← decorate layer
+;  Both pass IsWindowValid, so FWDE tracked both as independent physics bodies
+;  and pushed the decorate layer OFF its own main window.
+;
+;  Fix (mirrors owned-popup cohesion, but with NO host freeze — the layer is
+;  permanent, not a transient dialog):
+;    1. DETECT    AreCompanionPair(): same non-empty process + same WPF
+;                 "HwndWrapper[exe;;guid]" family (or a near-full generic
+;                 overlay) + partial overlap + similar size. Overlap floor is
+;                 LOW so a layer FWDE already drifted apart still gets paired.
+;    2. REGISTER  ScanCompanionWindows() groups candidates into connected
+;                 components; the LARGEST window is the anchor, every other
+;                 member is a companion. Companions are excluded from
+;                 independent physics in GetVisibleWindows.
+;    3. BEHAVE    SyncCompanionWindows() re-applies the anchor's exact movement
+;                 delta to each companion in the same tick (lockstep).
+; ═══════════════════════════════════════════════════════════════════════════════
+
+; True if hwnd is one of FWDE's own windows (settings GUI, manual borders, …).
+_IsSelfWindow(hwnd) {
+    static selfProc := ""
+    if (selfProc == "") {
+        try {
+            selfProc := WinGetProcessName("ahk_id " A_ScriptHwnd)
+        } catch {
+            selfProc := ""
+        }
+    }
+    if (selfProc == "")
+        return false
+    try {
+        return WinGetProcessName("ahk_id " hwnd) == selfProc
+    } catch {
+        return false
+    }
+}
+
+; True if the current process is running elevated (Administrator). Elevated
+; (admin) windows are invisible to non-elevated FWDE under Windows UIPI.
+_IsElevated() {
+    try {
+        hTok := 0
+        if (!DllCall("advapi32.dll\OpenProcessToken", "Ptr", DllCall("GetCurrentProcess", "Ptr"), "UInt", 0x20, "Ptr*", &hTok))
+            return false
+        try {
+            elev := 0
+            sz := 0
+            ok := DllCall("advapi32.dll\GetTokenInformation", "Ptr", hTok, "Int", 20, "UInt*", &elev, "UInt", 4, "UInt*", &sz)
+            return (ok && elev != 0)
+        } finally {
+            DllCall("CloseHandle", "Ptr", hTok)
+        }
+    } catch {
+        return false
+    }
+}
+
+; Diagnostic: explains in detail why IsWindowValid() rejects hwnd. Distinguishes
+; UIPI "access denied" (the window belongs to an elevated process and FWDE is
+; not — e.g. Steam/steamwebhelper, Notepad++ [Administrator], elevated FileZilla)
+; from ordinary exclusions (minimized/maximized, toolwindow, not visible, no
+; title, fullscreen). Only used for the Ctrl+Alt+D debug output.
+_GetWindowExcludeReason(hwnd) {
+    try {
+        ; MinMax first — a throw here is the classic elevated-window (UIPI) tell.
+        try {
+            mm := WinGetMinMax("ahk_id " hwnd)
+        } catch {
+            return "invalid:access-denied (elevated?)"
+        }
+        if (mm != 0)
+            return (mm > 0) ? "invalid:maximized" : "invalid:minimized"
+        try {
+            if (WinGetExStyle("ahk_id " hwnd) & 0x80)
+                return "invalid:toolwindow"
+            if (!(WinGetStyle("ahk_id " hwnd) & 0x10000000))
+                return "invalid:not-visible"
+        } catch {
+            return "invalid:access-denied (elevated?)"
+        }
+        try {
+            title := WinGetTitle("ahk_id " hwnd)
+        } catch {
+            return "invalid:access-denied (elevated?)"
+        }
+        if (title == "" || title == "Program Manager")
+            return "invalid:no-title"
+        if (IsFullscreenWindow(hwnd))
+            return "invalid:fullscreen"
+        return "invalid:other"
+    } catch {
+        return "invalid:other"
+    }
+}
+
+; Extracts the "exe" token from WPF "HwndWrapper[exe;;guid]" window classes,
+; or "" when the window is not a WPF HwndWrapper.
+_GetWpfFamily(hwnd) {
+    try {
+        cls := WinGetClass("ahk_id " hwnd)
+        if (RegExMatch(cls, "i)^HwndWrapper\[([^;\]]+);;", &m))
+            return StrLower(m[1])
+    } catch {
+    }
+    return ""
+}
+
+; True if two same-process top-level windows form an anchor/companion pair.
+; ca / cb are candidate Maps with process/wpf/x/y/w/h/area. The overlap floor
+; for WPF-family pairs is deliberately low (CompanionMinOverlap) so a decorate
+; layer that FWDE already pushed partially apart is still recognised.
+AreCompanionPair(ca, cb, minOverlap, maxSizeRatio) {
+    ; Same non-empty process is a hard requirement.
+    if (ca["process"] == "" || ca["process"] != cb["process"])
+        return false
+    ; Rect intersection / overlap ratio of the smaller window.
+    ox := Max(0, Min(ca["x"] + ca["w"], cb["x"] + cb["w"]) - Max(ca["x"], cb["x"]))
+    oy := Max(0, Min(ca["y"] + ca["h"], cb["y"] + cb["h"]) - Max(ca["y"], cb["y"]))
+    overlapArea := ox * oy
+    if (overlapArea <= 0)
+        return false
+    smallerArea := Min(ca["area"], cb["area"])
+    overlapRatio := overlapArea / Max(smallerArea, 1)
+    sizeRatio := Max(ca["area"], cb["area"]) / Max(Min(ca["area"], cb["area"]), 1)
+    if (sizeRatio > maxSizeRatio)
+        return false
+    ; Strong signal: same WPF HwndWrapper family → very likely one app's
+    ; main window + decorate layer, even if already partially drifted apart.
+    sameWpf := (ca["wpf"] != "" && ca["wpf"] == cb["wpf"])
+    if (sameWpf && overlapRatio >= minOverlap)
+        return true
+    ; Generic fallback: a caption-less overlay (WS_POPUP, no WS_CAPTION) fully
+    ; covering a same-process window — non-WPF decorate layers. Requiring the
+    ; overlay style prevents gluing unrelated windows that merely overlap
+    ; (e.g. two stacked windows of the same app).
+    if ((ca["overlay"] || cb["overlay"]) && overlapRatio >= 0.8)
+        return true
+    return false
+}
+
+; Re-scan for same-app companion windows and rebuild g["_companionRegistry"]
+; (companion → anchor). Groups candidates into connected components via
+; AreCompanionPair; the largest-area window of each multi-window component is the
+; anchor, every other member is a companion that must follow it.
+ScanCompanionWindows() {
+    global g, Config
+    try {
+        now := A_TickCount
+        if (now - g["_companionScanTick"] < Config["CompanionScanIntervalMs"])
+            return
+
+        ; 1) Collect candidate windows (valid, non-popup, non-self, visible).
+        cands := []
+        for hwnd in WinGetList() {
+            try {
+                if (!IsWindowValid(hwnd))
+                    continue
+                if (IsOwnedInteractivePopup(hwnd))
+                    continue
+                if (_IsSelfWindow(hwnd))
+                    continue
+                if (WinGetMinMax("ahk_id " hwnd) != 0)
+                    continue
+                WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+                if (w <= 0 || h <= 0)
+                    continue
+                style := WinGetStyle("ahk_id " hwnd)
+                cands.Push(Map(
+                    "hwnd", hwnd,
+                    "process", StrLower(WinGetProcessName("ahk_id " hwnd)),
+                    "wpf", _GetWpfFamily(hwnd),
+                    "overlay", ((style & 0x80000000) != 0 && (style & 0x00C00000) == 0),
+                    "x", x, "y", y, "w", w, "h", h,
+                    "area", w * h
+                ))
+            } catch {
+                continue
+            }
+        }
+
+        ; 2) Label connected components via pairwise anchor/companion tests.
+        minOverlap := Config["CompanionMinOverlap"]
+        maxSizeRatio := Config["CompanionMaxSizeRatio"]
+        labels := []
+        for i, c in cands
+            labels.Push(0)
+        nextLabel := 0
+        for i, c1 in cands {
+            if (labels[i] != 0)
+                continue
+            nextLabel += 1
+            labels[i] := nextLabel
+            ; Flood the component to completion (few top-level windows → cheap).
+            changed := true
+            while (changed) {
+                changed := false
+                for a, ca in cands {
+                    if (labels[a] != nextLabel)
+                        continue
+                    for b, cb in cands {
+                        if (labels[b] == nextLabel || a == b)
+                            continue
+                        if (AreCompanionPair(ca, cb, minOverlap, maxSizeRatio)) {
+                            labels[b] := nextLabel
+                            changed := true
+                        }
+                    }
+                }
+            }
+        }
+
+        ; 3) Largest-area window of each multi-window component is the anchor;
+        ;    every other member is a companion that must follow it.
+        compMap := Map()
+        for i, c in cands {
+            lbl := labels[i]
+            if (!compMap.Has(lbl))
+                compMap[lbl] := []
+            compMap[lbl].Push(i)
+        }
+        newReg := Map()
+        for lbl, members in compMap {
+            if (members.Length < 2)
+                continue
+            anchorIdx := members[1]
+            for mi in members {
+                if (cands[mi]["area"] > cands[anchorIdx]["area"])
+                    anchorIdx := mi
+            }
+            anchor := cands[anchorIdx]
+            for mi in members {
+                if (mi == anchorIdx)
+                    continue
+                newReg[cands[mi]["hwnd"]] := anchor["hwnd"]
+            }
+        }
+
+        ; 4) Swap registry (prunes stale entries automatically) + log changes.
+        if (newReg.Count != g["_companionRegistry"].Count)
+            DebugLog("CompanionScan — {} companion(s) following anchors (was {})", newReg.Count, g["_companionRegistry"].Count)
+        g["_companionRegistry"] := newReg
+        g["_companionScanTick"] := now
+    } catch as e {
+        DebugLog("ScanCompanionWindows error: {}", e.Message)
+    }
+}
+
+; Move every registered companion by the exact delta its anchor moved since the
+; last sync. Reads real window rects (kernel-only, no window messages), so this
+; covers physics moves, user drags, and external moves alike — the decorate layer
+; stays glued to its main window 1:1 with no smoothing lag.
+SyncCompanionWindows() {
+    global g, Config
+    try {
+        reg := g["_companionRegistry"]
+        if (reg.Count == 0)
+            return
+        prev := g["_companionPrevAnchorPos"]
+        moves := []
+        activeAnchors := Map()
+        for compHwnd, anchor in reg {
+            activeAnchors[anchor] := true
+            if (!SafeWinExist(anchor) || !SafeWinExist(compHwnd))
+                continue
+            ; Current anchor position — fresh rect, path-independent.
+            awr := Buffer(16, 0)
+            if (!DllCall("GetWindowRect", "Ptr", anchor, "Ptr", awr))
+                continue
+            ax := NumGet(awr, 0, "Int")
+            ay := NumGet(awr, 4, "Int")
+            ; Current companion position.
+            cwr := Buffer(16, 0)
+            if (!DllCall("GetWindowRect", "Ptr", compHwnd, "Ptr", cwr))
+                continue
+            cx := NumGet(cwr, 0, "Int")
+            cy := NumGet(cwr, 4, "Int")
+            if (prev.Has(anchor)) {
+                dx := ax - prev[anchor].x
+                dy := ay - prev[anchor].y
+                ; Only react to real movement; the 4000px guard prevents a
+                ; teleport from stale history (e.g. arrangement toggled off/on).
+                if ((Abs(dx) >= 0.5 || Abs(dy) >= 0.5) && Abs(dx) < 4000 && Abs(dy) < 4000)
+                    moves.Push(Map("hwnd", compHwnd, "x", cx + dx, "y", cy + dy))
+            }
+            prev[anchor] := { x: ax, y: ay }
+        }
+        ; Drop delta history for anchors that no longer host companions.
+        for anchor in prev.Clone() {
+            if (!activeAnchors.Has(anchor))
+                prev.Delete(anchor)
+        }
+        if (moves.Length > 0) {
+            for m in moves {
+                try MoveWindowAPI(m["hwnd"], Round(m["x"]), Round(m["y"]))
+            }
+            DebugLog("CompanionSync — {} companion(s) followed anchor delta", moves.Length)
+        }
+    } catch as e {
+        DebugLog("SyncCompanionWindows error: {}", e.Message)
+    }
+}
+
 #Warn
 #MaxThreadsPerHotkey 255
 #MaxThreads 255
@@ -87,6 +616,14 @@ global Config := Map(
     "TooltipDuration", 6767,
     "ParameterHelpTooltipDuration", 2200,
     "MultimonitorExpanse", false,   ; Toggle for multi-monitor expanse (seamless floating)
+    "PopupFollowEnabled", true,     ; Owned popups (browser permission bubbles, "Chrome Legacy Window") follow their host 1:1
+    "PopupFreezeHost", true,        ; Freeze host-window physics while an interactive owned popup is open (stable clicks)
+    "PopupScanIntervalMs", 250,     ; Re-scan cadence for owned popup windows (ms)
+    "CompanionFollowEnabled", true, ; Same-app companion/decorate layers (e.g. DarkTide launcher's WPF overlay) follow their main window 1:1
+    "CompanionScanIntervalMs", 500, ; Re-scan cadence for companion windows (ms)
+    "CompanionMinOverlap", 0.15,    ; Min overlap ratio (of the smaller window) to pair same-WPF-family windows — low so already-drifted layers still pair
+    "CompanionMaxSizeRatio", 3.0,   ; Max anchor/companion area ratio for an overlay pair
+    "RunAsAdmin", false,            ; Relaunch FWDE elevated at startup so Administrator (elevated) windows can be managed
     "FloatStyles",  0x80000000,  ; WS_POPUP only — floating/popup windows without standard chrome
     "FloatClassPatterns", [
         "Vst.*",         ; VST plugins
@@ -127,7 +664,11 @@ global Config := Map(
         "speak.EXE"      ; uppercase variant
     ],
     "ForceTrackProcesses", [  ; These ALWAYS get tracked, overriding all float checks
-        "WinXShell_x64.exe"
+        "WinXShell_x64.exe",
+        ; Steam client — SDL_app class with custom chrome (WS_POPUP, no caption)
+        ; must stay manageable; its UI lives in CEF webhelper processes.
+        "steam.exe",
+        "steamwebhelper.exe"
     ],
     "Damping", 0.216,    ; 1.0 = no damping, 0.0 = full stop (use 0.001-1.0)
     "MaxSpeed", 240.0,    ; Limits maximum velocity
@@ -192,6 +733,15 @@ global g := Map(
     "_snapFailsafeCount", 0,     ; Count of SnapInProgress force-clears
     "_draggedHwnd", 0,           ; Cached drag handle, recomputed each physics tick
     "_menuParent", 0,            ; Cached open-menu parent, recomputed each physics tick
+    "_popupRegistry", Map(),     ; Owned-popup cohesion: popupHwnd → ownerHwnd
+    "_popupScanTick", 0,         ; Throttle: last ScanOwnedPopups run
+    "_popupOwners", Map(),       ; Managed hwnds hosting a live owned popup (frozen hosts)
+    "_popupPrevOwnerPos", Map(), ; Owner-position history for popup lockstep deltas
+    "_popupFailsafeCount", 0,    ; Count of popup-registry force-clears (HealthMonitor)
+    "_companionRegistry", Map(),     ; Same-app companion cohesion: companionHwnd → anchorHwnd
+    "_companionScanTick", 0,         ; Throttle: last ScanCompanionWindows run
+    "_companionPrevAnchorPos", Map(), ; Anchor-position history for companion lockstep deltas
+    "_companionFailsafeCount", 0,    ; Count of companion-registry force-clears (HealthMonitor)
     "_iconZones", [],            ; Clustered icon zones: [{left,top,right,bottom},...]
     "_iconZonesLive", false,     ; true = real ListView data, false = virtual fallback
     "ForceTransition", 0,         ; TickCount when smooth transition ends (set by state machine)
@@ -625,7 +1175,10 @@ IsFullscreenWindow(hwnd) {
         manageableProcesses := [
             "firefox.exe", "chrome.exe", "msedge.exe", "code.exe", "cursor.exe",
             "notepad.exe", "notepad++.exe", "devenv.exe", "explorer.exe",
-            "winword.exe", "excel.exe", "powerpnt.exe", "outlook.exe"
+            "winword.exe", "excel.exe", "powerpnt.exe", "outlook.exe",
+            ; Steam — its UI is hosted in CEF webhelper processes and uses the
+            ; SDL_app class with custom chrome, so it is NOT a fullscreen app.
+            "steam.exe", "steamwebhelper.exe"
         ]
         
         ; Check if this is a manageable window (not fullscreen)
@@ -662,7 +1215,6 @@ IsFullscreenWindow(hwnd) {
             ]
             
             fullscreenProcesses := [
-                "steam.exe", "steamwebhelper.exe",
                 "vlc.exe", "mpc-hc.exe", "potplayer.exe",
                 "obs64.exe", "obs32.exe", "streamlabs obs.exe"
             ]
@@ -1087,8 +1639,15 @@ IsWindowFloating(hwnd) {
             }
         }
 
-        ; 7. Final style check
-        return (style & Config["FloatStyles"]) != 0
+        ; 7. Final style check: WS_POPUP only counts as "floating" when the
+        ;    window has NO standard caption. WS_POPUP + WS_CAPTION is how many
+        ;    normal apps build a regular custom-chrome window (AHK v1 GUIs like
+        ;    Ahk2Exe, Steam, modern launchers) — those are real windows that must
+        ;    be managed by FWDE, not floated. True caption-less popups/overlays
+        ;    are handled by the earlier checks and the popup/companion cohesion.
+        if ((style & Config["FloatStyles"]) != 0 && !(style & 0x00C00000))
+            return true
+        return false
     }
     catch {
         return false
@@ -1106,6 +1665,25 @@ GetVisibleWindows(monitor) {
         try {
             ; Skip invalid windows
             if (!IsWindowValid(hwnd))
+                continue
+
+            ; Owned interactive popups (e.g. Chrome permission bubbles /
+            ; "Chrome Legacy Window") are NOT independent physics bodies — they
+            ; are glued to their owner by the popup-cohesion subsystem. Tracking
+            ; them independently let physics fight Chrome's own anchoring, which
+            ; made clicks on the popup's buttons miss.
+            if (IsOwnedInteractivePopup(hwnd))
+                continue
+
+            ; Never physics-manage FWDE's own windows (parameter settings GUI).
+            if (_IsSelfWindow(hwnd))
+                continue
+
+            ; Same-app companion layers (e.g. the DarkTide launcher's WPF
+            ; decorate overlay) are glued to their anchor — never tracked as
+            ; independent physics bodies, or physics pushes them off the main
+            ; window.
+            if (g["_companionRegistry"].Has(hwnd))
                 continue
 
             ; Get window properties
@@ -1762,6 +2340,15 @@ CalculateWindowForces(win, allWindows) {
     ; Use cached drag state (computed once per tick in CalculateDynamicLayout)
     draggedHwnd := g["_draggedHwnd"]
     isDraggedWindow := (draggedHwnd != 0 && win["hwnd"] == draggedHwnd)
+
+    ; Popup-cohesion freeze: hosts with an open interactive owned popup stay
+    ; physics-immobile unless the user is actively dragging them.
+    if (Config["PopupFreezeHost"] && !isDraggedWindow && g.Has("_popupOwners")
+        && g["_popupOwners"].Has(win["hwnd"])) {
+        win["vx"] := 0
+        win["vy"] := 0
+        return
+    }
     
     if (isDraggedWindow) {
         ; For the dragged window, skip its own physics calculations
@@ -2022,7 +2609,7 @@ ApplyWindowMovements() {
     static lastPositions := Map()
     static smoothPos := Map()
     ; Throttled ApplyMovements logging — aggregate per-second instead of per-tick
-    static _awmLastLog := 0, _awmTicks := 0, _awmTotalMoves := 0
+    static _awmLastLog := 0, _awmTicks := 0, _awmTotalMoves := 0, _awmQuietTicks := 0
 
     try {  ; Wrap entire timer body — any exception would silently kill this timer in AHK v2
 
@@ -2033,6 +2620,8 @@ ApplyWindowMovements() {
     ; Suspend movement for parent windows if a dropdown/menu is open
     ; Use cached menu parent (computed once per tick in CalculateDynamicLayout)
     menuParent := g.Has("_menuParent") ? g["_menuParent"] : 0
+    ; Cached set of managed hosts with an open interactive owned popup
+    popupOwners := g.Has("_popupOwners") ? g["_popupOwners"] : Map()
 
     Critical
 
@@ -2077,6 +2666,13 @@ ApplyWindowMovements() {
         } catch {
             continue
         }
+
+        ; Freeze hosts with open interactive popups (Chrome permission bubbles
+        ; etc.) so the popup stays stable under the cursor for clicks. Dragging
+        ; the host still works (handled below), and the popup follows via
+        ; SyncOwnedPopups.
+        if (Config["PopupFreezeHost"] && popupOwners.Has(win["hwnd"]) && win["hwnd"] != draggedHwnd)
+            continue
         
         ; === ICON ZONE BARRIER: unconditional, runs before all protections ===
         ; Treats icon zones as "pillars" — isolated obstacles with free space
@@ -2355,24 +2951,105 @@ ApplyWindowMovements() {
     ; Throttled: accumulate every call (even zero-move ticks for accuracy),
     ; flush a single summary line once per second instead of per-tick.
     _awmTicks += 1
-    if (moveBatch.Length > 0)
+    if (moveBatch.Length > 0) {
         _awmTotalMoves += moveBatch.Length
+        _awmQuietTicks := 0
+    } else {
+        _awmQuietTicks += 1
+    }
     if (A_TickCount - _awmLastLog >= 1000) {
         DebugLog("ApplyMovements — {} moves across {} ticks (avg {:.1f}/tick)",
             _awmTotalMoves, _awmTicks, _awmTicks > 0 ? _awmTotalMoves / _awmTicks : 0)
+        ; Idle-with-energy: physics wants to move windows but nothing moved for
+        ; ~1s — log exactly why each tracked window is stuck (active/manual/
+        ; snap/resync/at-target). Helps diagnose "windows not moving" reports.
+        if (_awmTotalMoves == 0 && _awmQuietTicks >= 60 && g["SystemEnergy"] > 100)
+            _DiagnoseIdlePhysics()
         _awmLastLog := A_TickCount
         _awmTicks := 0
         _awmTotalMoves := 0
+        _awmQuietTicks := 0
     }
     _PerfEnd("AWM", p)
 
     for move in moveBatch {
         try MoveWindowAPI(move.hwnd, move.x, move.y)
     }
+
+    ; --- Owned-popup lockstep ---
+    ; After all owner moves are applied, re-apply the exact movement delta to
+    ; every registered popup so it tracks its host 1:1 (no smoothing, no lag,
+    ; no independent physics). Covers physics moves, user drags, and external
+    ; moves alike.
+    if (Config["PopupFollowEnabled"])
+        SyncOwnedPopups(hwndPos)
+
+    ; --- Same-app companion lockstep ---
+    ; Decorate/overlay layers (e.g. the DarkTide launcher's WPF HwndWrapper
+    ; frame) follow their anchor window with the exact same delta.
+    if (Config["CompanionFollowEnabled"])
+        SyncCompanionWindows()
     } catch as e {
         DebugLog("ApplyWindowMovements timer crashed: {}", e.Message)
         ; Any exception in the movement loop is caught to prevent
         ; the AHK v2 timer from silently stopping forever.
+    }
+}
+
+; Logs why each tracked window is not moving, when physics has energy but zero
+; moves occur for a sustained period. Triggered from ApplyMovements' once-per-
+; second summary. Reasons: minmax / popup-freeze / active / manual-lock / snap /
+; resync (real position keeps drifting from our state — an app is fighting us) /
+; at-target / should-move.
+_DiagnoseIdlePhysics() {
+    global g, Config
+    try {
+        if (g["Windows"].Length == 0)
+            return
+        msg := "IdleDiag — " g["Windows"].Length " windows, normEnergy=" Format("{:.4f}", g["SystemEnergy"] / Max(g["Windows"].Length, 1) / 10000)
+        for win in g["Windows"] {
+            hwnd := win["hwnd"]
+            reason := "?"
+            try {
+                if (WinGetMinMax("ahk_id " hwnd) != 0)
+                    reason := "minmax"
+                else if (Config["PopupFreezeHost"] && g.Has("_popupOwners") && g["_popupOwners"].Has(hwnd))
+                    reason := "popup-freeze"
+                else if (hwnd == g["ActiveWindow"])
+                    reason := "active"
+                else if (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
+                    reason := "manual-lock"
+                else if (g["SnapInProgress"].Has(hwnd) && A_TickCount < g["SnapInProgress"][hwnd])
+                    reason := "snap"
+                else {
+                    sx := win.Has("x") ? win["x"] : 0
+                    sy := win.Has("y") ? win["y"] : 0
+                    ; Real position vs our state — external resync path detection.
+                    rX := sx
+                    rY := sy
+                    wrBuf := Buffer(16, 0)
+                    if (DllCall("GetWindowRect", "Ptr", hwnd, "Ptr", wrBuf)) {
+                        rX := NumGet(wrBuf, 0, "Int")
+                        rY := NumGet(wrBuf, 4, "Int")
+                    }
+                    if (Abs(rX - sx) > 12 || Abs(rY - sy) > 12)
+                        reason := "resync(real=" Round(rX) "," Round(rY) " state=" Round(sx) "," Round(sy) ")"
+                    else {
+                        tx := win.Has("targetX") ? win["targetX"] : sx
+                        ty := win.Has("targetY") ? win["targetY"] : sy
+                        if (Abs(tx - sx) < 0.5 && Abs(ty - sy) < 0.5)
+                            reason := "at-target"
+                        else
+                            reason := "should-move(t=" Round(tx) "," Round(ty) ")"
+                    }
+                }
+            } catch {
+                reason := "err"
+            }
+            msg .= " | 0x" Format("{:X}", hwnd) ":" reason
+        }
+        DebugLog(msg)
+    } catch {
     }
 }
 
@@ -2509,6 +3186,20 @@ CalculateDynamicLayout() {
     menuParent := GetOpenDropdownMenuParent()
     g["_menuParent"] := menuParent
 
+    ; Owned-popup cohesion: keep the popup registry fresh (throttled scan) and
+    ; cache which managed windows host a live interactive popup so the physics
+    ; loop can freeze them (stable popup clicks) while SyncOwnedPopups keeps any
+    ; popup glued to its host during drags.
+    if (Config["PopupFollowEnabled"] || Config["PopupFreezeHost"])
+        ScanOwnedPopups()
+    g["_popupOwners"] := GetPopupOwnerSet()
+
+    ; Same-app companion cohesion: keep the companion registry fresh so
+    ; decorate/overlay layers (e.g. the DarkTide launcher's WPF HwndWrapper
+    ; frame) never separate from their main window.
+    if (Config["CompanionFollowEnabled"])
+        ScanCompanionWindows()
+
     try {
         g["_draggedHwnd"] := GetDraggedManagedWindow()
     } catch {
@@ -2565,6 +3256,14 @@ CalculateDynamicLayout() {
     currentEnergy := 0
     for win in g["Windows"] {
         if (menuParent && win["hwnd"] == menuParent) {
+            win["vx"] := 0
+            win["vy"] := 0
+            continue
+        }
+        ; Freeze hosts with open interactive popups (Chrome permission bubbles
+        ; etc.) — moving them mid-interaction makes the popup's buttons drift
+        ; under the cursor. Popups still follow the host on user drags.
+        if (Config["PopupFreezeHost"] && g["_popupOwners"].Has(win["hwnd"])) {
             win["vx"] := 0
             win["vy"] := 0
             continue
@@ -2738,11 +3437,12 @@ ResolveFloatingCollisions(windows) {
         isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
         isActive := (win["hwnd"] == g["ActiveWindow"])
         isBeingSnapped := g["SnapInProgress"].Has(win["hwnd"]) && A_TickCount < g["SnapInProgress"][win["hwnd"]]
+        isPopupHost := (Config["PopupFreezeHost"] && g.Has("_popupOwners") && g["_popupOwners"].Has(win["hwnd"]))
         
         ; Semiprotected: active window moves at reduced force (50%) so both
         ; sides participate in separation instead of the active window being
         ; a brick wall that squeezes non-active windows against screen edges.
-        if (isManuallyLocked || isBeingSnapped)
+        if (isManuallyLocked || isBeingSnapped || isPopupHost)
             protection[win["hwnd"]] := "protected"
         else if (isActive && !isDragging)
             protection[win["hwnd"]] := "semiprotected"
@@ -2910,11 +3610,12 @@ ResolveOverlapsDirect(windows) {
         isManuallyLocked := (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
         isActive := (win["hwnd"] == g["ActiveWindow"])
         isBeingSnapped := g["SnapInProgress"].Has(win["hwnd"]) && A_TickCount < g["SnapInProgress"][win["hwnd"]]
+        isPopupHost := (Config["PopupFreezeHost"] && g.Has("_popupOwners") && g["_popupOwners"].Has(win["hwnd"]))
 
         ; Semiprotected: active window moves at reduced force (50%) so both
         ; sides participate in separation instead of the active window being
         ; a brick wall that squeezes non-active windows against screen edges.
-        if (isManuallyLocked || isBeingSnapped)
+        if (isManuallyLocked || isBeingSnapped || isPopupHost)
             protection[win["hwnd"]] := "protected"
         else if (isActive && !isDragging)
             protection[win["hwnd"]] := "semiprotected"
@@ -3383,6 +4084,14 @@ ToggleArrangement() {
     g["ArrangementActive"] := !g["ArrangementActive"]
     if (g["ArrangementActive"]) {
         AcquireHighResTimer()
+        ; Reset popup-cohesion history so lockstep deltas don't carry stale
+        ; positions across arrangement toggles.
+        g["_popupRegistry"] := Map()
+        g["_popupPrevOwnerPos"] := Map()
+        g["_popupScanTick"] := 0
+        g["_companionRegistry"] := Map()
+        g["_companionPrevAnchorPos"] := Map()
+        g["_companionScanTick"] := 0
         UpdateWindowStates()
         SetTimerEx(CalculateDynamicLayout, Config["PhysicsTimeStep"])
         SetTimerEx(ApplyWindowMovements, Config["VisualTimeStep"])
@@ -3982,16 +4691,20 @@ WindowMoveHandler(wParam, lParam, msg, hwnd) {
     Critical
 
     ; === FAST PATH: runs on every WM_MOVE to keep DragActive + position in sync ===
+    ; CRITICAL: Only treat a WM_MOVE as USER interaction when the left button is
+    ; actually held. Apps that reposition their own windows (e.g. the DarkTide
+    ; launcher realigning its decorate layer) generate WM_MOVE constantly; if we
+    ; marked them "active" on every such message they would be frozen by the
+    ; active-window protection forever and physics would stop moving them.
     isBeingDragged := GetKeyState("LButton", "P")
     if (isBeingDragged) {
         g["SnapInProgress"][hwnd] := A_TickCount + 2000
         g["DragActive"] := true   ; Activate drag physics pipeline for real-time repulsion
+        g["LastUserMove"] := A_TickCount
+        g["ActiveWindow"] := hwnd
     } else {
         g["DragActive"] := false  ; Drag ended — deactivate
     }
-
-    g["LastUserMove"] := A_TickCount
-    g["ActiveWindow"] := hwnd
 
     try {
         if (WinGetMinMax("ahk_id " hwnd) != 0) {
@@ -4027,8 +4740,9 @@ WindowMoveHandler(wParam, lParam, msg, hwnd) {
         return
     g["LastWMMoveHeavy"] := A_TickCount
 
-    ; Don't auto-lock Electron apps - they update their UI frequently
-    if (!IsElectronApp(hwnd)) {
+    ; Only auto-lock the window when the move was user-initiated (button held).
+    ; App-initiated repositioning must not create a persistent ManualLock.
+    if (isBeingDragged && !IsElectronApp(hwnd)) {
         lockExpire := A_TickCount + Config["MoveLockTimeout"]
         targetWin["ManualLock"] := lockExpire
         targetWin["IsManual"] := true
@@ -4065,12 +4779,19 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
         return
 
     Critical
+
+    ; Only treat a WM_SIZE as USER interaction when the left button is held.
+    ; Apps that self-resize (realigning their own UI) must not become
+    ; permanently "active" and frozen by the active-window protection.
+    isBeingResized := GetKeyState("LButton", "P")
     
     ; Windows Snap often resizes windows - extend protection time
     g["SnapInProgress"][hwnd] := A_TickCount + 2000  ; 2 second protection during/after snap
     
-    g["LastUserMove"] := A_TickCount
-    g["ActiveWindow"] := hwnd
+    if (isBeingResized) {
+        g["LastUserMove"] := A_TickCount
+        g["ActiveWindow"] := hwnd
+    }
 
     try {
         if (WinGetMinMax("ahk_id " hwnd) != 0)
@@ -4086,8 +4807,8 @@ WindowSizeHandler(wParam, lParam, msg, hwnd) {
         winCenterY := y + h/2
         monNum := MonitorGetFromPoint(winCenterX, winCenterY)
 
-        ; Don't auto-lock Electron apps - they update their UI frequently
-        if (!IsElectronApp(hwnd)) {
+        ; Only auto-lock when the resize was user-initiated (button held).
+        if (isBeingResized && !IsElectronApp(hwnd)) {
             lockExpire := A_TickCount + Config["MoveLockTimeout"]
             targetWin["ManualLock"] := lockExpire
             targetWin["IsManual"] := true
@@ -4339,7 +5060,11 @@ GetDecimalPlaces(value) {
 ShouldTreatAsBoolean(path) {
     static boolPaths := Map(
         "MultimonitorExpanse", true,
-        "DesktopIconRepulsion", true
+        "DesktopIconRepulsion", true,
+        "PopupFollowEnabled", true,
+        "PopupFreezeHost", true,
+        "CompanionFollowEnabled", true,
+        "RunAsAdmin", true
     )
     return boolPaths.Has(path)
 }
@@ -4434,7 +5159,11 @@ ApplyNumericSpecOverrides(spec) {
         "Stabilization.OverlapTolerance", Map("min", 0, "max", 500, "decimals", 0),
         "DesktopIconMargin", Map("min", 0, "max", 200, "decimals", 0),
         "DesktopIconRepulsionForce", Map("min", 0.0, "max", 25.0, "decimals", 1),
-        "DesktopIconInterRepelRange", Map("min", 0.1, "max", 3.0, "decimals", 2)
+        "DesktopIconInterRepelRange", Map("min", 0.1, "max", 3.0, "decimals", 2),
+        "PopupScanIntervalMs", Map("min", 50, "max", 2000, "decimals", 0),
+        "CompanionScanIntervalMs", Map("min", 100, "max", 5000, "decimals", 0),
+        "CompanionMinOverlap", Map("min", 0.05, "max", 1.0, "decimals", 2),
+        "CompanionMaxSizeRatio", Map("min", 1.1, "max", 10.0, "decimals", 1)
     )
 
     path := spec["path"]
@@ -4919,6 +5648,24 @@ ShowParameterSettingsWindow(*) {
 BuildFWDEMenus()
 LoadUserParameterSettings()
 
+; --- Optional self-elevation ---
+; Elevated (Administrator) windows — Steam, Notepad++ [Administrator], elevated
+; FileZilla, etc. — are invisible to a non-elevated FWDE under Windows UIPI
+; (style/minmax queries throw "Access is denied", SetWindowPos is blocked). If
+; the user enabled RunAsAdmin in the parameter settings and this instance is NOT
+; elevated, relaunch ourselves elevated and exit.
+if (Config["RunAsAdmin"] && !_IsElevated()) {
+    try {
+        if (A_IsCompiled)
+            Run '*RunAs "' A_ScriptFullPath '"'
+        else
+            Run '*RunAs "' A_AhkPath '" "' A_ScriptFullPath '"'
+        ExitApp
+    } catch {
+        ShowTooltip("FWDE: could not relaunch elevated — check UAC/antivirus settings")
+    }
+}
+
 ShowTaskbarMenu() {
     BuildFWDEMenus()
     rect := GetTaskbarRect()
@@ -5027,6 +5774,7 @@ DebugWindowInfo() {
     allWindows := []
     trackedWindows := []
     untrackedWindows := []
+    notTrackedWindows := []
     
     ; Get current monitor for filtering
     CoordMode "Mouse", "Screen"
@@ -5058,6 +5806,8 @@ DebugWindowInfo() {
                 
             isPlugin := IsPluginWindow(hwnd)
             isFloating := IsWindowFloating(hwnd)
+            isPopup := IsOwnedInteractivePopup(hwnd)
+            popupOwner := GetWindowOwner(hwnd)
             isTracked := false
             
             ; Check if window is currently tracked
@@ -5076,6 +5826,8 @@ DebugWindowInfo() {
                 "x", x, "y", y, "width", w, "height", h,
                 "isPlugin", isPlugin,
                 "isFloating", isFloating,
+                "isPopup", isPopup,
+                "popupOwner", popupOwner,
                 "isTracked", isTracked
             )
             
@@ -5085,6 +5837,22 @@ DebugWindowInfo() {
                 trackedWindows.Push(windowInfo)
             } else if (isFloating || isPlugin) {
                 untrackedWindows.Push(windowInfo)
+            } else {
+                ; Untracked + not floating — record WHY so diagnosis is instant
+                ; (popup-cohesion / fwde-self / companion / invalid / monitor filter)
+                reason := ""
+                if (isPopup)
+                    reason := "owned-popup"
+                else if (_IsSelfWindow(hwnd))
+                    reason := "fwde-self"
+                else if (g["_companionRegistry"].Has(hwnd))
+                    reason := "companion"
+                else if (!IsWindowValid(hwnd))
+                    reason := _GetWindowExcludeReason(hwnd)
+                else
+                    reason := "monitor-filter"
+                windowInfo["excludeReason"] := reason
+                notTrackedWindows.Push(windowInfo)
             }
             
         } catch {
@@ -5097,7 +5865,8 @@ DebugWindowInfo() {
     debugMsg .= "Arrangement Active: " . (g["ArrangementActive"] ? "YES" : "NO") . "`n"
     debugMsg .= "Total Windows: " . allWindows.Length . "`n"
     debugMsg .= "Tracked Windows: " . trackedWindows.Length . "`n"
-    debugMsg .= "Untracked Floating Windows: " . untrackedWindows.Length . "`n`n"
+    debugMsg .= "Untracked Floating Windows: " . untrackedWindows.Length . "`n"
+    debugMsg .= "Untracked Non-Floating: " . notTrackedWindows.Length . "`n`n"
     
     debugMsg .= "--- TRACKED WINDOWS ---`n"
     for win in trackedWindows {
@@ -5111,6 +5880,54 @@ DebugWindowInfo() {
         debugMsg .= "  Size: " . win["width"] . "x" . win["height"] . " at " . win["x"] . "," . win["y"] . "`n"
         debugMsg .= "  Plugin: " . (win["isPlugin"] ? "YES" : "NO") . " | Floating: " . (win["isFloating"] ? "YES" : "NO") . "`n"
     }
+    
+    debugMsg .= "`n--- UNTRACKED NON-FLOATING (WHY) ---`n"
+    if (notTrackedWindows.Length > 0) {
+        hasElevated := false
+        for win in notTrackedWindows {
+            debugMsg .= "- " . win["title"] . " (" . win["class"] . ") [" . win["process"] . "] -> " . win["excludeReason"] . "`n"
+            if (InStr(win["excludeReason"], "access-denied"))
+                hasElevated := true
+        }
+        if (hasElevated)
+            debugMsg .= "NOTE: elevated (Administrator) windows can only be managed when FWDE itself runs elevated — enable 'RunAsAdmin' in Parameter Settings and reload, or launch FWDE as Administrator.`n"
+    } else {
+        debugMsg .= "(none)`n"
+    }
+    
+    debugMsg .= "`n--- POPUP COHESION ---`n"
+    popupCount := g["_popupRegistry"].Count
+    debugMsg .= "Owned popups tracked: " . popupCount . "`n"
+    if (popupCount > 0) {
+        for popupHwnd, owner in g["_popupRegistry"] {
+            popupTitle := "?"
+            popupClass := "?"
+            try {
+                popupTitle := WinGetTitle("ahk_id " popupHwnd)
+                popupClass := WinGetClass("ahk_id " popupHwnd)
+            } catch {
+            }
+            debugMsg .= "  0x" . Format("{:X}", popupHwnd) . " '" . popupTitle . "' (" . popupClass . ") -> owner 0x" . Format("{:X}", owner) . "`n"
+        }
+    }
+    debugMsg .= "  Follow enabled: " . (Config["PopupFollowEnabled"] ? "YES" : "NO") . " | Freeze host: " . (Config["PopupFreezeHost"] ? "YES" : "NO") . "`n"
+    
+    debugMsg .= "`n--- COMPANION COHESION ---`n"
+    compCount := g["_companionRegistry"].Count
+    debugMsg .= "Companion layers: " . compCount . "`n"
+    if (compCount > 0) {
+        for compHwnd, anchor in g["_companionRegistry"] {
+            compTitle := "?"
+            anchorTitle := "?"
+            try {
+                compTitle := WinGetTitle("ahk_id " compHwnd)
+                anchorTitle := WinGetTitle("ahk_id " anchor)
+            } catch {
+            }
+            debugMsg .= "  0x" . Format("{:X}", compHwnd) . " '" . compTitle . "' -> anchor 0x" . Format("{:X}", anchor) . " '" . anchorTitle . "'`n"
+        }
+    }
+    debugMsg .= "  Follow enabled: " . (Config["CompanionFollowEnabled"] ? "YES" : "NO") . "`n"
     
     debugMsg .= "`n--- CONFIG PATTERNS ---`n"
     debugMsg .= "ForceFloatProcesses: " . Config["ForceFloatProcesses"].Length . " patterns`n"
@@ -5424,6 +6241,43 @@ HealthMonitor() {
             recovered := true
         }
 
+        ; --- 4b. Popup-cohesion registry failsafe ---
+        ; A popup that silently dies (Chrome crash, unusual teardown) could leave
+        ; a stale entry that freezes its host forever. Prune anything that is no
+        ; longer a live owned popup.
+        if (g["_popupRegistry"].Count > 0) {
+            stalePopups := 0
+            for popupHwnd, owner in g["_popupRegistry"].Clone() {
+                if (!SafeWinExist(popupHwnd) || !IsOwnedInteractivePopup(popupHwnd)) {
+                    g["_popupRegistry"].Delete(popupHwnd)
+                    stalePopups += 1
+                }
+            }
+            if (stalePopups > 0) {
+                anomalies.Push("Popup registry pruned (" stalePopups " stale entries)")
+                g["_popupFailsafeCount"] += 1
+                recovered := true
+            }
+        }
+
+        ; --- 4c. Companion-cohesion registry failsafe ---
+        ; A companion/anchor that vanishes (app closed, crash) should never
+        ; leave a stale glue entry behind.
+        if (g["_companionRegistry"].Count > 0) {
+            staleComps := 0
+            for compHwnd, anchor in g["_companionRegistry"].Clone() {
+                if (!SafeWinExist(compHwnd) || !SafeWinExist(anchor)) {
+                    g["_companionRegistry"].Delete(compHwnd)
+                    staleComps += 1
+                }
+            }
+            if (staleComps > 0) {
+                anomalies.Push("Companion registry pruned (" staleComps " stale entries)")
+                g["_companionFailsafeCount"] += 1
+                recovered := true
+            }
+        }
+
         ; --- 5. Window-list health: log if tracked count changes significantly ---
         static lastTrackedCount := -1
         if (lastTrackedCount == -1) {
@@ -5464,10 +6318,12 @@ HealthMonitor() {
         }
 
         ; Always log periodic status heartbeat
-        DebugLog("Health beat — {} windows, energy={:.4f}, drag={}, snap={}, phys={}ms, vis={}ms"
+        DebugLog("Health beat — {} windows, energy={:.4f}, drag={}, snap={}, popups={}, comps={}, phys={}ms, vis={}ms"
             , g["Windows"].Length, g["SystemEnergy"] / Max(g["Windows"].Length, 1) / 10000
             , g["DragActive"] ? "yes" : "no"
             , g["SnapInProgress"].Count
+            , g["_popupRegistry"].Count
+            , g["_companionRegistry"].Count
             , now - g["_hbPhysics"]
             , now - g["_hbVisual"])
 
@@ -5530,11 +6386,15 @@ ShowStatusDashboard(*) {
     text .= "  Physics:           " (g["PhysicsEnabled"] ? "🟢 ON" : "🔴 OFF") "`n"
     text .= "  System energy:     " Format("{:.1f}", energy) "  " energyBar "`n"
     text .= "  Icon obstacles:    " g["DesktopIconRects"].Length "`n"
-    text .= "  Multi-monitor:     " (Config["MultimonitorExpanse"] ? "🟢 ON" : "🔴 OFF") "`n`n"
+    text .= "  Multi-monitor:     " (Config["MultimonitorExpanse"] ? "🟢 ON" : "🔴 OFF") "`n"
+    text .= "  Owned popups:      " ((g["_popupRegistry"].Count > 0) ? "⏳ " g["_popupRegistry"].Count " following hosts" : "⚪ none") "`n"
+    text .= "  Companion layers:  " ((g["_companionRegistry"].Count > 0) ? "⏳ " g["_companionRegistry"].Count " glued to anchors" : "⚪ none") "`n`n"
     text .= "🩺  RECOVERY`n"
     text .= "  Auto-recoveries:  " g["_recoveryCount"] "`n"
     text .= "  Drag failsafes:   " g["_dragFailsafeCount"] "`n"
-    text .= "  Snap failsafes:   " g["_snapFailsafeCount"] "`n`n"
+    text .= "  Snap failsafes:   " g["_snapFailsafeCount"] "`n"
+    text .= "  Popup failsafes:  " g["_popupFailsafeCount"] "`n"
+    text .= "  Companion fails:  " g["_companionFailsafeCount"] "`n`n"
 
     ; Performance profiling data
     if (g["_perfOn"] && g["_perfData"].Count > 0) {

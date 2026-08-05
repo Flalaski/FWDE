@@ -1489,6 +1489,33 @@ IsOverlapping(window, otherWindows) {
     }
     return false
 }
+
+; DAW processes whose MAIN window AND plugin/FX windows FWDE manages; only their
+; tiny utility chrome floats. Kept in sync with the DAW entries in Config["ForceFloatProcesses"].
+_IsDAWProcess(procNoExt) {
+    static dawProcesses := ["reaper", "ableton", "flstudio", "cubase", "studioone", "bitwig", "protools"]
+    for daw in dawProcesses {
+        if (procNoExt == daw)
+            return true
+    }
+    return false
+}
+
+; Tiny utility chrome that must never become a physics body even for DAW
+; processes — e.g. REAPER's 16x16 "tb" / RPTopmostButton pin buttons that
+; overlay each floating FX window. Tracking them would let repulsion rip them
+; off their host window.
+IsTinyUtilityWindow(hwnd) {
+    try {
+        WinGetPos(,, &w, &h, "ahk_id " hwnd)
+        if (w > 0 && h > 0 && w < 40 && h < 40)
+            return true
+        if (WinGetClass("ahk_id " hwnd) == "RPTopmostButton")
+            return true
+    }
+    return false
+}
+
 IsPluginWindow(hwnd) {
     try {
         winClass := WinGetClass("ahk_id " hwnd)
@@ -1595,12 +1622,20 @@ IsWindowFloating(hwnd) {
         ; Debug output - remove after testing if not needed
         ; OutputDebug("Window Check - Class: " winClass " | Process: " processName " | Title: " title)
 
-        ; 1. First check for forced processes (extension-insensitive match)
+        ; 1. First check for forced processes (extension-insensitive match).
+        ;    DAW entries (reaper, ableton, ...) are in ForceFloatProcesses so only
+        ;    their tiny utility chrome floats — the DAW's MAIN window AND its
+        ;    plugin/FX windows ("VST: …" / "JS: …") are tracked & managed by FWDE.
+        ;    Otherwise FWDE never manages the DAW at all (e.g. REAPER's main
+        ;    "… - REAPER v7.78 - …" window showed up as untracked/floating, and its
+        ;    floating FX windows were ignored by physics too).
         procNoExt := StrLower(StrReplace(processName, ".exe", ""))
         for pattern in Config["ForceFloatProcesses"] {
             patNoExt := StrLower(StrReplace(pattern, ".exe", ""))
             if (procNoExt == patNoExt) {
-                return true
+                if (_IsDAWProcess(procNoExt) && !IsTinyUtilityWindow(hwnd))
+                    return false    ; DAW main + plugin/FX windows → tracked & managed
+                return true         ; tiny chrome / non-DAW forced-float processes float
             }
         }
 

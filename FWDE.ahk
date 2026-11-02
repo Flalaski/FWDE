@@ -593,26 +593,25 @@ global DebugMode := true
 global Config := Map(
     "MinMargin", 0,  ; Allow windows right to screen edges
     "MinGap", 0,
-    "SeedDiagonalStep", 61,      ; Base diagonal step used to de-stack similar windows
-    "SeedDiagonalMaxSteps", 18,   ; Maximum number of diagonal steps to try per seed
-    "SeedJitterRange", 31,        ; Per-window variance so same-size windows don't line up
-    "ManualGapBonus", 0,
+    "SeedDiagonalStep", 200,     ; Base diagonal step used to de-stack similar windows
+    "SeedDiagonalMaxSteps", 50,   ; Maximum number of diagonal steps to try per seed
+    "SeedJitterRange", 100,       ; Per-window variance so same-size windows don't line up
     "AttractionForce", 0.00045,   ; Center-seeking pull strength
     "RepulsionForce", 13.31,        ; Strong push to keep windows clearly separated
     "CollisionOverlapThreshold", 100,   ; Higher = only significant overlaps trigger separation (stops bouncing)
     "RepulsionRangeMultiplier", 3.069,   ; Wider repulsion envelope for earlier reaction
-    "RepulsionImpulseScale", 4.32,      ; Strong per-step push for rapid overlap release
-    "SmallWindowReferenceDim", 1200,   ; Reference dimension for small-window classification
+    "RepulsionImpulseScale", 6.92,      ; Strong per-step push for rapid overlap release
+    "SmallWindowReferenceDim", 507,   ; Reference dimension for small-window classification
     "MaxSmallWindowRepulsionBoost", 3.5,
     "PairSeparationBase", 0.08,        ; Base overlap separation force
     "PairSeparationOverlapScale", 5.933,
-    "PairSmallWindowBoost", 3.0,
-    "SmallWindowThresholdW", 614,
-    "SmallWindowThresholdH", 591,
-    "UserMoveTimeout", 523,        ; How long to keep focused window still after interaction (ms)
+    "PairSmallWindowBoost", 0.5,
+    "SmallWindowThresholdW", 507,
+    "SmallWindowThresholdH", 504,
+    "UserMoveTimeout", 50,        ; How long to keep focused window still after interaction (ms)
     "MoveLockTimeout", 100,           ; How long a dragged/resized window stays physics-locked (ms)
     "ManualLockDuration", 22156,     ; How long explicit user window locks last (ms)
-    "ResizeDelay", 20,
+    "ResizeDelay", 1,
     "TooltipDuration", 6767,
     "ParameterHelpTooltipDuration", 2200,
     "MultimonitorExpanse", false,   ; Toggle for multi-monitor expanse (seamless floating)
@@ -623,7 +622,7 @@ global Config := Map(
     "CompanionScanIntervalMs", 500, ; Re-scan cadence for companion windows (ms)
     "CompanionMinOverlap", 0.15,    ; Min overlap ratio (of the smaller window) to pair same-WPF-family windows — low so already-drifted layers still pair
     "CompanionMaxSizeRatio", 3.0,   ; Max anchor/companion area ratio for an overlay pair
-    "RunAsAdmin", false,            ; Relaunch FWDE elevated at startup so Administrator (elevated) windows can be managed
+    "RunAsAdmin", true,             ; Relaunch FWDE elevated at startup so Administrator (elevated) windows can be managed
     "FloatStyles",  0x80000000,  ; WS_POPUP only — floating/popup windows without standard chrome
     "FloatClassPatterns", [
         "Vst.*",         ; VST plugins
@@ -668,9 +667,21 @@ global Config := Map(
         ; Steam client — SDL_app class with custom chrome (WS_POPUP, no caption)
         ; must stay manageable; its UI lives in CEF webhelper processes.
         "steam.exe",
-        "steamwebhelper.exe"
+        "steamwebhelper.exe",
+        ; Everything (voidtools) — the main search window (class "EVERYTHING",
+        ; standard WS_OVERLAPPEDWINDOW + WS_EX_APPWINDOW) already passes every
+        ; float/fullscreen check, so it is managed out of the box; force-track it
+        ; so a future FloatClass/Title pattern can never mis-float it. Its
+        ; auxiliary windows are all auto-excluded by IsWindowValid: tray/IPC
+        ; "EVERYTHING_TASKBAR_NOTIFICATION" (hidden, 0x0, no title), search-history
+        ; "ComboLBox" (WS_EX_TOOLWINDOW), "tooltips_class32" and IME windows
+        ; (hidden, no title). NOTE: Everything commonly runs ELEVATED (NTFS
+        ; indexing) — if it shows as invalid:access-denied (elevated?), enable
+        ; RunAsAdmin so FWDE can query/move it (UIPI blocks non-elevated FWDE).
+        ; "EVERYTHING_HELP" (F1 help) is a normal tracked window.
+        "Everything.exe"
     ],
-    "Damping", 0.216,    ; 1.0 = no damping, 0.0 = full stop (use 0.001-1.0)
+    "Damping", 0.1429,   ; 1.0 = no damping, 0.0 = full stop (use 0.001-1.0)
     "MaxSpeed", 240.0,    ; Limits maximum velocity
     "PhysicsTimeStep", 16,  ; ~60 Hz physics — AHK rounds <10-15ms to nearest multiple anyway
     "VisualTimeStep", 16,   ; ~60 Hz visual updates — matches typical display refresh rate
@@ -680,17 +691,14 @@ global Config := Map(
         "DampingBoost", 0.12,       ; 0.01-0.05: Subtle braking (smooth stops) ~ 0.1+: Strong braking (quick stops but may feel robotic)
         "OverlapTolerance", 120     ; Generous overlap tolerance for natural settling without bouncing
     ),
-    "ManualWindowColor", "FF5555",
-    "NoiseScale", 5550,
-    "NoiseInfluence", 859,
-    "ManualRepulsionMultiplier", 1.0,
+    "ManualRepulsionMultiplier", 15.0,
     "DesktopIconRepulsion", false,       ; OFF by default — users opt in via Ctrl+Alt+I
     "DesktopIconMargin", 0,              ; Extra padding around each icon rect (0 = icon edges only)
     "DesktopIconRepulsionForce", 0.112358,     ; Multiplier for icon→window repulsion strength
     "MaxIconSpeed", 93.7,       ; Max per-frame velocity from icon repulsion (px/frame — undamped)
     "DesktopIconPhysics", true,  ; Treat icons as individual physics bodies (mass, velocity, inter-icon forces)
     "DesktopIconSpring", 0.008,  ; Spring constant pulling icons back to grid anchor (0=static, 0.01=snappy)
-    "DesktopIconDamping", 0.65,  ; Icon velocity damping (0=no damping, 1=instant stop)
+    "DesktopIconDamping", 0.65,  ; Icon velocity retained per frame (0=instant stop, 1=no damping)
     "DesktopIconInterRepel", 0.4, ; Inter-icon repulsion strength multiplier
     "DesktopIconInterRepelRange", 0.7, ; Inter-icon repulsion range multiplier (0.5=never at default 145px spacing, 1.0=always active, 0.7=only when pushed ~40px toward neighbor)
 )
@@ -1651,6 +1659,24 @@ IsWindowFloating(hwnd) {
 
         if (title ~= "i)(VST|JS:|Plugin|FX)") {
             return true
+        }
+
+        ; 3.5. Large non-plugin #32770 dialogs (file browsers, big app dialogs)
+        ;      are transient modal UI. Physics-managing a giant dialog (e.g.
+        ;      WinXShell's 1251x1105 file picker, or a big GetOpenFileName dialog)
+        ;      creates geometrically unresolvable overlap with large app windows —
+        ;      their heights can't fit stacked on a 1440px monitor, so repulsion
+        ;      never ends and the engine sits in perpetual chaos, yanking every
+        ;      window (incl. Everything) around forever. Float them so they're
+        ;      excluded from physics. DAW plugin/FX windows are ALSO #32770 but
+        ;      are caught by IsPluginWindow() above (VST:/JS: titles/classes) and
+        ;      stay tracked & managed.
+        if (winClass == "#32770" && !IsPluginWindow(hwnd)) {
+            try {
+                WinGetPos(,, &dlgW, &dlgH, "ahk_id " hwnd)
+                if (dlgW * dlgH > 400000)  ; large dialog (1251x1105 ≈ 1.38M px²)
+                    return true
+            }
         }
 
         ; 4. Standard floating window checks
@@ -3407,6 +3433,33 @@ CalculateDynamicLayout() {
         settleTick := 0
     }
 
+    ; ─── Chaos watchdog: if stuck in "chaos" state >8s with no drag, force-settle ───
+    ; The limit-cycle settle above only fires when normEnergy < 0.5 AND energy is
+    ; stable within ±0.0005 for 3s. Giant-window layouts (e.g. Everything + a
+    ; 1251x1105 file dialog) pin energy at 0.4-0.9 with oscillations that never
+    ; meet that threshold → perpetual chaos (0.7+ moves/tick forever, every window
+    ; yanked around, nothing ever settles). This watchdog force-settles + directly
+    ; resolves overlaps after 8s of uninterrupted chaos, breaking the loop so the
+    ; layout rests between attempts instead of moving every tick forever.
+    static chaosStuckTick := 0
+    if (newState == "chaos" && g["_draggedHwnd"] == 0 && g["Windows"].Length > 1 && !settleCooldownActive) {
+        if (chaosStuckTick == 0) {
+            chaosStuckTick := A_TickCount
+        } else if (A_TickCount - chaosStuckTick > 8000) {
+            for win in g["Windows"] {
+                win["vx"] := 0
+                win["vy"] := 0
+            }
+            g["SystemEnergy"] := 0
+            anyResolved := ResolveOverlapsDirect(g["Windows"])
+            g["_settleCooldown"] := A_TickCount + 10000
+            DebugLog("Chaos watchdog — stuck in chaos 8s, forced settle (overlaps resolved: {})", anyResolved)
+            chaosStuckTick := 0
+        }
+    } else {
+        chaosStuckTick := 0
+    }
+
     ; Collision resolution — runs whenever windows overlap with any energy,
     ; or during drag. The old 5000× multiplier made this unreachable with
     ; fewer than ~10 active windows (SystemEnergy maxes at ~perWindow × N).
@@ -5096,6 +5149,7 @@ ShouldTreatAsBoolean(path) {
     static boolPaths := Map(
         "MultimonitorExpanse", true,
         "DesktopIconRepulsion", true,
+        "DesktopIconPhysics", true,
         "PopupFollowEnabled", true,
         "PopupFreezeHost", true,
         "CompanionFollowEnabled", true,
@@ -5162,38 +5216,35 @@ ApplyNumericSpecOverrides(spec) {
         "RepulsionImpulseScale", Map("min", 0.01, "max", 10.0, "decimals", 3),
         "PairSeparationBase", Map("min", 0.001, "max", 0.5, "decimals", 4),
         "PairSeparationOverlapScale", Map("min", 0.01, "max", 20.0, "decimals", 3),
-        "PairSmallWindowBoost", Map("min", 0.5, "max", 8.0, "decimals", 3),
+        "PairSmallWindowBoost", Map("min", 0.0, "max", 8.0, "decimals", 3),
         "MaxSmallWindowRepulsionBoost", Map("min", 0.5, "max", 10.0, "decimals", 3),
         "SmallWindowReferenceDim", Map("min", 40, "max", 3000, "decimals", 0),
         "CollisionOverlapThreshold", Map("min", 0, "max", 300, "decimals", 0),
         "SmallWindowThresholdW", Map("min", 40, "max", 3000, "decimals", 0),
         "SmallWindowThresholdH", Map("min", 30, "max", 2000, "decimals", 0),
         "Damping", Map("min", 0.0, "max", 1.0, "decimals", 4),
-        "MaxSpeed", Map("min", 0.5, "max", 240.0, "decimals", 2),
+        "MaxSpeed", Map("min", 0.5, "max", 480.0, "decimals", 2),
         "MaxIconSpeed", Map("min", 1.0, "max", 150.0, "decimals", 1),
         "PhysicsTimeStep", Map("min", 1, "max", 50, "decimals", 0),
         "VisualTimeStep", Map("min", 1, "max", 100, "decimals", 0),
         "ParameterHelpTooltipDuration", Map("min", 100, "max", 30000, "decimals", 0),
-        "ManualRepulsionMultiplier", Map("min", 0.05, "max", 15.0, "decimals", 3),
-        "SeedDiagonalStep", Map("min", 1, "max", 200, "decimals", 0),
-        "SeedDiagonalMaxSteps", Map("min", 1, "max", 50, "decimals", 0),
-        "SeedJitterRange", Map("min", 0, "max", 100, "decimals", 0),
+        "ManualRepulsionMultiplier", Map("min", 0.05, "max", 30.0, "decimals", 3),
+        "SeedDiagonalStep", Map("min", 1, "max", 500, "decimals", 0),
+        "SeedDiagonalMaxSteps", Map("min", 1, "max", 125, "decimals", 0),
+        "SeedJitterRange", Map("min", 0, "max", 250, "decimals", 0),
         "MinMargin", Map("min", 0, "max", 200, "decimals", 0),
         "MinGap", Map("min", 0, "max", 200, "decimals", 0),
-        "NoiseScale", Map("min", 100, "max", 20000, "decimals", 0),
-        "NoiseInfluence", Map("min", 0, "max", 2000, "decimals", 0),
         "ResizeDelay", Map("min", 1, "max", 200, "decimals", 0),
         "TooltipDuration", Map("min", 100, "max", 30000, "decimals", 0),
-        "UserMoveTimeout", Map("min", 50, "max", 5000, "decimals", 0),
-        "MoveLockTimeout", Map("min", 100, "max", 5000, "decimals", 0),
+        "UserMoveTimeout", Map("min", 0, "max", 5000, "decimals", 0),
+        "MoveLockTimeout", Map("min", 0, "max", 5000, "decimals", 0),
         "ManualLockDuration", Map("min", 1000, "max", 120000, "decimals", 0),
-        "ManualWindowAlpha", Map("min", 0, "max", 255, "decimals", 0),
         "Stabilization.MinSpeedThreshold", Map("min", 0.0, "max", 5.0, "decimals", 3),
         "Stabilization.EnergyThreshold", Map("min", 0.0, "max", 10.0, "decimals", 3),
         "Stabilization.DampingBoost", Map("min", 0.0, "max", 1.0, "decimals", 3),
         "Stabilization.OverlapTolerance", Map("min", 0, "max", 500, "decimals", 0),
         "DesktopIconMargin", Map("min", 0, "max", 200, "decimals", 0),
-        "DesktopIconRepulsionForce", Map("min", 0.0, "max", 25.0, "decimals", 1),
+        "DesktopIconRepulsionForce", Map("min", 0.0, "max", 25.0, "decimals", 3),
         "DesktopIconInterRepelRange", Map("min", 0.1, "max", 3.0, "decimals", 2),
         "PopupScanIntervalMs", Map("min", 50, "max", 2000, "decimals", 0),
         "CompanionScanIntervalMs", Map("min", 100, "max", 5000, "decimals", 0),
@@ -5221,6 +5272,13 @@ ApplyNumericSpecOverrides(spec) {
 
     if (spec["max"] <= spec["min"])
         spec["max"] := spec["min"] + 1
+
+    ; A retuned default must stay reachable; an override can never exclude it.
+    defaultSliderVal := Round(spec["default"] * spec["scale"])
+    if (defaultSliderVal < spec["min"])
+        spec["min"] := defaultSliderVal
+    if (defaultSliderVal > spec["max"])
+        spec["max"] := defaultSliderVal
 
     return spec
 }
@@ -5263,6 +5321,23 @@ EnsureParameterSpecs() {
     if (ParamSpecs.Length > 0)
         return
     ParamSpecs := CollectParameterSpecsRecursive(DefaultConfig)
+    SortParameterSpecsByLabel(ParamSpecs)
+}
+
+SortParameterSpecsByLabel(specs) {
+    ; Insertion sort: keeps the settings window and saved config alphabetical,
+    ; independent of Config declaration order.
+    i := 2
+    while (i <= specs.Length) {
+        current := specs[i]
+        j := i - 1
+        while (j >= 1 && StrCompare(specs[j]["label"], current["label"], "Off") > 0) {
+            specs[j + 1] := specs[j]
+            j -= 1
+        }
+        specs[j + 1] := current
+        i += 1
+    }
 }
 
 FormatParamDisplay(spec, value) {
@@ -5365,8 +5440,17 @@ LoadUserParameterSettings(*) {
             continue
 
         value := ParseJsonScalar(m[1])
-        if (spec["type"] = "bool")
+        if (spec["type"] = "bool") {
             value := !!value
+        } else if (value is Number) {
+            ; Clamp stale/out-of-range saved values into the current slider range
+            ; so the physics engine never receives values the UI cannot represent.
+            minVal := NormalizeConfigFromSlider(spec, spec["min"])
+            maxVal := NormalizeConfigFromSlider(spec, spec["max"])
+            value := Min(Max(value, minVal), maxVal)
+        } else {
+            value := spec["default"]
+        }
 
         SetMapValueByPath(&Config, path, value)
         changes += 1
@@ -5521,6 +5605,9 @@ GetParameterDescription(path) {
         "MaxSmallWindowRepulsionBoost", "Cap on extra repulsion boost for small windows.",
         "SmallWindowThresholdW", "Width threshold used for small-window behavior.",
         "SmallWindowThresholdH", "Height threshold used for small-window behavior.",
+        "SeedDiagonalStep", "Base diagonal offset used to seed/de-stack similar windows (px).",
+        "SeedDiagonalMaxSteps", "Maximum number of diagonal seed offsets tried per window.",
+        "SeedJitterRange", "Random per-window offset range so same-size windows don't line up (px).",
         "MinMargin", "Minimum margin to keep windows away from monitor boundaries.",
         "MinGap", "Preferred spacing target used by layout placement routines.",
         "ManualRepulsionMultiplier", "Extra push when interacting with manually moved windows.",
@@ -5530,13 +5617,28 @@ GetParameterDescription(path) {
         "ResizeDelay", "Delay before resize/move events trigger state refresh (ms).",
         "TooltipDuration", "Duration for the standard status tooltip messages (ms).",
         "ParameterHelpTooltipDuration", "How long parameter hover-help tooltips stay visible (ms).",
-        "Damping", "Velocity damping; higher values reduce motion faster.",
+        "Damping", "Velocity retained per tick; 1.0 = no damping, 0.0 = full stop.",
         "MaxSpeed", "Maximum velocity cap for floating windows.",
         "PhysicsTimeStep", "Physics tick interval (ms). Lower means more frequent updates.",
         "VisualTimeStep", "Movement apply/render interval (ms). Lower is smoother.",
-        "NoiseScale", "Spatial scale for procedural drift/noise effects.",
-        "NoiseInfluence", "Strength of procedural drift/noise effects.",
         "MultimonitorExpanse", "Allow windows to float across all monitors instead of current monitor only.",
+        "RunAsAdmin", "Relaunch FWDE elevated at startup so Administrator windows can be managed (UAC prompt).",
+        "PopupFollowEnabled", "Owned popups (permission bubbles, legacy child windows) follow their host 1:1.",
+        "PopupFreezeHost", "Freeze the host window's physics while an interactive owned popup is open.",
+        "PopupScanIntervalMs", "Re-scan cadence for owned popup windows (ms).",
+        "CompanionFollowEnabled", "Same-app companion/overlay layers follow their main window 1:1.",
+        "CompanionScanIntervalMs", "Re-scan cadence for companion/overlay windows (ms).",
+        "CompanionMinOverlap", "Minimum overlap (fraction of the smaller window) needed to pair anchor+companion.",
+        "CompanionMaxSizeRatio", "Largest anchor/companion area ratio still treated as an overlay pair.",
+        "DesktopIconRepulsion", "Push managed windows away from desktop icons (opt-in; Ctrl+Alt+I).",
+        "DesktopIconMargin", "Extra padding around each icon's repulsion rectangle (px).",
+        "DesktopIconRepulsionForce", "Strength of the icon -> window repulsion force.",
+        "MaxIconSpeed", "Per-frame velocity cap applied to icon displacement (px/frame).",
+        "DesktopIconPhysics", "Simulate icons as physics bodies (spring back to grid, inter-icon repulsion).",
+        "DesktopIconSpring", "Spring constant pulling a displaced icon back to its grid slot (0 = static).",
+        "DesktopIconDamping", "Icon velocity retained per frame (0 = instant stop, 1 = no damping).",
+        "DesktopIconInterRepel", "Strength of icon -> icon repulsion.",
+        "DesktopIconInterRepelRange", "Icon -> icon repulsion reach, as a multiple of icon spacing.",
         "Stabilization.MinSpeedThreshold", "Speed threshold where stronger settling behavior starts.",
         "Stabilization.EnergyThreshold", "Energy threshold used to detect calm vs chaotic state.",
         "Stabilization.DampingBoost", "Extra damping added while system is settling.",

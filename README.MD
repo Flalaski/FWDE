@@ -19,7 +19,7 @@ Get the latest installer from Releases:
 ### Physics Engine
 - Overlap-based repulsion with damping forces
 - Collision avoidance between windows
-- Edge repulsion to fill screen space
+- Margin and gap constraints to keep windows on-screen
 - Limit-cycle detection with automatic settle
 - Configurable update rates and force parameters
 
@@ -113,48 +113,117 @@ The system starts automatically when launched. Windows matching detection patter
 
 ## Configuration
 
-Settings are in the `Config` map at the top of `FWDE.ahk`.
+Defaults live in the `Config` map at the top of `FWDE.ahk`. At runtime, tune them from
+**⚙️ Parameter Settings** (taskbar/tray menu, or `Ctrl+Alt+T` → Parameter Settings):
 
-### Core Physics
-```ahk
-"MinMargin", 2,                    ; Distance from screen edges (px)
-"MinGap", 21,                      ; Gap between windows
-"AttractionForce", 0.00005,        ; Pull toward center
-"RepulsionForce", 0.8,             ; Push apart from other windows
-"EdgeRepulsionForce", 0.80,        ; Push from screen edges
-"Damping", 0.001,                  ; Friction coefficient
-"MaxSpeed", 12.0,                  ; Max velocity
-```
+- Changes apply instantly while dragging sliders.
+- Hover any row for a description, current value, default, and allowed range.
+- **Default** resets one parameter; **Restore All Defaults** resets everything.
+- **Save Settings** / **Load Settings** persist to `FWDE_Config.json` next to the script.
+- Saved values are clamped to their slider range on load.
 
-### Performance
-```ahk
-"PhysicsTimeStep", 1,              ; Physics update frequency (ms)
-"VisualTimeStep", 16,              ; Visual update frequency (ms) - ~60fps
-"UserMoveTimeout", 11111,          ; Pause after user interaction (ms)
-"ManualLockDuration", 33333,       ; Lock duration (ms, ~33 seconds)
-```
+### Physics core
+| Parameter | Default | Meaning |
+|---|---|---|
+| `MinMargin` | 0 | Minimum distance from monitor edges (px) |
+| `MinGap` | 0 | Preferred spacing between windows (px) |
+| `AttractionForce` | 0.00045 | Center-seeking pull |
+| `RepulsionForce` | 13.31 | Base push strength when windows get close |
+| `RepulsionRangeMultiplier` | 3.069 | How far out repulsion starts acting |
+| `RepulsionImpulseScale` | 6.92 | Per-step push intensity in close interactions |
+| `CollisionOverlapThreshold` | 100 | Minimum overlap before separation engages (px²) |
+| `Damping` | 0.1429 | Velocity retained per tick (1.0 = no damping, 0.0 = full stop) |
+| `MaxSpeed` | 240.0 | Velocity cap for floating windows |
+| `ManualRepulsionMultiplier` | 15.0 | Extra push while a manual window is involved |
 
-### Window Detection
+### Collision separation
+| Parameter | Default | Meaning |
+|---|---|---|
+| `PairSeparationBase` | 0.08 | Base overlap separation strength |
+| `PairSeparationOverlapScale` | 5.933 | Extra separation scaling for deeper overlaps |
+| `PairSmallWindowBoost` | 0.5 | Extra separation boost for small windows |
+
+### Small-window classification
+| Parameter | Default | Meaning |
+|---|---|---|
+| `SmallWindowReferenceDim` | 507 | Reference dimension for small-window classification (px) |
+| `MaxSmallWindowRepulsionBoost` | 3.5 | Cap on the small-window repulsion boost |
+| `SmallWindowThresholdW` | 507 | Width threshold (px) |
+| `SmallWindowThresholdH` | 504 | Height threshold (px) |
+
+### Seeding / placement
+| Parameter | Default | Meaning |
+|---|---|---|
+| `SeedDiagonalStep` | 200 | Base diagonal offset used to de-stack similar windows (px) |
+| `SeedDiagonalMaxSteps` | 50 | Maximum diagonal seed offsets tried per window |
+| `SeedJitterRange` | 100 | Random per-window offset range (px) |
+
+### Timing and locking
+| Parameter | Default | Meaning |
+|---|---|---|
+| `PhysicsTimeStep` | 16 | Physics tick interval (ms) |
+| `VisualTimeStep` | 16 | Movement apply interval (ms) |
+| `UserMoveTimeout` | 50 | Cooldown before a focused window rejoins physics (ms) |
+| `MoveLockTimeout` | 100 | Physics lock after a drag/resize (ms) |
+| `ManualLockDuration` | 22156 | Manual lock duration for `Ctrl+Alt+L` (ms) |
+| `ResizeDelay` | 1 | Delay before resize/move events refresh state (ms) |
+| `TooltipDuration` | 6767 | Standard status tooltip duration (ms) |
+| `ParameterHelpTooltipDuration` | 2200 | Parameter hover-help duration (ms) |
+
+### Popups, companions, and elevation
+| Parameter | Default | Meaning |
+|---|---|---|
+| `MultimonitorExpanse` | false | Let windows float across all monitors (`Ctrl+Alt+M`) |
+| `PopupFollowEnabled` | true | Owned popups follow their host window 1:1 |
+| `PopupFreezeHost` | true | Freeze the host while an interactive popup is open |
+| `PopupScanIntervalMs` | 250 | Popup re-scan cadence (ms) |
+| `CompanionFollowEnabled` | true | Same-app overlay/companion layers follow their main window 1:1 |
+| `CompanionScanIntervalMs` | 500 | Companion re-scan cadence (ms) |
+| `CompanionMinOverlap` | 0.15 | Minimum overlap fraction to pair an anchor + companion |
+| `CompanionMaxSizeRatio` | 3.0 | Maximum anchor/companion area ratio |
+| `RunAsAdmin` | true | Relaunch elevated at startup so Administrator windows can be managed (UAC prompt) |
+
+### Desktop icons
+| Parameter | Default | Meaning |
+|---|---|---|
+| `DesktopIconRepulsion` | false | Push windows away from desktop icons (opt-in, `Ctrl+Alt+I`) |
+| `DesktopIconPhysics` | true | Simulate icons as physics bodies (spring + inter-icon repulsion) |
+| `DesktopIconMargin` | 0 | Padding around each icon's repulsion rect (px) |
+| `DesktopIconRepulsionForce` | 0.112358 | Icon → window repulsion strength |
+| `MaxIconSpeed` | 93.7 | Per-frame displacement cap for icons (px/frame) |
+| `DesktopIconSpring` | 0.008 | Spring constant pulling icons back to grid (0 = static) |
+| `DesktopIconDamping` | 0.65 | Icon velocity retained per frame (0 = instant stop) |
+| `DesktopIconInterRepel` | 0.4 | Icon → icon repulsion strength |
+| `DesktopIconInterRepelRange` | 0.7 | Icon → icon repulsion reach, as a multiple of icon spacing |
+
+### Stabilization
+| Parameter | Default | Meaning |
+|---|---|---|
+| `Stabilization.MinSpeedThreshold` | 0.369 | Speed below which stronger settling starts |
+| `Stabilization.EnergyThreshold` | 0.06 | Energy threshold separating calm from chaotic state |
+| `Stabilization.DampingBoost` | 0.12 | Extra damping applied while settling |
+| `Stabilization.OverlapTolerance` | 120 | Overlap allowed before stabilization treats windows as colliding |
+
+### Window detection
 ```ahk
-"ForceFloatProcesses", [           ; Always manage these processes
-    "firefox.exe", "chrome.exe", "cursor.exe", "code.exe",
-    "notepad++.exe", "devenv.exe", "explorer.exe",
-    "winword.exe", "excel.exe", "powerpnt.exe", "outlook.exe"
+"FloatClassPatterns", [            ; Window classes treated as floating/popup
+    "Vst.*", "JS.*", ".*Plugin.*", ".*Float.*", ".*Dock.*",
+    "ConsoleWindowClass", "TextToSpeechWndClass", "SunAwtFrame",
+    "XamlExplorerHost", "TApplication", "wxWindowClassNR"
 ],
-"FloatClassPatterns", [            ; Window classes to include
-    "MozillaWindowClass", "Chrome_WidgetWin_1", "ApplicationFrameWindow",
-    "Code.exe", "Cursor.exe", "Notepad", "Notepad++"
+"FloatTitlePatterns", [            ; Window titles treated as floating/popup
+    "VST.*", "JS:.*", "Plugin", ".*FX.*",
+    "Command Prompt", "cmd.exe", "Windows Terminal"
 ],
-"FloatTitlePatterns", [            ; Window titles to include
-    "VST.*", "JS:.*", "Plugin", "Command Prompt", "Windows Terminal"
+"ForceFloatProcesses", [           ; Never managed by physics (DAWs, consoles, TTS)
+    "reaper.exe", "ableton.exe", "flstudio.exe", "cubase.exe",
+    "studioone.exe", "bitwig.exe", "protools.exe",
+    "cmd.exe", "conhost.exe", "WindowsTerminal.exe",
+    "DTDEMO.exe", "speak.exe", "speak", "speak.EXE"
+],
+"ForceTrackProcesses", [           ; Always managed, overriding float checks
+    "WinXShell_x64.exe", "steam.exe", "steamwebhelper.exe", "Everything.exe"
 ]
-```
-
-### Advanced Features
-```ahk
-"MultimonitorExpanse", false,         ; Allow windows to float across monitors
-"TooltipDuration", 15000,              ; Debug tooltip duration (ms)
-"ResizeDelay", 22,                     ; Delay before physics after resize (ms)
 ```
 
 ## Debugging
@@ -175,12 +244,12 @@ Settings are in the `Config` map at the top of `FWDE.ahk`.
 4. Force add: `Ctrl+Alt+A` if detection failed
 
 **Too much movement**
-- Increase damping: `"Damping"` to 0.005+
-- Reduce repulsion: `"RepulsionForce"` to 0.3 or less
+- Lower `"Damping"` toward 0.01 (below the 0.1429 default) to brake harder
+- Lower `"RepulsionForce"` (13.31 default) or raise `"CollisionOverlapThreshold"`
 - Lock windows: `Ctrl+Alt+L` to fix position
 
 **Performance issues**
-- Increase timesteps: `"PhysicsTimeStep"` to 5, `"VisualTimeStep"` to 33
+- Raise intervals: `"PhysicsTimeStep"` and `"VisualTimeStep"` to 33 (from 16)
 - Lock unnecessary windows: `Ctrl+Alt+L`
 
 **Multi-monitor issues**

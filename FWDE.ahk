@@ -308,7 +308,10 @@ _IsSelfWindow(hwnd) {
 _IsElevated() {
     try {
         hTok := 0
-        if (!DllCall("advapi32.dll\OpenProcessToken", "Ptr", DllCall("GetCurrentProcess", "Ptr"), "UInt", 0x20, "Ptr*", &hTok))
+        ; TOKEN_QUERY (0x0008) is required by GetTokenInformation. Opening with
+        ; TOKEN_ADJUST_DEFAULT (0x0020) succeeds but makes the query fail, which
+        ; used to report "not elevated" even when elevated (infinite relaunch).
+        if (!DllCall("advapi32.dll\OpenProcessToken", "Ptr", DllCall("GetCurrentProcess", "Ptr"), "UInt", 0x8, "Ptr*", &hTok))
             return false
         try {
             elev := 0
@@ -321,6 +324,15 @@ _IsElevated() {
     } catch {
         return false
     }
+}
+
+; True when this process was started by the RunAsAdmin self-elevation relaunch.
+_ElevationAttempted() {
+    for arg in A_Args {
+        if (arg = "--fwde-elevated")
+            return true
+    }
+    return false
 }
 
 ; Diagnostic: explains in detail why IsWindowValid() rejects hwnd. Distinguishes
@@ -5791,12 +5803,16 @@ LoadUserParameterSettings()
 ; (style/minmax queries throw "Access is denied", SetWindowPos is blocked). If
 ; the user enabled RunAsAdmin in the parameter settings and this instance is NOT
 ; elevated, relaunch ourselves elevated and exit.
-if (Config["RunAsAdmin"] && !_IsElevated()) {
+;
+; The command-line marker makes relaunch strictly one-shot: if elevation still
+; cannot be detected in the child, it can never start a restart loop.
+if (Config["RunAsAdmin"] && !_IsElevated() && !_ElevationAttempted()) {
     try {
+        DebugLog("RunAsAdmin — relaunching elevated")
         if (A_IsCompiled)
-            Run '*RunAs "' A_ScriptFullPath '"'
+            Run '*RunAs "' A_ScriptFullPath '" --fwde-elevated'
         else
-            Run '*RunAs "' A_AhkPath '" "' A_ScriptFullPath '"'
+            Run '*RunAs "' A_AhkPath '" "' A_ScriptFullPath '" --fwde-elevated'
         ExitApp
     } catch {
         ShowTooltip("FWDE: could not relaunch elevated — check UAC/antivirus settings")

@@ -32,7 +32,7 @@
   "PairSeparationOverlapScale": 5.933,
   "PairSmallWindowBoost": 0.5,
   "ParameterHelpTooltipDuration": 2200,
-  "PhysicsTimeStep": 16,
+  "PhysicsTimeStep": 15,
   "PopupFollowEnabled": true,
   "PopupFreezeHost": true,
   "PopupScanIntervalMs": 250,
@@ -53,5 +53,5 @@
   "Stabilization.OverlapTolerance": 120,
   "TooltipDuration": 6767,
   "UserMoveTimeout": 50,
-  "VisualTimeStep": 16
+  "VisualTimeStep": 15
 }

@@ -2,6 +2,17 @@
 
 ## Architectural Patterns
 
+### Window Registry (single classification, per-tick snapshot)
+- **One record per HWND**: `_WinReg()` stores every fact about a window (`valid`, `floating`, `fullscreen`, `appbar`, `cloaked`, `plugin`, `tiny`, `movable`, rect/style/monitor) so callers never re-probe Win32
+- **Signature invalidation**: records are re-classified only when the cheap signature changes (style/ex-style first, then rect), the TTL expires, or `_cfgGen` is bumped by `SyncRuntimeFromConfig()`
+- **Per-tick snapshot**: `_WinRegSnapshot()` publishes the records plus a movable-handle set at the start of every physics tick; the O(n²) force loop, collision passes and movement pass read the snapshot and make no Win32 calls
+- **Predicates are views**: `IsWindowValid`, `IsWindowFloating`, `IsFullscreenWindow`, `IsShellAppBarWindow`, `IsPluginWindow`, `IsTinyUtilityWindow`, `_IsPhysicsMovable` all resolve through the registry
+
+### Achievable-Displacement Energy + Idle Gate
+- **Energy = motion the visual layer can produce**: the force sum uses the clamped target delta (not raw velocity) and excludes bodies `ApplyWindowMovements` refuses to move, so a body pinned at a screen edge cannot hold the engine in `chaos`
+- **Provable no-op detection**: when every tracked window's real rect matches the engine's state, nothing is dragging/menuing/snapping, the tracked set is unchanged and energy is below `(1.5/0.45)²` per window, the force/collision pipeline is skipped for that tick
+- **Dirty-flag wake**: `_layoutDirty` is set by tracked-set changes and by `ApplyWindowMovements`' external-move resync, so the engine wakes within one tick of any real movement
+
 ### Sophisticated Layout Algorithm Architecture
 - **Strategy Pattern**: Multiple bin packing algorithms (FirstFit, BestFit, NextFit, WorstFit, BottomLeftFill, Guillotine) implemented as interchangeable strategies
 - **Template Method Pattern**: Common layout evaluation framework with algorithm-specific implementations

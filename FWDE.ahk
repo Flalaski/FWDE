@@ -29,15 +29,31 @@ IsDropdownOrMenuWindow(hwnd) {
 
 ; Returns hwnd of any open dropdown/menu, or 0 if none
 GetOpenDropdownMenuParent() {
+    ; Scanning every system window cost 739µs/tick — 28% of the physics tick.
+    ; The answer only changes when the foreground window changes (a menu that
+    ; opens takes activation), so cache it for up to 200ms and re-scan at once
+    ; whenever focus moves.
+    static lastScan := 0, lastParent := 0, lastForeground := 0
+    fg := 0
+    try fg := WinExist("A")
+
+    if (fg && fg == lastForeground && A_TickCount - lastScan < 200)
+        return lastParent
+
+    lastForeground := fg
+    lastScan := A_TickCount
+    lastParent := 0
     for hwnd in WinGetList() {
         if (IsDropdownOrMenuWindow(hwnd)) {
             ; Try to get owner/parent
             parent := DllCall("GetWindow", "Ptr", hwnd, "UInt", 4, "Ptr") ; GW_OWNER=4
-            if (parent && SafeWinExist(parent))
-                return parent
+            if (parent && SafeWinExist(parent)) {
+                lastParent := parent
+                break
+            }
         }
     }
-    return 0
+    return lastParent
 }
 
 ; ═══════════════════════════════════════════════════════════════════════════════
@@ -76,77 +92,66 @@ GetWindowOwner(hwnd) {
 ; True if hwnd is an owned, visible, popup-like window that must be glued to its
 ; owner: browser permission bubbles, "Chrome Legacy Window", owned dialogs, and
 ; generic small caption-less overlays owned by another top-level window.
-IsOwnedInteractivePopup(hwnd) {
-    try {
-        if (!SafeWinExist(hwnd))
-            return false
-        owner := GetWindowOwner(hwnd)
-        if (!owner || owner == hwnd || !SafeWinExist(owner))
-            return false
-        ; Must be a live, visible, non-minimized/maximized window.
-        try {
-            if (WinGetMinMax("ahk_id " hwnd) != 0)
-                return false
-            if (!(WinGetStyle("ahk_id " hwnd) & 0x10000000))  ; WS_VISIBLE
-                return false
-        } catch {
-            return false
-        }
-        ; Never treat FWDE's own windows as foreign popups.
-        if (_IsSelfWindow(hwnd))
-            return false
-        style := WinGetStyle("ahk_id " hwnd)
-        exStyle := WinGetExStyle("ahk_id " hwnd)
-        title := WinGetTitle("ahk_id " hwnd)
-        winClass := WinGetClass("ahk_id " hwnd)
-
-        ; Never classify system chrome / helper windows.
-        skipClasses := [
-            "tooltips_class32", "#32768", "IME", "MSCTFIME UI",
-            "DV2ControlHost", "Windows.UI.Core.CoreWindow",
-            "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "Progman", "WorkerW",
-            "CiceroUIWndFrame", "NotifyIconOverflowWindow", "BaseBar", "SysShadow"
-        ]
-        for c in skipClasses {
-            if (winClass == c)
-                return false
-        }
-
-        isTool := (exStyle & 0x80) != 0          ; WS_EX_TOOLWINDOW
-        hasCaption := (style & 0x00C00000) != 0  ; WS_CAPTION
-        isPopupStyle := (style & 0x80000000) != 0 ; WS_POPUP
-
-        ; 1) Chromium permission bubble — the exact reported case.
-        if (title == "Chrome Legacy Window")
-            return true
-
-        ; 2) Chromium-family owned windows that are popup-styled and lack a
-        ;    standard caption (permission bubbles, legacy prompts, mini dialogs).
-        if ((winClass == "Chrome_WidgetWin_1" || winClass == "Chrome_WidgetWin_0")
-            && !isTool && isPopupStyle && !hasCaption) {
-            WinGetPos(,, &w, &h, "ahk_id " hwnd)
-            if (w > 0 && h > 0 && w <= 1000 && h <= 800)
-                return true
-        }
-
-        ; 3) Firefox owned dialogs and other owned modal dialogs.
-        if ((winClass == "MozillaDialogClass" || winClass == "#32770")
-            && !isTool && !hasCaption) {
-            return true
-        }
-
-        ; 4) Generic: any owned, visible, small, popup-styled, caption-less
-        ;    window is an overlay that must follow its owner.
-        if (isPopupStyle && !hasCaption && !isTool) {
-            WinGetPos(,, &w, &h, "ahk_id " hwnd)
-            if (w > 0 && h > 0 && w <= 900 && h <= 700)
-                return true
-        }
-
+IsOwnedInteractivePopup(hwnd, rec := 0) {
+    if (!rec)
+        rec := _WinRegNow(hwnd)
+    if (!rec["alive"])
         return false
-    } catch {
+    owner := rec["owner"]
+    if (!owner || owner == hwnd || !SafeWinExist(owner))
         return false
+    ; Must be a live, visible, non-minimized/maximized window.
+    if (rec["minmax"] != 0)
+        return false
+    style := rec["style"], exStyle := rec["exStyle"]
+    if (!(style & 0x10000000))  ; WS_VISIBLE
+        return false
+    ; Never treat FWDE's own windows as foreign popups.
+    if (_IsSelfWindow(hwnd))
+        return false
+    title := rec["title"], winClass := rec["class"]
+
+    ; System chrome / helper windows are never popups.
+    static skipClasses := [
+        "tooltips_class32", "#32768", "IME", "MSCTFIME UI",
+        "DV2ControlHost", "Windows.UI.Core.CoreWindow",
+        "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "Progman", "WorkerW",
+        "CiceroUIWndFrame", "NotifyIconOverflowWindow", "BaseBar", "SysShadow"
+    ]
+    for c in skipClasses {
+        if (winClass == c)
+            return false
     }
+
+    isTool := (exStyle & 0x80) != 0          ; WS_EX_TOOLWINDOW
+    hasCaption := (style & 0x00C00000) != 0  ; WS_CAPTION
+    isPopupStyle := (style & 0x80000000) != 0 ; WS_POPUP
+
+    ; 1) Chromium permission bubble — the exact reported case.
+    if (title == "Chrome Legacy Window")
+        return true
+
+    ; 2) Chromium-family owned windows that are popup-styled and lack a standard
+    ;    caption (permission bubbles, legacy prompts, mini dialogs).
+    if ((winClass == "Chrome_WidgetWin_1" || winClass == "Chrome_WidgetWin_0")
+        && !isTool && isPopupStyle && !hasCaption) {
+        if (rec["w"] > 0 && rec["h"] > 0 && rec["w"] <= 1000 && rec["h"] <= 800)
+            return true
+    }
+
+    ; 3) Firefox owned dialogs and other owned modal dialogs.
+    if ((winClass == "MozillaDialogClass" || winClass == "#32770")
+        && !isTool && !hasCaption) {
+        return true
+    }
+
+    ; 4) Generic: any owned, visible, small, popup-styled, caption-less window
+    ;    is an overlay that must follow its owner.
+    if (isPopupStyle && !hasCaption && !isTool) {
+        if (rec["w"] > 0 && rec["h"] > 0 && rec["w"] <= 900 && rec["h"] <= 700)
+            return true
+    }
+    return false
 }
 
 ; Re-scan all top-level windows and refresh g["_popupRegistry"] (popup → owner).
@@ -296,11 +301,7 @@ _IsSelfWindow(hwnd) {
     }
     if (selfProc == "")
         return false
-    try {
-        return WinGetProcessName("ahk_id " hwnd) == selfProc
-    } catch {
-        return false
-    }
+    return _WinRegNow(hwnd)["proc"] == selfProc
 }
 
 ; True if the current process is running elevated (Administrator). Elevated
@@ -365,6 +366,8 @@ _GetWindowExcludeReason(hwnd) {
         }
         if (title == "" || title == "Program Manager")
             return "invalid:no-title"
+        if (IsShellAppBarWindow(hwnd))
+            return "invalid:shell-appbar"
         if (IsFullscreenWindow(hwnd))
             return "invalid:fullscreen"
         return "invalid:other"
@@ -695,8 +698,14 @@ global Config := Map(
     ],
     "Damping", 0.1429,   ; 1.0 = no damping, 0.0 = full stop (use 0.001-1.0)
     "MaxSpeed", 240.0,    ; Limits maximum velocity
-    "PhysicsTimeStep", 16,  ; ~60 Hz physics — AHK rounds <10-15ms to nearest multiple anyway
-    "VisualTimeStep", 16,   ; ~60 Hz visual updates — matches typical display refresh rate
+    "AsyncWindowPos", true,  ; Post cross-thread moves instead of blocking on the target app's UI thread
+    "PhysicsTimeStep", 15,  ; Timer period (ms). MEASURED quantization (AHK v2, Windows 11,
+                            ; with timeBeginPeriod(1) active — it makes no difference):
+                            ;   1-15  -> 15.71 ms (64 Hz)   <- fastest achievable
+                            ;   16    -> 25.16 ms (40 Hz)   <- dead spot, avoid
+                            ;   17-30 -> 31.59 ms (32 Hz)
+                            ;   33+   -> 47.63 ms (21 Hz)
+    "VisualTimeStep", 15,   ; Same quantization as PhysicsTimeStep — keep them equal.
     "Stabilization", Map(
         "MinSpeedThreshold", 0.369,  ; Lower values high-DPI (0.05-0.15) ~ Higher values (0.2-0.5)  low-performance systems
         "EnergyThreshold", 0.06,     ; Lower values (0.05-0.1): Early stabilization, prevents overshooting
@@ -768,6 +777,12 @@ global g := Map(
     "_perfOn", false,            ; Performance profiling toggle (Ctrl+Alt+F)
     "_perfFreq", 0,              ; QPC frequency (cached on first use)
     "_perfData", Map(),          ; key → [total_us, call_count]
+    "_winReg", Map(),            ; hwnd → classified window record (see WINDOW REGISTRY)
+    "_regTick", Map(),           ; per-physics-tick snapshot of tracked-window records
+    "_regTickAt", 0,             ; TickCount when _regTick was filled
+    "_movableSet", Map(),        ; hwnd set of bodies physics may move (per-tick snapshot)
+    "_layoutDirty", true,        ; set when the tracked window set changes; defeats the idle gate
+    "_cfgGen", 0,                ; Bumped whenever Config changes; invalidates window records
     "DesktopIconRects", [],   ; Cached desktop icon obstacle rectangles
     "DesktopIconLastRefresh", A_TickCount  ; TickCount of last icon position scan — pre-set to prevent early scan race
 )
@@ -1148,185 +1163,497 @@ SafeMonitorGetWorkArea(monNum, &mL, &mT, &mR, &mB) {
     return SafeMonitorGet(monNum, &mL, &mT, &mR, &mB)
 }
 
-IsFullscreenWindow(hwnd) {
+; ═══════════════════════════════════════════════════════════════════════════════
+;  WINDOW REGISTRY — one authoritative snapshot per HWND
+;
+;  Every subsystem used to probe the same windows independently: validation,
+;  floating classification and fullscreen detection each re-read title/class/
+;  process/style/ex-style/rect (IsFullscreenWindow alone made ~9 Win32 calls and
+;  allocated three lookup arrays per call), and CalculateWindowForces repeated
+;  that for every window PAIR on every physics tick. GetVisibleWindows therefore
+;  cost ~35 Win32 calls per candidate window per 250ms cycle.
+;
+;  A window is now evaluated once and the result remembered until its cheap
+;  signature (rect + style + ex-style) changes, its facts outlive the TTL, or
+;  Config changes. Hot loops read records — and read them from a per-tick
+;  snapshot, so the force/collision/movement passes do no Win32 work at all.
+; ═══════════════════════════════════════════════════════════════════════════════
+
+global g_WinRegTTL := 1000      ; ms before classified facts are re-evaluated
+global g_ProcNameTTL := 5000    ; ms to trust a cached pid → process-name mapping
+global g_RegTickTTL := 100      ; ms a per-tick snapshot stays authoritative
+
+; Monitor bounds/work area, cached briefly: they change on display topology or
+; taskbar changes, never per window.
+_MonRect(mon) {
+    static cache := Map(), stamp := Map()
+    if (!mon)
+        return { l: 0, t: 0, r: A_ScreenWidth, b: A_ScreenHeight }
+    if (cache.Has(mon) && A_TickCount - stamp[mon] < 4000)
+        return cache[mon]
+    mL := 0, mT := 0, mR := A_ScreenWidth, mB := A_ScreenHeight
+    SafeMonitorGet(mon, &mL, &mT, &mR, &mB)
+    cache[mon] := { l: mL, t: mT, r: mR, b: mB }
+    stamp[mon] := A_TickCount
+    return cache[mon]
+}
+
+_MonWork(mon) {
+    static cache := Map(), stamp := Map()
+    if (!mon)
+        return { l: 0, t: 0, r: A_ScreenWidth, b: A_ScreenHeight }
+    if (cache.Has(mon) && A_TickCount - stamp[mon] < 4000)
+        return cache[mon]
+    aL := 0, aT := 0, aR := A_ScreenWidth, aB := A_ScreenHeight
+    SafeMonitorGetWorkArea(mon, &aL, &aT, &aR, &aB)
+    cache[mon] := { l: aL, t: aT, r: aR, b: aB }
+    stamp[mon] := A_TickCount
+    return cache[mon]
+}
+
+; pid → process name. WinGetProcessName opens a process handle, far too
+; expensive to repeat per window per cycle. PIDs are recycled, so entries expire.
+_ProcNameForPid(pid) {
+    static cache := Map(), stamp := Map()
+    if (!pid)
+        return ""
+    if (cache.Has(pid) && A_TickCount - stamp[pid] < g_ProcNameTTL)
+        return cache[pid]
+    name := ""
     try {
-        if (!SafeWinExist(hwnd))
+        name := ProcessGetName(pid)
+    } catch {
+        name := ""
+    }
+    cache[pid] := name
+    stamp[pid] := A_TickCount
+    return name
+}
+
+_WinMinMax(hwnd) {
+    try {
+        if (DllCall("IsZoomed", "Ptr", hwnd))
+            return 1
+        if (DllCall("IsIconic", "Ptr", hwnd))
+            return -1
+    } catch {
+    }
+    return 0
+}
+
+; Probe every tracked window once, then serve the whole tick from the snapshot.
+; Also publishes the set of movable handles so the O(n²) force loop is a hash
+; lookup per pair.
+_WinRegSnapshot() {
+    global g
+    tick := g["_regTick"]
+    movable := g["_movableSet"]
+    tick.Clear()
+    movable.Clear()
+    for win in g["Windows"] {
+        rec := _WinReg(win["hwnd"])
+        tick[win["hwnd"]] := rec
+        if (rec["movable"])
+            movable[win["hwnd"]] := true
+    }
+    g["_regTickAt"] := A_TickCount
+}
+
+; Record for hwnd — from the current tick snapshot when one is live, otherwise
+; straight from the registry (which applies its own signature/TTL rules).
+_WinRegNow(hwnd) {
+    global g
+    if (A_TickCount - g["_regTickAt"] < g_RegTickTTL && g["_regTick"].Has(hwnd))
+        return g["_regTick"][hwnd]
+    return _WinReg(hwnd)
+}
+
+_WinReg(hwnd, force := false) {
+    global g
+    reg := g["_winReg"]
+    if (!force && reg.Has(hwnd)) {
+        rec := reg[hwnd]
+        if (rec["cfgGen"] == g["_cfgGen"] && A_TickCount - rec["at"] < g_WinRegTTL && _WinRegSigSame(hwnd, rec))
+            return rec
+    }
+    return _WinRegClassify(hwnd)
+}
+
+; Cheap signature: a window that has not moved, resized or changed style keeps
+; every previously computed fact valid. Cheap checks first — style/ex-style cost
+; ~0.03µs each, GetWindowRect ~1.9µs (measured).
+_WinRegSigSame(hwnd, rec) {
+    try {
+        if (WinGetStyle(hwnd) != rec["style"] || WinGetExStyle(hwnd) != rec["exStyle"])
             return false
+    } catch {
+        return false
+    }
+    wr := Buffer(16, 0)
+    if (!DllCall("GetWindowRect", "Ptr", hwnd, "Ptr", wr))
+        return false
+    return (NumGet(wr, 0, "Int") == rec["x"] && NumGet(wr, 4, "Int") == rec["y"]
+        && (NumGet(wr, 8, "Int") - rec["x"]) == rec["w"]
+        && (NumGet(wr, 12, "Int") - rec["y"]) == rec["h"])
+}
 
-        ; Get window position and size
-        WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-        if (w == 0 || h == 0)
+_WinRegClassify(hwnd) {
+    global g
+    rec := Map(
+        "hwnd", hwnd, "at", A_TickCount, "cfgGen", g["_cfgGen"],
+        "alive", false, "titleOK", false, "procOK", false,
+        "x", 0, "y", 0, "w", 0, "h", 0, "style", 0, "exStyle", 0,
+        "title", "", "class", "", "proc", "", "pid", 0, "owner", 0, "mon", 0,
+        "minmax", 0, "cloaked", false, "fullscreen", false, "appbar", false, "tiny", false,
+        "plugin", false, "valid", false, "floating", false, "movable", false
+    )
+    g["_winReg"][hwnd] := rec
+
+    wr := Buffer(16, 0)
+    if (!DllCall("IsWindow", "Ptr", hwnd) || !DllCall("GetWindowRect", "Ptr", hwnd, "Ptr", wr))
+        return rec
+
+    rec["alive"] := true
+    rec["x"] := NumGet(wr, 0, "Int")
+    rec["y"] := NumGet(wr, 4, "Int")
+    rec["w"] := NumGet(wr, 8, "Int") - rec["x"]
+    rec["h"] := NumGet(wr, 12, "Int") - rec["y"]
+
+    try {
+        rec["style"] := WinGetStyle(hwnd)
+        rec["exStyle"] := WinGetExStyle(hwnd)
+    } catch {
+    }
+    try {
+        rec["title"] := WinGetTitle(hwnd)
+        rec["titleOK"] := true
+    } catch {
+    }
+    try {
+        rec["class"] := WinGetClass(hwnd)
+    } catch {
+    }
+
+    pid := 0
+    try {
+        DllCall("GetWindowThreadProcessId", "Ptr", hwnd, "UInt*", &pid)
+    } catch {
+    }
+    rec["pid"] := pid
+    rec["proc"] := _ProcNameForPid(pid)
+    rec["procOK"] := (rec["proc"] != "")
+    try {
+        rec["owner"] := DllCall("GetWindow", "Ptr", hwnd, "UInt", 4, "Ptr")
+    } catch {
+    }
+
+    if (rec["w"] > 0 && rec["h"] > 0) {
+        m := MonitorGetFromPoint(rec["x"] + rec["w"] / 2, rec["y"] + rec["h"] / 2)
+        rec["mon"] := m ? m : MonitorGetPrimary()
+    }
+    rec["minmax"] := _WinMinMax(hwnd)
+
+    ; DWM-cloaked windows (closed UWP frames, windows on other virtual desktops)
+    ; keep WS_VISIBLE but are not on screen, so they must never become physics
+    ; bodies: they would hold force forever without producing a pixel of motion.
+    cloaked := 0
+    try {
+        DllCall("dwmapi\DwmGetWindowAttribute", "Ptr", hwnd, "Int", 14, "Int*", &cloaked, "Int", 4)
+    } catch {
+    }
+    rec["cloaked"] := (cloaked != 0)
+
+    rec["fullscreen"] := _ComputeFullscreen(rec)
+    rec["appbar"] := _ComputeAppBar(rec)
+    rec["tiny"] := _ComputeTiny(rec)
+    rec["plugin"] := _ComputePlugin(rec)
+    rec["valid"] := _ComputeValid(rec)
+    rec["floating"] := _ComputeFloating(rec)
+    rec["movable"] := (rec["minmax"] == 0 && !rec["fullscreen"])
+    return rec
+}
+
+; ── Pure classifiers: no Win32, no allocation, fed by a registry record ──────
+
+_ComputeFullscreen(rec) {
+    x := rec["x"], y := rec["y"], w := rec["w"], h := rec["h"]
+    if (w <= 0 || h <= 0)
+        return false
+
+    winClass := rec["class"], processName := rec["proc"], title := rec["title"]
+
+    ; Normal browsers/apps that should stay manageable even when they cover the
+    ; screen. Allocating these per call cost more than the comparisons.
+    static manageableClasses := [
+        "MozillaWindowClass", "Chrome_WidgetWin_1", "ApplicationFrameWindow",
+        "SunAwtFrame", "Notepad", "Notepad++", "Code.exe", "Cursor.exe",
+        "devenv.exe", "XamlExplorerHost", "CabinetWClass", "WorkerW", "Progman"
+    ]
+    static manageableProcesses := [
+        "firefox.exe", "chrome.exe", "msedge.exe", "code.exe", "cursor.exe",
+        "notepad.exe", "notepad++.exe", "devenv.exe", "explorer.exe",
+        "winword.exe", "excel.exe", "powerpnt.exe", "outlook.exe",
+        ; Steam — its UI is hosted in CEF webhelper processes and uses the
+        ; SDL_app class with custom chrome, so it is NOT a fullscreen app.
+        "steam.exe", "steamwebhelper.exe"
+    ]
+    static fullscreenClasses := [
+        "UnityWndClass", "UnrealWindow", "Valve001", "SDL_app", "GLUT", "d3d", "D3D"
+    ]
+    static fullscreenProcesses := [
+        "vlc.exe", "mpc-hc.exe", "potplayer.exe", "obs64.exe", "obs32.exe", "streamlabs obs.exe"
+    ]
+
+    for pattern in manageableClasses {
+        if (winClass == pattern)
             return false
+    }
+    for pattern in manageableProcesses {
+        if (processName != "" && InStr(processName, pattern))
+            return false
+    }
 
-        ; Get monitor bounds for the window
-        winCenterX := x + w/2
-        winCenterY := y + h/2
-        monNum := MonitorGetFromPoint(winCenterX, winCenterY)
-        if (!monNum) {
-            ; Fallback to primary monitor
-            monNum := MonitorGetPrimary()
-        }
+    style := rec["style"], exStyle := rec["exStyle"]
+    isPopup := (style & 0x80000000) != 0
+    isTopmost := (exStyle & 0x8) != 0
 
-        SafeMonitorGet(monNum, &mL, &mT, &mR, &mB)
-
-        ; Check window properties
-        winClass := WinGetClass("ahk_id " hwnd)
-        processName := WinGetProcessName("ahk_id " hwnd)
-        title := WinGetTitle("ahk_id " hwnd)
-        
-        ; Skip normal browser windows and common applications that should be manageable
-        ; These are NOT considered fullscreen even if they cover the screen
-        manageableClasses := [
-            "MozillaWindowClass",        ; Firefox
-            "Chrome_WidgetWin_1",        ; Chrome
-            "ApplicationFrameWindow",    ; Edge/UWP apps
-            "SunAwtFrame",              ; Java applications
-            "Notepad",                  ; Notepad
-            "Notepad++",                ; Notepad++
-            "Code.exe",                 ; VS Code
-            "Cursor.exe",               ; Cursor
-            "devenv.exe",               ; Visual Studio
-            "XamlExplorerHost",         ; XAML applications
-            "CabinetWClass",            ; File Explorer
-            "WorkerW",                  ; Desktop windows
-            "Progman"                   ; Program Manager
-        ]
-        
-        manageableProcesses := [
-            "firefox.exe", "chrome.exe", "msedge.exe", "code.exe", "cursor.exe",
-            "notepad.exe", "notepad++.exe", "devenv.exe", "explorer.exe",
-            "winword.exe", "excel.exe", "powerpnt.exe", "outlook.exe",
-            ; Steam — its UI is hosted in CEF webhelper processes and uses the
-            ; SDL_app class with custom chrome, so it is NOT a fullscreen app.
-            "steam.exe", "steamwebhelper.exe"
-        ]
-        
-        ; Check if this is a manageable window (not fullscreen)
-        for pattern in manageableClasses {
-            if (winClass == pattern)
-                return false  ; This is a manageable window, not fullscreen
-        }
-        
-        for pattern in manageableProcesses {
-            if (InStr(processName, pattern))
-                return false  ; This is a manageable process, not fullscreen
-        }
-
-        ; Check for actual fullscreen indicators
-        try {
-            style := WinGetStyle("ahk_id " hwnd)
-            exStyle := WinGetExStyle("ahk_id " hwnd)
-            
-            ; Check for WS_POPUP style (common in fullscreen apps)
-            isPopup := (style & 0x80000000) != 0
-            
-            ; Check for WS_EX_TOPMOST (many fullscreen apps use this)
-            isTopmost := (exStyle & 0x8) != 0
-            
-            ; True fullscreen applications
-            fullscreenClasses := [
-                "UnityWndClass",      ; Unity games
-                "UnrealWindow",       ; Unreal Engine games
-                "Valve001",           ; Source games
-                "SDL_app",            ; SDL applications
-                "GLUT",               ; OpenGL applications
-                "d3d",                ; DirectX applications
-                "D3D"                 ; DirectX applications
-            ]
-            
-            fullscreenProcesses := [
-                "vlc.exe", "mpc-hc.exe", "potplayer.exe",
-                "obs64.exe", "obs32.exe", "streamlabs obs.exe"
-            ]
-            
-            ; Check for actual fullscreen class patterns
-            for pattern in fullscreenClasses {
-                if (winClass == pattern)
-                    return true
-            }
-            
-            ; Check for actual fullscreen process patterns
-            for pattern in fullscreenProcesses {
-                if (InStr(processName, pattern))
-                    return true
-            }
-            
-            ; Check for fullscreen style combinations
-            if (isPopup && isTopmost) {
-                return true
-            }
-        }
-        catch {
-            ; If we can't get style info, continue with size-based detection
-        }
-
-        ; Check if window covers the entire monitor AND has fullscreen characteristics
-        tolerance := 50  ; Increased tolerance for normal windows
-        coversWidth := (w >= (mR - mL - tolerance))
-        coversHeight := (h >= (mB - mT - tolerance))
-        atOrigin := (x <= mL + tolerance && y <= mT + tolerance)
-
-        ; Only consider it fullscreen if it covers the monitor AND has suspicious characteristics
-        if (coversWidth && coversHeight && atOrigin) {
-            ; Additional check: if it looks like a normal window (has titlebar, etc.), don't consider it fullscreen
-            if (title != "" && !InStr(title, "Full Screen") && !InStr(title, "Fullscreen")) {
-                ; Check if it has normal window characteristics
-                if (style & 0x00C00000) {  ; WS_CAPTION (has titlebar)
-                    return false  ; It's a normal window that happens to be large
-                }
-            }
+    for pattern in fullscreenClasses {
+        if (winClass == pattern)
             return true
-        }
+    }
+    for pattern in fullscreenProcesses {
+        if (processName != "" && InStr(processName, pattern))
+            return true
+    }
+    if (isPopup && isTopmost)
+        return true
 
-        return false
+    mon := _MonRect(rec["mon"])
+    tolerance := 50
+    coversWidth := (w >= (mon.r - mon.l - tolerance))
+    coversHeight := (h >= (mon.b - mon.t - tolerance))
+    atOrigin := (x <= mon.l + tolerance && y <= mon.t + tolerance)
+    if (coversWidth && coversHeight && atOrigin) {
+        ; A titled window with a real caption is a normal (if large) window.
+        if (title != "" && !InStr(title, "Full Screen") && !InStr(title, "Fullscreen")) {
+            if (style & 0x00C00000)
+                return false
+        }
+        return true
     }
-    catch {
+    return false
+}
+
+; Shell AppBars (taskbar replacements such as RetroBar) are pinned by the shell
+; to the band they reserve between the monitor edge and the work area. Physics
+; can never move them, so as bodies they would accumulate force forever. A
+; window is an AppBar band when its rect exactly matches the reserved inset at
+; one edge, spanning that whole edge — self-verifying, since the band has zero
+; thickness when no AppBar is registered.
+_ComputeAppBar(rec) {
+    x := rec["x"], y := rec["y"], w := rec["w"], h := rec["h"]
+    if (w <= 0 || h <= 0 || !rec["mon"])
         return false
+
+    mon := _MonRect(rec["mon"]), work := _MonWork(rec["mon"])
+
+    ; Left / right bands span the reserved width, full monitor height
+    if (work.l > mon.l && w == work.l - mon.l && x == mon.l && y == mon.t && h == mon.b - mon.t)
+        return true
+    if (work.r < mon.r && w == mon.r - work.r && x + w == mon.r && y == mon.t && h == mon.b - mon.t)
+        return true
+
+    ; Top / bottom bands span the reserved height, full monitor width
+    if (work.t > mon.t && h == work.t - mon.t && y == mon.t && x == mon.l && w == mon.r - mon.l)
+        return true
+    if (work.b < mon.b && h == mon.b - work.b && y + h == mon.b && x == mon.l && w == mon.r - mon.l)
+        return true
+
+    return false
+}
+
+_ComputeTiny(rec) {
+    if (rec["w"] > 0 && rec["h"] > 0 && rec["w"] < 40 && rec["h"] < 40)
+        return true
+    return rec["class"] == "RPTopmostButton"
+}
+
+_ComputePlugin(rec) {
+    if (!rec["procOK"] || !rec["titleOK"])
+        return false
+
+    winClass := rec["class"], title := rec["title"], processName := rec["proc"]
+
+    static dawProcesses := ["reaper", "ableton", "flstudio", "cubase", "studioone", "bitwig", "protools"]
+    static pluginClasses := [
+        "VST", "VSTPlugin", "AudioUnit", "AU", "RTAS", "AAX",
+        "ReaperVSTPlugin", "FL_Plugin", "StudioOnePlugin",
+        "CubaseVST", "LogicAU", "ProToolsAAX", "Ableton",
+        "Qt5QWindowIcon", "Qt6QWindowIcon",  ; Many modern plugins use Qt
+        "Vst", "JS", "Plugin", "Float", "Dock"
+    ]
+    static pluginTitlePatterns := [
+        "VST", "AU", "JS:", "Plugin", "Synth", "Effect", "EQ", "Compressor",
+        "Reverb", "Delay", "Filter", "Oscillator", "Sampler", "Drum", "FX",
+        "Kontakt", "Massive", "Serum", "Sylenth", "Omnisphere", "Nexus",
+        "FabFilter", "Waves", "iZotope", "Native Instruments", "Arturia",
+        "U-He", "TAL-", "Valhalla", "SoundToys", "Plugin Alliance"
+    ]
+
+    isDAWProcess := false
+    for daw in dawProcesses {
+        if (InStr(processName, daw)) {
+            isDAWProcess := true
+            break
+        }
     }
+
+    if (isDAWProcess) {
+        for pattern in pluginClasses {
+            if (InStr(winClass, pattern))
+                return true
+        }
+        for pattern in pluginTitlePatterns {
+            if (InStr(title, pattern))
+                return true
+        }
+        if (rec["w"] > 0 && rec["h"] > 0 && rec["w"] < 800 && rec["h"] < 600)
+            return true
+    } else {
+        if (winClass ~= "i)(Vst|JS|Plugin|Float|Dock)")
+            return true
+        if (title ~= "i)(VST|JS:|Plugin|FX)")
+            return true
+    }
+    return false
+}
+
+; Port of IsWindowValid(), evaluated from a record.
+_ComputeValid(rec) {
+    if (!rec["alive"])
+        return false
+    if (rec["cloaked"])                 ; invisible on screen despite WS_VISIBLE
+        return false
+    if (rec["fullscreen"])
+        return false
+    if (rec["minmax"] != 0)
+        return false
+    if (!rec["titleOK"])
+        return false
+    title := rec["title"]
+    if (title == "" || title == "Program Manager")
+        return false
+    if (rec["exStyle"] & 0x80)             ; WS_EX_TOOLWINDOW
+        return false
+    if (!(rec["style"] & 0x10000000))      ; WS_VISIBLE
+        return false
+    ; Shell AppBars are pinned by the shell and must never become bodies.
+    if (rec["appbar"])
+        return false
+    return true
+}
+
+; Port of IsWindowFloating(), evaluated from a record.
+_ComputeFloating(rec) {
+    global Config
+    if (!rec["alive"])
+        return false
+    if (rec["fullscreen"])
+        return false
+    if (rec["minmax"] != 0)
+        return false
+    if (!rec["titleOK"])
+        return false
+    title := rec["title"]
+    if (title == "" || title == "Program Manager")
+        return false
+    ; A process-lookup failure used to abort the whole check, leaving the window
+    ; tracked. Preserved here rather than silently re-classifying it.
+    if (!rec["procOK"])
+        return false
+
+    winClass := rec["class"], processName := rec["proc"]
+    style := rec["style"], exStyle := rec["exStyle"]
+
+    ; 0. Force-track override: these processes always get tracked regardless of style/class
+    procNoExt := StrLower(StrReplace(processName, ".exe", ""))
+    for pattern in Config["ForceTrackProcesses"] {
+        patNoExt := StrLower(StrReplace(pattern, ".exe", ""))
+        if (procNoExt == patNoExt)
+            return false
+    }
+
+    ; 1. Forced-float processes (extension-insensitive). DAW entries are in
+    ;    ForceFloatProcesses so only their tiny utility chrome floats — the
+    ;    DAW's MAIN window AND its plugin/FX windows are tracked & managed.
+    for pattern in Config["ForceFloatProcesses"] {
+        patNoExt := StrLower(StrReplace(pattern, ".exe", ""))
+        if (procNoExt == patNoExt) {
+            if (_IsDAWProcess(procNoExt) && !_ComputeTiny(rec))
+                return false    ; DAW main + plugin/FX windows → tracked & managed
+            return true         ; tiny chrome / non-DAW forced-float processes float
+        }
+    }
+
+    ; 2. Special cases that should always float
+    if (winClass == "ConsoleWindowClass" || winClass == "CASCADIA_HOSTING_WINDOW_CLASS")
+        return true  ; CMD and Windows Terminal
+
+    ; 3. Plugin window detection
+    if (winClass ~= "i)(Vst|JS|Plugin|Float)")
+        return true
+    if (title ~= "i)(VST|JS:|Plugin|FX)")
+        return true
+
+    ; 3.5. Large non-plugin #32770 dialogs are transient modal UI. Physics-
+    ;      managing a giant dialog creates geometrically unresolvable overlap
+    ;      with large app windows, so repulsion never ends.
+    if (winClass == "#32770" && !_ComputePlugin(rec)) {
+        if (rec["w"] * rec["h"] > 400000)  ; large dialog (1251x1105 ≈ 1.38M px²)
+            return true
+    }
+
+    ; 4. Standard floating window checks
+    if (exStyle & 0x80)             ; WS_EX_TOOLWINDOW
+        return true
+    if (!(style & 0x10000000))      ; WS_VISIBLE
+        return true
+
+    ; 5. Class patterns from config
+    for pattern in Config["FloatClassPatterns"] {
+        if (winClass ~= "i)" pattern)
+            return true
+    }
+
+    ; 6. Title patterns from config
+    for pattern in Config["FloatTitlePatterns"] {
+        if (title ~= "i)" pattern)
+            return true
+    }
+
+    ; 7. WS_POPUP only floats when there is no standard caption: many normal
+    ;    apps build custom-chrome windows from WS_POPUP + WS_CAPTION.
+    if ((style & Config["FloatStyles"]) != 0 && !(style & 0x00C00000))
+        return true
+    return false
+}
+
+; ── Public predicate views over the registry ────────────────────────────────
+
+IsShellAppBarWindow(hwnd) {
+    return _WinRegNow(hwnd)["appbar"]
+}
+
+_IsPhysicsMovable(hwnd) {
+    return _WinRegNow(hwnd)["movable"]
+}
+
+IsFullscreenWindow(hwnd) {
+    return _WinRegNow(hwnd)["fullscreen"]
 }
 
 IsWindowValid(hwnd) {
-    try {
-        if (!SafeWinExist(hwnd))
-            return false
-
-        ; Skip fullscreen windows completely
-        if (IsFullscreenWindow(hwnd))
-            return false
-
-        try {
-            if (WinGetMinMax("ahk_id " hwnd) != 0)
-                return false
-        }
-        catch {
-            return false
-        }
-
-        try {
-            title := WinGetTitle("ahk_id " hwnd)
-            if (title == "" || title == "Program Manager")
-                return false
-        }
-        catch {
-            return false
-        }
-
-        try {
-            if (WinGetExStyle("ahk_id " hwnd) & 0x80)
-                return false
-
-            if (!(WinGetStyle("ahk_id " hwnd) & 0x10000000))
-                return false
-        }
-        catch {
-            return false
-        }
-
-        return true
-    }
-    catch {
-        return false
-    }
+    return _WinRegNow(hwnd)["valid"]
 }
 
 Lerp(a, b, t) {
@@ -1526,205 +1853,15 @@ _IsDAWProcess(procNoExt) {
 ; overlay each floating FX window. Tracking them would let repulsion rip them
 ; off their host window.
 IsTinyUtilityWindow(hwnd) {
-    try {
-        WinGetPos(,, &w, &h, "ahk_id " hwnd)
-        if (w > 0 && h > 0 && w < 40 && h < 40)
-            return true
-        if (WinGetClass("ahk_id " hwnd) == "RPTopmostButton")
-            return true
-    }
-    return false
+    return _WinRegNow(hwnd)["tiny"]
 }
 
 IsPluginWindow(hwnd) {
-    try {
-        winClass := WinGetClass("ahk_id " hwnd)
-        title := WinGetTitle("ahk_id " hwnd)
-        processName := WinGetProcessName("ahk_id " hwnd)
-
-        ; Common DAW plugin window classes and patterns
-        pluginClasses := [
-            "VST", "VSTPlugin", "AudioUnit", "AU", "RTAS", "AAX",
-            "ReaperVSTPlugin", "FL_Plugin", "StudioOnePlugin",
-            "CubaseVST", "LogicAU", "ProToolsAAX", "Ableton",
-            "Qt5QWindowIcon", "Qt6QWindowIcon",  ; Many modern plugins use Qt
-            "Vst", "JS", "Plugin", "Float", "Dock"
-        ]
-
-        pluginTitlePatterns := [
-            "VST", "AU", "JS:", "Plugin", "Synth", "Effect", "EQ", "Compressor",
-            "Reverb", "Delay", "Filter", "Oscillator", "Sampler", "Drum", "FX",
-            "Kontakt", "Massive", "Serum", "Sylenth", "Omnisphere", "Nexus",
-            "FabFilter", "Waves", "iZotope", "Native Instruments", "Arturia",
-            "U-He", "TAL-", "Valhalla", "SoundToys", "Plugin Alliance"
-        ]
-
-        ; Check DAW processes first
-        dawProcesses := ["reaper", "ableton", "flstudio", "cubase", "studioone", "bitwig", "protools"]
-        isDAWProcess := false
-        for daw in dawProcesses {
-            if (InStr(processName, daw)) {
-                isDAWProcess := true
-                break
-            }
-        }
-
-        ; If it's from a DAW process, check plugin patterns
-        if (isDAWProcess) {
-            ; Check window class patterns
-            for pattern in pluginClasses {
-                if (InStr(winClass, pattern))
-                    return true
-            }
-
-            ; Check window title patterns
-            for pattern in pluginTitlePatterns {
-                if (InStr(title, pattern))
-                    return true
-            }
-
-            ; Check for small window dimensions typical of plugin UIs
-            try {
-                WinGetPos(,, &w, &h, "ahk_id " hwnd)
-                if (w < 800 && h < 600)
-                    return true
-            }
-        } else {
-            ; For non-DAW processes, use basic patterns
-            if (winClass ~= "i)(Vst|JS|Plugin|Float|Dock)")
-                return true
-            if (title ~= "i)(VST|JS:|Plugin|FX)")
-                return true
-        }
-
-        return false
-    }
-    catch {
-        return false
-    }
+    return _WinRegNow(hwnd)["plugin"]
 }
 
 IsWindowFloating(hwnd) {
-    global Config
-
-    ; Basic window existence check
-    if (!SafeWinExist(hwnd))
-        return false
-
-    ; Skip fullscreen windows completely
-    if (IsFullscreenWindow(hwnd))
-        return false
-
-    try {
-        ; Skip minimized/maximized windows
-        if (WinGetMinMax("ahk_id " hwnd) != 0)
-            return false
-
-        ; Get window properties
-        title := WinGetTitle("ahk_id " hwnd)
-        if (title == "" || title == "Program Manager")
-            return false
-
-        winClass := WinGetClass("ahk_id " hwnd)
-        processName := WinGetProcessName("ahk_id " hwnd)
-        style := WinGetStyle("ahk_id " hwnd)
-        exStyle := WinGetExStyle("ahk_id " hwnd)
-
-        ; 0. Force-track override: these processes always get tracked regardless of style/class
-        procNoExt := StrLower(StrReplace(processName, ".exe", ""))
-        for pattern in Config["ForceTrackProcesses"] {
-            patNoExt := StrLower(StrReplace(pattern, ".exe", ""))
-            if (procNoExt == patNoExt) {
-                return false
-            }
-        }
-
-        ; Debug output - remove after testing if not needed
-        ; OutputDebug("Window Check - Class: " winClass " | Process: " processName " | Title: " title)
-
-        ; 1. First check for forced processes (extension-insensitive match).
-        ;    DAW entries (reaper, ableton, ...) are in ForceFloatProcesses so only
-        ;    their tiny utility chrome floats — the DAW's MAIN window AND its
-        ;    plugin/FX windows ("VST: …" / "JS: …") are tracked & managed by FWDE.
-        ;    Otherwise FWDE never manages the DAW at all (e.g. REAPER's main
-        ;    "… - REAPER v7.78 - …" window showed up as untracked/floating, and its
-        ;    floating FX windows were ignored by physics too).
-        procNoExt := StrLower(StrReplace(processName, ".exe", ""))
-        for pattern in Config["ForceFloatProcesses"] {
-            patNoExt := StrLower(StrReplace(pattern, ".exe", ""))
-            if (procNoExt == patNoExt) {
-                if (_IsDAWProcess(procNoExt) && !IsTinyUtilityWindow(hwnd))
-                    return false    ; DAW main + plugin/FX windows → tracked & managed
-                return true         ; tiny chrome / non-DAW forced-float processes float
-            }
-        }
-
-        ; 2. Special cases that should always float
-        if (winClass == "ConsoleWindowClass" || winClass == "CASCADIA_HOSTING_WINDOW_CLASS") {
-            return true  ; CMD and Windows Terminal
-        }
-
-        ; 3. Plugin window detection (basic but effective)
-        if (winClass ~= "i)(Vst|JS|Plugin|Float)") {
-            return true
-        }
-
-        if (title ~= "i)(VST|JS:|Plugin|FX)") {
-            return true
-        }
-
-        ; 3.5. Large non-plugin #32770 dialogs (file browsers, big app dialogs)
-        ;      are transient modal UI. Physics-managing a giant dialog (e.g.
-        ;      WinXShell's 1251x1105 file picker, or a big GetOpenFileName dialog)
-        ;      creates geometrically unresolvable overlap with large app windows —
-        ;      their heights can't fit stacked on a 1440px monitor, so repulsion
-        ;      never ends and the engine sits in perpetual chaos, yanking every
-        ;      window (incl. Everything) around forever. Float them so they're
-        ;      excluded from physics. DAW plugin/FX windows are ALSO #32770 but
-        ;      are caught by IsPluginWindow() above (VST:/JS: titles/classes) and
-        ;      stay tracked & managed.
-        if (winClass == "#32770" && !IsPluginWindow(hwnd)) {
-            try {
-                WinGetPos(,, &dlgW, &dlgH, "ahk_id " hwnd)
-                if (dlgW * dlgH > 400000)  ; large dialog (1251x1105 ≈ 1.38M px²)
-                    return true
-            }
-        }
-
-        ; 4. Standard floating window checks
-        if (exStyle & 0x80)  ; WS_EX_TOOLWINDOW
-            return true
-
-        if (!(style & 0x10000000))  ; WS_VISIBLE
-            return true
-
-        ; 5. Check class patterns from config
-        for pattern in Config["FloatClassPatterns"] {
-            if (winClass ~= "i)" pattern) {
-                return true
-            }
-        }
-
-        ; 6. Check title patterns from config
-        for pattern in Config["FloatTitlePatterns"] {
-            if (title ~= "i)" pattern) {
-                return true
-            }
-        }
-
-        ; 7. Final style check: WS_POPUP only counts as "floating" when the
-        ;    window has NO standard caption. WS_POPUP + WS_CAPTION is how many
-        ;    normal apps build a regular custom-chrome window (AHK v1 GUIs like
-        ;    Ahk2Exe, Steam, modern launchers) — those are real windows that must
-        ;    be managed by FWDE, not floated. True caption-less popups/overlays
-        ;    are handled by the earlier checks and the popup/companion cohesion.
-        if ((style & Config["FloatStyles"]) != 0 && !(style & 0x00C00000))
-            return true
-        return false
-    }
-    catch {
-        return false
-    }
+    return _WinRegNow(hwnd)["floating"]
 }
 
 
@@ -1733,19 +1870,38 @@ GetVisibleWindows(monitor) {
     global Config, g
     pi := _PerfStart()
     WinList := []
-    allWindows := []
+
+    ; Index the tracked windows once. The previous implementation re-scanned
+    ; g["Windows"] for every candidate window (twice), an O(n²) handle walk.
+    existingByHwnd := Map()
+    for win in g["Windows"]
+        existingByHwnd[win["hwnd"]] := win
+
+    ; The mouse decides which monitor is "active" in traditional mode.
+    CoordMode "Mouse", "Screen"
+    MouseGetPos(&mx, &my)
+    activeMonitor := MonitorGetFromPoint(mx, my)
+    expanse := Config["MultimonitorExpanse"]
+
     for hwnd in WinGetList() {
         try {
-            ; Skip invalid windows
-            if (!IsWindowValid(hwnd))
+            ; Cheap pre-filter: IsWindowValid() requires WS_VISIBLE, and most
+            ; top-level windows on a busy desktop are hidden (message-only
+            ; helpers, IME, shell internals). One API call rejects them instead
+            ; of paying for a full classification.
+            if (!DllCall("IsWindowVisible", "Ptr", hwnd))
                 continue
 
-            ; Owned interactive popups (e.g. Chrome permission bubbles /
-            ; "Chrome Legacy Window") are NOT independent physics bodies — they
-            ; are glued to their owner by the popup-cohesion subsystem. Tracking
-            ; them independently let physics fight Chrome's own anchoring, which
-            ; made clicks on the popup's buttons miss.
-            if (IsOwnedInteractivePopup(hwnd))
+            ; One classification per window, shared by every subsystem.
+            rec := _WinReg(hwnd)
+            if (!rec["valid"])
+                continue
+
+            ; Owned interactive popups (Chrome permission bubbles / "Chrome
+            ; Legacy Window") are glued to their owner by the popup-cohesion
+            ; subsystem — tracking them independently let physics fight the
+            ; browser's own anchoring and made clicks on the buttons miss.
+            if (IsOwnedInteractivePopup(hwnd, rec))
                 continue
 
             ; Never physics-manage FWDE's own windows (parameter settings GUI).
@@ -1754,139 +1910,70 @@ GetVisibleWindows(monitor) {
 
             ; Same-app companion layers (e.g. the DarkTide launcher's WPF
             ; decorate overlay) are glued to their anchor — never tracked as
-            ; independent physics bodies, or physics pushes them off the main
-            ; window.
+            ; independent physics bodies.
             if (g["_companionRegistry"].Has(hwnd))
                 continue
 
-            ; Get window properties
-            WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-            if (w == 0 || h == 0)
+            ; Floating windows (DAWs, terminals, plugins, tool windows) are not
+            ; physics bodies.
+            if (rec["floating"])
                 continue
 
-            ; Track non-floating windows for physics management
-            ; Floating windows (DAWs, terminals, plugins, tool windows) are excluded
-            if (!IsWindowFloating(hwnd)) {
-                allWindows.Push(Map(
-                    "hwnd", hwnd,
-                    "x", x, "y", y,
-                    "width", w, "height", h,
-                    "lastSeen", A_TickCount
-                ))
-            }
-        }
-        catch {
-            continue
-        }
-    }
+            w := rec["w"], h := rec["h"]
+            if (w <= 0 || h <= 0)
+                continue
 
-    ; Get current mouse position for monitor check
-    CoordMode "Mouse", "Screen"
-    MouseGetPos(&mx, &my)
-    activeMonitor := MonitorGetFromPoint(mx, my)
+            existingWin := existingByHwnd.Has(hwnd) ? existingByHwnd[hwnd] : 0
 
-    for window in allWindows {
-        try {
-            winCenterX := window["x"] + window["width"]/2
-            winCenterY := window["y"] + window["height"]/2
+            ; Monitor gate: in traditional mode only the active monitor's windows
+            ; participate — plus anything already tracked.
+            if (!expanse && rec["mon"] != activeMonitor && !existingWin)
+                continue
 
-            ; Determine which monitor the window is on
-            winMonitor := MonitorGetFromPoint(winCenterX, winCenterY)
-            resolvedMon := SafeMonitorGet(winMonitor, &mL, &mT, &mR, &mB)
-            if (resolvedMon)
-                winMonitor := resolvedMon
-            ; Check if window should be included based on floating mode
-            includeWindow := false
-
-            if (Config["MultimonitorExpanse"]) {
-                ; In multimonitor expanse mode, include all windows from all monitors
-                includeWindow := true
-            } else {
-                ; In traditional mode, only include windows on current monitor or already tracked
-                isTracked := false
-                for trackedWin in g["Windows"] {
-                    if (trackedWin["hwnd"] == window["hwnd"]) {
-                        isTracked := true
-                        break
-                    }
-                }
-                includeWindow := (winMonitor == monitor["Number"] || isTracked)
+            ; CRITICAL: user-placed / just-dragged windows keep their tracked
+            ; position. Do not hard-clamp x/y during state collection — bounds
+            ; are enforced gently later by edge forces + movement smoothing.
+            isManuallyLocked := (existingWin && existingWin.Has("ManualLock") && A_TickCount < existingWin["ManualLock"])
+            isBeingDragged := (existingWin && existingWin.Has("JustDragged") && A_TickCount - existingWin["JustDragged"] < 150)
+            x := rec["x"], y := rec["y"]
+            if ((isManuallyLocked || isBeingDragged) && existingWin) {
+                x := existingWin["x"]
+                y := existingWin["y"]
             }
 
-            if (includeWindow) {
-                ; Find existing window data if available
-                existingWin := 0
-                for win in g["Windows"] {
-                    if (win["hwnd"] == window["hwnd"]) {
-                        existingWin := win
-                        break
-                    }
-                }
-                
-                ; CRITICAL: Check if window is manually locked BEFORE applying any position constraints
-                ; User-placed windows should NEVER have their position modified
-                isManuallyLocked := (existingWin && existingWin.Has("ManualLock") && A_TickCount < existingWin["ManualLock"])
-                ; Check if this window is the active window - CRITICAL: Never move the active window
-                isActiveWindow := (window["hwnd"] == g["ActiveWindow"])
-                ; Check if currently being dragged - CRITICAL: Never move during drag
-                ; Only protect the window being actively dragged by the user from physics (briefly after drag end)
-                ; NOTE: `window` is a fresh Map built above; drag state lives on `existingWin` (g["Windows"]).
-                isBeingDragged := (existingWin && existingWin.Has("JustDragged") && A_TickCount - existingWin["JustDragged"] < 150)
-                
-                ; Only apply position constraints if window is NOT manually locked and NOT being actively dragged
-                if (!isManuallyLocked && !isBeingDragged) {
-                    ; IMPORTANT: Do not hard-clamp x/y during state collection.
-                    ; Hard clamping here can create discontinuities (teleports) once ApplyWindowMovements starts
-                    ; steering toward these clamped coordinates, potentially pushing non-overlapping windows into overlap.
-                    ; Bounds are enforced gently later via edge forces + movement smoothing.
-                } else {
-                    ; Use EXISTING window position for manually locked or active windows
-                    ; This ensures user-placed windows stay exactly where the user put them
-                    if (existingWin) {
-                        window["x"] := existingWin["x"]
-                        window["y"] := existingWin["y"]
-                    }
-                }
+            entry := Map(
+                "hwnd", hwnd,
+                "x", x, "y", y,
+                "width", w, "height", h,
+                "area", w * h,
+                "mass", w * h / 100000,
+                "lastMove", existingWin ? existingWin["lastMove"] : 0,
+                "vx", existingWin ? existingWin["vx"] : 0,
+                "vy", existingWin ? existingWin["vy"] : 0,
+                "targetX", existingWin ? existingWin["targetX"] : x,
+                "targetY", existingWin ? existingWin["targetY"] : y,
+                "monitor", rec["mon"],
+                "lastSeen", A_TickCount
+            )
 
-                ; Create window entry with physics properties
-                ; CRITICAL: Preserve ManualLock and other critical state from existing window
-                winEntry := Map(
-                    "hwnd", window["hwnd"],
-                    "x", window["x"], "y", window["y"],
-                    "width", window["width"], "height", window["height"],
-                    "area", window["width"] * window["height"],
-                    "mass", window["width"] * window["height"] / 100000,
-                    "lastMove", existingWin ? existingWin["lastMove"] : 0,
-                    "vx", existingWin ? existingWin["vx"] : 0,
-                    "vy", existingWin ? existingWin["vy"] : 0,
-                    "targetX", existingWin ? existingWin["targetX"] : window["x"],
-                    "targetY", existingWin ? existingWin["targetY"] : window["y"],
-                    "monitor", winMonitor,
-                    "lastSeen", window["lastSeen"],
-                )
-                
-                ; Preserve ManualLock and IsManual flags - CRITICAL for user-placed windows
-                if (existingWin) {
-                    if (existingWin.Has("ManualLock"))
-                        winEntry["ManualLock"] := existingWin["ManualLock"]
-                    if (existingWin.Has("IsManual"))
-                        winEntry["IsManual"] := existingWin["IsManual"]
-                    if (existingWin.Has("JustDragged"))
-                        winEntry["JustDragged"] := existingWin["JustDragged"]
-                        
-                    ; CRITICAL: For manually locked or active windows, preserve their exact x/y target positions
-                    ; This prevents physics from moving them away from user placement
-                    if ((isManuallyLocked || isActiveWindow) && existingWin.Has("targetX") && existingWin.Has("targetY")) {
-                        winEntry["targetX"] := existingWin["targetX"]
-                        winEntry["targetY"] := existingWin["targetY"]
-                        ; Also preserve x/y from existing window to keep it exact
-                        winEntry["x"] := existingWin["x"]
-                        winEntry["y"] := existingWin["y"]
-                    }
+            ; Preserve ManualLock / IsManual / JustDragged and, for locked or
+            ; active windows, their exact target positions.
+            if (existingWin) {
+                if (existingWin.Has("ManualLock"))
+                    entry["ManualLock"] := existingWin["ManualLock"]
+                if (existingWin.Has("IsManual"))
+                    entry["IsManual"] := existingWin["IsManual"]
+                if (existingWin.Has("JustDragged"))
+                    entry["JustDragged"] := existingWin["JustDragged"]
+                if ((isManuallyLocked || hwnd == g["ActiveWindow"]) && existingWin.Has("targetX") && existingWin.Has("targetY")) {
+                    entry["targetX"] := existingWin["targetX"]
+                    entry["targetY"] := existingWin["targetY"]
+                    entry["x"] := existingWin["x"]
+                    entry["y"] := existingWin["y"]
                 }
-                
-                WinList.Push(winEntry)
             }
+
+            WinList.Push(entry)
         }
         catch {
             continue
@@ -2402,6 +2489,11 @@ CalculateWindowForces(win, allWindows) {
     global g, Config
     pf := _PerfStart()
 
+    ; Movable-body set published by the per-tick registry snapshot (see WINDOW
+    ; REGISTRY). Falls back to a direct lookup when no snapshot is live.
+    movableSet := g["_movableSet"]
+    useMovableSet := (A_TickCount - g["_regTickAt"] < g_RegTickTTL)
+
     ; Use cached menu parent (computed once per tick in CalculateDynamicLayout)
     menuParent := g.Has("_menuParent") ? g["_menuParent"] : 0
     if (menuParent && win["hwnd"] == menuParent) {
@@ -2582,11 +2674,13 @@ CalculateWindowForces(win, allWindows) {
         if (other == win)
             continue
         
-        ; Skip maximized and fullscreen windows - they should never be affected
-        try {
-            if (WinGetMinMax("ahk_id " other["hwnd"]) != 0 || IsFullscreenWindow(other["hwnd"]))
+        ; Maximized / fullscreen windows are never affected by forces. The tick
+        ; snapshot publishes a movable handle set, so this O(n²) loop is one
+        ; hash lookup per pair and makes no Win32 calls.
+        if (useMovableSet) {
+            if (!movableSet.Has(other["hwnd"]))
                 continue
-        } catch {
+        } else if (!_WinRegNow(other["hwnd"])["movable"]) {
             continue
         }
             
@@ -2680,9 +2774,11 @@ ApplyWindowMovements() {
     global g, Config
     static lastUpdate := 0
     static lastPositions := Map()
+    static prevPositions := Map()
     static smoothPos := Map()
     ; Throttled ApplyMovements logging — aggregate per-second instead of per-tick
     static _awmLastLog := 0, _awmTicks := 0, _awmTotalMoves := 0, _awmQuietTicks := 0
+    static _awmQuietSince := 0, _awmLastDiag := 0
 
     try {  ; Wrap entire timer body — any exception would silently kill this timer in AHK v2
 
@@ -2732,13 +2828,10 @@ ApplyWindowMovements() {
     isDragging := (draggedHwnd != 0)
     
     for win in g["Windows"] {
-        ; Skip maximized and fullscreen windows - they should never be moved
-        try {
-            if (WinGetMinMax("ahk_id " win["hwnd"]) != 0 || IsFullscreenWindow(win["hwnd"]))
-                continue
-        } catch {
+        ; Maximized / fullscreen windows are never moved. Read the tick
+        ; snapshot (no Win32) so the whole movement pass stays allocation-free.
+        if (!_WinRegNow(win["hwnd"])["movable"])
             continue
-        }
 
         ; Freeze hosts with open interactive popups (Chrome permission bubbles
         ; etc.) so the popup stays stable under the cursor for clicks. Dragging
@@ -2930,6 +3023,9 @@ ApplyWindowMovements() {
             if (lastPositions.Has(hwnd)) {
                 lastPositions.Delete(hwnd)
             }
+            if (prevPositions.Has(hwnd)) {
+                prevPositions.Delete(hwnd)
+            }
             win.Delete("JustDragged")
         }
 
@@ -2945,8 +3041,15 @@ ApplyWindowMovements() {
         stateX := win.Has("x") ? win["x"] : currentX
         stateY := win.Has("y") ? win["y"] : currentY
         if (Abs(currentX - stateX) > 12 || Abs(currentY - stateY) > 12) {
+            ; With SWP_ASYNCWINDOWPOS the previous frame's move can still be
+            ; queued in the target thread, so the on-screen rect legitimately
+            ; lags one command behind. Treat a match against the previous
+            ; command as "our move is still landing", not as an external move.
+            matchesPending := (prevPositions.Has(hwnd)
+                && Abs(currentX - prevPositions[hwnd].x) <= 6
+                && Abs(currentY - prevPositions[hwnd].y) <= 6)
             ; If we *didn't* just move it ourselves very recently, treat this as authoritative external movement.
-            if (!lastPositions.Has(hwnd) || Abs(currentX - lastPositions[hwnd].x) > 6 || Abs(currentY - lastPositions[hwnd].y) > 6) {
+            if (!matchesPending && (!lastPositions.Has(hwnd) || Abs(currentX - lastPositions[hwnd].x) > 6 || Abs(currentY - lastPositions[hwnd].y) > 6)) {
                 win["x"] := currentX
                 win["y"] := currentY
                 win["targetX"] := currentX
@@ -2955,6 +3058,11 @@ ApplyWindowMovements() {
                 win["vy"] := 0
                 smoothPos[hwnd] := { x: currentX, y: currentY }
                 lastPositions[hwnd] := { x: currentX, y: currentY }
+                if (prevPositions.Has(hwnd))
+                    prevPositions.Delete(hwnd)
+                ; The layout changed without us: wake the physics idle gate so the
+                ; force pipeline re-evaluates instead of trusting the old rest state.
+                g["_layoutDirty"] := true
                 continue
             }
         }
@@ -3015,6 +3123,7 @@ ApplyWindowMovements() {
         ; Increase threshold to avoid micro-movements and reduce jumpiness
         if (Abs(smoothPos[hwnd].x - lastPositions[hwnd].x) >= 1.5 || Abs(smoothPos[hwnd].y - lastPositions[hwnd].y) >= 1.5) {
             moveBatch.Push({ hwnd: hwnd, x: smoothPos[hwnd].x, y: smoothPos[hwnd].y })
+            prevPositions[hwnd] := { x: lastPositions[hwnd].x, y: lastPositions[hwnd].y }
             lastPositions[hwnd].x := smoothPos[hwnd].x
             lastPositions[hwnd].y := smoothPos[hwnd].y
             win["x"] := smoothPos[hwnd].x
@@ -3027,17 +3136,24 @@ ApplyWindowMovements() {
     if (moveBatch.Length > 0) {
         _awmTotalMoves += moveBatch.Length
         _awmQuietTicks := 0
+        _awmQuietSince := 0
     } else {
         _awmQuietTicks += 1
+        if (_awmQuietSince == 0)
+            _awmQuietSince := A_TickCount
     }
     if (A_TickCount - _awmLastLog >= 1000) {
         DebugLog("ApplyMovements — {} moves across {} ticks (avg {:.1f}/tick)",
             _awmTotalMoves, _awmTicks, _awmTicks > 0 ? _awmTotalMoves / _awmTicks : 0)
         ; Idle-with-energy: physics wants to move windows but nothing moved for
-        ; ~1s — log exactly why each tracked window is stuck (active/manual/
-        ; snap/resync/at-target). Helps diagnose "windows not moving" reports.
-        if (_awmTotalMoves == 0 && _awmQuietTicks >= 60 && g["SystemEnergy"] > 100)
+        ; ~2s — log exactly why each tracked window is stuck (active/manual/
+        ; snap/resync/at-target). Timed rather than tick-counted: the tick
+        ; counter resets on every flush, so a tick threshold was unreachable.
+        if (_awmTotalMoves == 0 && _awmQuietSince != 0 && A_TickCount - _awmQuietSince >= 2000
+            && g["SystemEnergy"] > 100 && A_TickCount - _awmLastDiag >= 10000) {
+            _awmLastDiag := A_TickCount
             _DiagnoseIdlePhysics()
+        }
         _awmLastLog := A_TickCount
         _awmTicks := 0
         _awmTotalMoves := 0
@@ -3063,7 +3179,7 @@ ApplyWindowMovements() {
     if (Config["CompanionFollowEnabled"])
         SyncCompanionWindows()
     } catch as e {
-        DebugLog("ApplyWindowMovements timer crashed: {}", e.Message)
+        DebugLog("ApplyWindowMovements timer crashed: {} (line {})", e.Message, e.Line)
         ; Any exception in the movement loop is caught to prevent
         ; the AHK v2 timer from silently stopping forever.
     }
@@ -3256,28 +3372,40 @@ CalculateDynamicLayout() {
     ; Cache expensive per-tick values ONCE so child functions don't recompute N times
     ; menuParent: would be called N+2 times otherwise (each iterates ALL system windows!)
     ; draggedHwnd: would be called N+4 times (each does GetKeyState+MouseGetPos+DllCall)
+    ; Per-tick snapshot of every tracked window. Downstream passes (forces,
+    ; collisions, movement) read these records instead of re-probing Win32.
+    _WinRegSnapshot()
+
+    pm := _PerfStart()
     menuParent := GetOpenDropdownMenuParent()
+    _PerfEnd("GMP", pm)
     g["_menuParent"] := menuParent
 
     ; Owned-popup cohesion: keep the popup registry fresh (throttled scan) and
     ; cache which managed windows host a live interactive popup so the physics
     ; loop can freeze them (stable popup clicks) while SyncOwnedPopups keeps any
     ; popup glued to its host during drags.
+    pp := _PerfStart()
     if (Config["PopupFollowEnabled"] || Config["PopupFreezeHost"])
         ScanOwnedPopups()
     g["_popupOwners"] := GetPopupOwnerSet()
+    _PerfEnd("POP", pp)
 
     ; Same-app companion cohesion: keep the companion registry fresh so
     ; decorate/overlay layers (e.g. the DarkTide launcher's WPF HwndWrapper
     ; frame) never separate from their main window.
+    pc := _PerfStart()
     if (Config["CompanionFollowEnabled"])
         ScanCompanionWindows()
+    _PerfEnd("CMP", pc)
 
+    gd := _PerfStart()
     try {
         g["_draggedHwnd"] := GetDraggedManagedWindow()
     } catch {
         g["_draggedHwnd"] := 0
     }
+    _PerfEnd("GDM", gd)
 
     ; Desktop icon grid is cached permanently — no periodic refresh needed
     ; (Grid doesn't change unless user rearranges icons, which requires script restart)
@@ -3325,10 +3453,58 @@ CalculateDynamicLayout() {
         lastFocusCheck := A_TickCount
     }
 
-    ; Dynamic force adjustment based on system energy
+    ; ── Idle gate ───────────────────────────────────────────────────────────
+    ; A settled layout costs nothing to hold. The force pipeline is a pure
+    ; function of positions and state: if no tracked window has moved since our
+    ; last write, nothing is dragging/menuing/snapping, the tracked set is
+    ; unchanged and stored energy is already negligible, this tick would compute
+    ; the same near-zero forces as the last one. Skip it.
+    ; Real movement shows up in the snapshot (recorded rect vs our state), so
+    ; the engine still wakes within one tick of the user touching a window.
+    layoutMoved := g["_layoutDirty"]
+    if (!layoutMoved) {
+        for win in g["Windows"] {
+            rec := g["_regTick"].Has(win["hwnd"]) ? g["_regTick"][win["hwnd"]] : 0
+            if (!rec || !rec["alive"]
+                || Abs(rec["x"] - win["x"]) > 2.0 || Abs(rec["y"] - win["y"]) > 2.0) {
+                layoutMoved := true
+                break
+            }
+        }
+    }
+    busyNow := (g["_draggedHwnd"] != 0 || menuParent != 0
+        || (Config["PopupFreezeHost"] && g["_popupOwners"].Count > 0)
+        || g["SnapInProgress"].Count > 0)
+    ; Below this energy nothing can ever reach the screen: ApplyWindowMovements
+    ; only issues a move once the smoothed delta reaches 1.5px, and the smoothing
+    ; alpha tops out at 0.45 for a non-dragged window (0.65 during a drag, which
+    ; the gate already excludes). Stored energy is Σv², so the per-window bound
+    ; is (threshold / alpha)².
+    idleEnergy := g["Windows"].Length * (1.5 / 0.45) ** 2
+    if (!layoutMoved && !busyNow && g["SystemEnergy"] <= idleEnergy) {
+        g["SystemEnergy"] := Lerp(g["SystemEnergy"], 0, 0.2)
+        g["_layoutDirty"] := false
+        lastState := "normal"
+        _PhysicsTickLog(0, "idle")
+        _PerfEnd("CDL", p)
+        return
+    }
+    g["_layoutDirty"] := false
+
+    ; Dynamic force adjustment based on system energy.
+    ; Energy is scored from ACHIEVABLE displacement — the clamped target the
+    ; visual layer will actually move toward — not raw velocity. A body pinned
+    ; against a work-area edge, or one ApplyWindowMovements refuses to move
+    ; (active / manual-locked / snapping / popup host), can hold a large
+    ; velocity forever while producing zero pixels of motion. Scoring raw
+    ; velocity made that state read as permanent "chaos" (measured: energy
+    ; frozen at 0.1567 for 61 samples, 0 moves, 96-99% chaos) which pinned the
+    ; force multiplier at 0.6 and re-fired the settle/watchdog every ~16s.
     currentEnergy := 0
+    draggedBody := g["_draggedHwnd"]
     for win in g["Windows"] {
-        if (menuParent && win["hwnd"] == menuParent) {
+        hwnd := win["hwnd"]
+        if (menuParent && hwnd == menuParent) {
             win["vx"] := 0
             win["vy"] := 0
             continue
@@ -3336,14 +3512,27 @@ CalculateDynamicLayout() {
         ; Freeze hosts with open interactive popups (Chrome permission bubbles
         ; etc.) — moving them mid-interaction makes the popup's buttons drift
         ; under the cursor. Popups still follow the host on user drags.
-        if (Config["PopupFreezeHost"] && g["_popupOwners"].Has(win["hwnd"])) {
+        if (Config["PopupFreezeHost"] && g["_popupOwners"].Has(hwnd)) {
+            win["vx"] := 0
+            win["vy"] := 0
+            continue
+        }
+        ; Bodies ApplyWindowMovements will skip never contribute energy, so the
+        ; energy set and the movable set can never diverge.
+        if (hwnd == draggedBody
+            || (hwnd == g["ActiveWindow"] && draggedBody == 0)
+            || (win.Has("ManualLock") && A_TickCount < win["ManualLock"])
+            || (g["SnapInProgress"].Has(hwnd) && A_TickCount < g["SnapInProgress"][hwnd])) {
             win["vx"] := 0
             win["vy"] := 0
             continue
         }
         try {
             CalculateWindowForces(win, g["Windows"])
-            currentEnergy += win["vx"]**2 + win["vy"]**2
+            ; targetX/targetY are already clamped to the work area inside CWF
+            dvx := win.Has("targetX") ? win["targetX"] - win["x"] : win["vx"]
+            dvy := win.Has("targetY") ? win["targetY"] - win["y"] : win["vy"]
+            currentEnergy += dvx**2 + dvy**2
         } catch as e {
             DebugLog("CalculateDynamicLayout — force calc failed for window 0x{:X}: {}", win["hwnd"], e.Message)
             ; Skip this window if force calculation fails — don't crash the timer
@@ -3480,16 +3669,8 @@ CalculateDynamicLayout() {
         ResolveFloatingCollisions(g["Windows"])
     }
 
-    ; Periodic tick log (every ~30 ticks ≈ 0.5s at 16ms) — shows engine is alive
-    static tickCounter := 0
-    tickCounter += 1
-    if (Mod(tickCounter, 30) == 0) {
-        dh := g["_draggedHwnd"]
-        DebugLog("Physics tick — {} windows, energy={:.4f}, state={}, dragHwnd=0x{:X}"
-            , g["Windows"].Length, normEnergy
-            , newState
-            , dh ? dh : 0)
-    }
+    ; Periodic tick log — shows the engine is alive and at what cadence.
+    _PhysicsTickLog(normEnergy, newState)
 
     lastState := newState
     _PerfEnd("CDL", p)
@@ -3498,6 +3679,35 @@ CalculateDynamicLayout() {
         ; Any exception in the physics loop is caught to prevent
         ; the AHK v2 timer from silently stopping forever.
     }
+}
+
+; Shared cadence/heartbeat log for the physics tick. Called from the active and
+; idle paths so the log always shows the real measured timer period.
+_PhysicsTickLog(normEnergy, stateName) {
+    global g
+    static tickCounter := 0, lastTickLog := 0
+    tickCounter += 1
+    if (Mod(tickCounter, 30) != 0)
+        return
+    dh := g["_draggedHwnd"]
+    periodMs := lastTickLog ? (A_TickCount - lastTickLog) / 30 : 0
+    lastTickLog := A_TickCount
+    DebugLog("Physics tick — {} windows, energy={:.4f}, state={}, dragHwnd=0x{:X}, period={:.1f}ms"
+        , g["Windows"].Length, normEnergy, stateName, dh ? dh : 0, periodMs)
+}
+
+; True when two tracked-window lists contain exactly the same handles.
+_SameHwndSet(a, b) {
+    if (a.Length != b.Length)
+        return false
+    seen := Map()
+    for win in b
+        seen[win["hwnd"]] := true
+    for win in a {
+        if (!seen.Has(win["hwnd"]))
+            return false
+    }
+    return true
 }
 
 ; New floating collision system with chain-effect propagation
@@ -3524,12 +3734,9 @@ ResolveFloatingCollisions(windows) {
     ; Pre-compute protection state for all windows (doesn't change across passes)
     protection := Map()
     for win in windows {
-        try {
-            if (WinGetMinMax("ahk_id " win["hwnd"]) != 0 || IsFullscreenWindow(win["hwnd"])) {
-                protection[win["hwnd"]] := "skip"
-                continue
-            }
-        } catch {
+        ; Maximized / fullscreen bodies never move: read the tick snapshot
+        ; instead of re-probing Win32 for every window in every pass.
+        if (!_WinRegNow(win["hwnd"])["movable"]) {
             protection[win["hwnd"]] := "skip"
             continue
         }
@@ -3697,12 +3904,9 @@ ResolveOverlapsDirect(windows) {
     ; Pre-compute protection state for all windows
     protection := Map()
     for win in windows {
-        try {
-            if (WinGetMinMax("ahk_id " win["hwnd"]) != 0 || IsFullscreenWindow(win["hwnd"])) {
-                protection[win["hwnd"]] := "skip"
-                continue
-            }
-        } catch {
+        ; Maximized / fullscreen bodies never move: read the tick snapshot
+        ; instead of re-probing Win32 for every window in every pass.
+        if (!_WinRegNow(win["hwnd"])["movable"]) {
             protection[win["hwnd"]] := "skip"
             continue
         }
@@ -4975,7 +5179,12 @@ UpdateWindowStates() {
     ; Get current monitor info or virtual desktop bounds
     monitor := Config["MultimonitorExpanse"] ? GetVirtualDesktopBounds() : GetCurrentMonitorInfo()
     ; Update window list
-    g["Windows"] := GetVisibleWindows(monitor)
+    newWindows := GetVisibleWindows(monitor)
+    ; A changed tracked set wakes the physics idle gate; an unchanged one leaves
+    ; it asleep (GetVisibleWindows runs at 4 Hz, the gate at 64 Hz).
+    if (!_SameHwndSet(g["Windows"], newWindows))
+        g["_layoutDirty"] := true
+    g["Windows"] := newWindows
     ; Log window list refresh periodically (every ~4s at 250ms interval ≈ 16 ticks)
     static uwsCounter := 0
     uwsCounter += 1
@@ -5514,6 +5723,10 @@ SaveUserParameterSettings(*) {
 SyncRuntimeFromConfig() {
     global Config, g
 
+    ; Classification results (valid/floating/fullscreen/appbar) are derived from
+    ; Config's pattern lists and style masks — invalidate every cached record.
+    g["_cfgGen"] += 1
+
     if (Config["MultimonitorExpanse"]) {
         g["Monitor"] := GetVirtualDesktopBounds()
     } else {
@@ -5631,8 +5844,8 @@ GetParameterDescription(path) {
         "ParameterHelpTooltipDuration", "How long parameter hover-help tooltips stay visible (ms).",
         "Damping", "Velocity retained per tick; 1.0 = no damping, 0.0 = full stop.",
         "MaxSpeed", "Maximum velocity cap for floating windows.",
-        "PhysicsTimeStep", "Physics tick interval (ms). Lower means more frequent updates.",
-        "VisualTimeStep", "Movement apply/render interval (ms). Lower is smoother.",
+        "PhysicsTimeStep", "Physics tick interval (ms). Measured: 1-15 -> 64Hz, 16 -> 40Hz (dead spot), 17-30 -> 32Hz, 33+ -> 21Hz.",
+        "VisualTimeStep", "Movement apply/render interval (ms). Same quantization as PhysicsTimeStep.",
         "MultimonitorExpanse", "Allow windows to float across all monitors instead of current monitor only.",
         "RunAsAdmin", "Relaunch FWDE elevated at startup so Administrator windows can be managed (UAC prompt).",
         "PopupFollowEnabled", "Owned popups (permission bubbles, legacy child windows) follow their host 1:1.",
@@ -6622,7 +6835,7 @@ OnExit(*) {
 
 ; ====== REQUIRED HELPER FUNCTIONS ======
 MoveWindowAPI(hwnd, x, y, w := "", h := "") {
-    global g
+    global g, Config
 
     ; CRITICAL: Validate window handle before operation
     if (!hwnd || hwnd == 0)
@@ -6637,6 +6850,12 @@ MoveWindowAPI(hwnd, x, y, w := "", h := "") {
         ; Flags: 0x0010 (SWP_NOACTIVATE) | 0x0004 (SWP_NOZORDER) | 0x0001 (SWP_NOSIZE)
         ; When SWP_NOSIZE is set, w and h parameters are ignored, so we can pass anything
         flags := 0x0010 | 0x0004 | 0x0001  ; SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE
+        ; SWP_ASYNCWINDOWPOS (0x4000): when the target belongs to another thread,
+        ; post the request instead of blocking until that app's UI thread pumps
+        ; it. Synchronous SetWindowPos made every frame pay the slowest managed
+        ; app's message latency (measured: 16ms timer running at 25.6ms).
+        if (Config["AsyncWindowPos"])
+            flags |= 0x4000
         if (w == "" || h == "")
             w := 0, h := 0  ; Not needed when SWP_NOSIZE is set, but required for function signature
         

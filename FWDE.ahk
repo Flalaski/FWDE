@@ -336,14 +336,21 @@ _ElevationAttempted() {
     return false
 }
 
-; Diagnostic: explains in detail why IsWindowValid() rejects hwnd. Distinguishes
-; UIPI "access denied" (the window belongs to an elevated process and FWDE is
-; not — e.g. Steam/steamwebhelper, Notepad++ [Administrator], elevated FileZilla)
-; from ordinary exclusions (minimized/maximized, toolwindow, not visible, no
-; title, fullscreen). Only used for the Ctrl+Alt+D debug output.
+; Diagnostic: explains in detail why IsWindowValid() rejects hwnd (minimized/
+; maximized, toolwindow, not visible, no title, fullscreen, shell AppBar, cloaked).
+; NOTE on elevation: Windows UIPI does NOT block reads. A non-elevated FWDE can
+; read an elevated window's position, style, ex-style, title, class, process and
+; min/max state — verified on Windows 11 — so elevated windows are classified
+; normally. What UIPI blocks is every WRITE (SetWindowPos, MoveWindow,
+; SetWindowLongPtr, non-allow-listed messages → ERROR_ACCESS_DENIED 5), which is
+; why an elevated window can be listed as managed yet never repositioned. See
+; _IsProcessElevated() and the WindowReport elevation marker. Only used for the
+; Ctrl+Alt+D debug output.
 _GetWindowExcludeReason(hwnd) {
     try {
-        ; MinMax first — a throw here is the classic elevated-window (UIPI) tell.
+        ; Kept as a guard against UIPI on unusual configurations: some query
+        ; forms can fail across an integrity boundary even though the standard
+        ; reads above succeed.
         try {
             mm := WinGetMinMax("ahk_id " hwnd)
         } catch {
@@ -1230,6 +1237,44 @@ _ProcNameForPid(pid) {
     return name
 }
 
+; True when the process owning pid runs with an elevated (High integrity) token.
+; This is readable from a non-elevated process via
+; OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION) + OpenProcessToken(TOKEN_QUERY) +
+; GetTokenInformation(TokenElevation = 20). Cached per pid.
+; FWDE needs this to explain WHY a window is untouchable: Windows UIPI lets a
+; lower-integrity process READ an elevated window's position/style/title but
+; refuses every WRITE (SetWindowPos/MoveWindow/SetWindowLong → ERROR_ACCESS_DENIED).
+_IsProcessElevated(pid) {
+    static cache := Map(), stamp := Map()
+    if (!pid)
+        return false
+    if (cache.Has(pid) && A_TickCount - stamp[pid] < g_ProcNameTTL)
+        return cache[pid]
+
+    elevated := false
+    hProc := 0, hTok := 0
+    try {
+        hProc := DllCall("OpenProcess", "UInt", 0x1000, "Int", 0, "UInt", pid, "Ptr")
+        if (hProc) {
+            if (DllCall("advapi32\OpenProcessToken", "Ptr", hProc, "UInt", 0x0008, "Ptr*", &hTok)) {
+                info := 0, retLen := 0
+                if (DllCall("advapi32\GetTokenInformation", "Ptr", hTok, "Int", 20
+                    , "UInt*", &info, "UInt", 4, "UInt*", &retLen))
+                    elevated := (info != 0)
+            }
+        }
+    } catch {
+    }
+    if (hTok)
+        DllCall("CloseHandle", "Ptr", hTok)
+    if (hProc)
+        DllCall("CloseHandle", "Ptr", hProc)
+
+    cache[pid] := elevated
+    stamp[pid] := A_TickCount
+    return elevated
+}
+
 _WinMinMax(hwnd) {
     try {
         if (DllCall("IsZoomed", "Ptr", hwnd))
@@ -1304,7 +1349,8 @@ _WinRegClassify(hwnd) {
         "alive", false, "titleOK", false, "procOK", false,
         "x", 0, "y", 0, "w", 0, "h", 0, "style", 0, "exStyle", 0,
         "title", "", "class", "", "proc", "", "pid", 0, "owner", 0, "mon", 0,
-        "minmax", 0, "cloaked", false, "fullscreen", false, "appbar", false, "tiny", false,
+        "minmax", 0, "cloaked", false, "elevated", false,
+        "fullscreen", false, "appbar", false, "tiny", false,
         "plugin", false, "valid", false, "floating", false, "movable", false
     )
     g["_winReg"][hwnd] := rec
@@ -1342,6 +1388,7 @@ _WinRegClassify(hwnd) {
     rec["pid"] := pid
     rec["proc"] := _ProcNameForPid(pid)
     rec["procOK"] := (rec["proc"] != "")
+    rec["elevated"] := _IsProcessElevated(pid)
     try {
         rec["owner"] := DllCall("GetWindow", "Ptr", hwnd, "UInt", 4, "Ptr")
     } catch {
@@ -5894,7 +5941,7 @@ GetParameterDescription(path) {
         "PhysicsTimeStep", "Physics tick interval (ms). Measured: 1-15 -> 64Hz, 16 -> 40Hz (dead spot), 17-30 -> 32Hz, 33+ -> 21Hz.",
         "VisualTimeStep", "Movement apply/render interval (ms). Same quantization as PhysicsTimeStep.",
         "MultimonitorExpanse", "Allow windows to float across all monitors instead of current monitor only.",
-        "RunAsAdmin", "Relaunch FWDE elevated at startup so Administrator windows can be managed (UAC prompt).",
+        "RunAsAdmin", "Relaunch FWDE elevated at start (UAC prompt). Windows UIPI blocks ALL writes to elevated windows (SetWindowPos/MoveWindow/SetWindowLongPtr -> Access denied), so they can be read but never moved. Click '🔐 Why admin?' for the full breakdown.",
         "PopupFollowEnabled", "Owned popups (permission bubbles, legacy child windows) follow their host 1:1.",
         "PopupFreezeHost", "Freeze the host window's physics while an interactive owned popup is open.",
         "PopupScanIntervalMs", "Re-scan cadence for owned popup windows (ms).",
@@ -6046,6 +6093,7 @@ ShowParameterSettingsWindow(*) {
     settingsGui.AddButton("x264 y" footerY " w150 h28", "Restore All Defaults").OnEvent("Click", ApplyAllParameterDefaults)
     settingsGui.AddButton("x420 y" footerY " w170 h28", "Re-read Current Values").OnEvent("Click", (*) => UpdateParameterControlsFromConfig())
     settingsGui.AddButton("x596 y" footerY " w90 h28", "Close").OnEvent("Click", (*) => settingsGui.Hide())
+    settingsGui.AddButton("x696 y" footerY " w150 h28", "🔐 Why admin?").OnEvent("Click", ShowElevationExplanation)
 
     settingsGui.OnEvent("Close", (*) => settingsGui.Hide())
     ParamSettingsGui := settingsGui
@@ -6054,15 +6102,133 @@ ShowParameterSettingsWindow(*) {
     settingsGui.Show("w1008 h" footerY + 72)
 }
 
+; --------------------------------------------------------------------------------
+;  ELEVATION EXPLAINER
+;  The definitive answer to "why does FWDE need administrator rights?", surfaced
+;  from the Parameter Settings window. Every operational claim below was measured
+;  on Windows 11 from a Medium-integrity caller against a High-integrity target.
+; --------------------------------------------------------------------------------
+ShowElevationExplanation(*) {
+    global Config
+
+    isElevatedNow := _IsElevated()
+    status := isElevatedNow
+        ? "FWDE is currently ELEVATED: every window — including administrator windows — can be moved."
+        : "FWDE is currently NOT ELEVATED: normal windows are fully managed; administrator windows can be read but never moved."
+    cfgState := Config["RunAsAdmin"] ? "ON" : "OFF"
+
+    lines := [
+        "WHY FWDE ASKS FOR ADMINISTRATOR RIGHTS",
+        "======================================",
+        "",
+        "Short answer: Windows refuses to let a normal program MOVE a window that",
+        "belongs to an elevated (administrator) process. Moving windows is exactly",
+        "what FWDE does, so without elevation those windows are readable but",
+        "untouchable.",
+        "",
+        "CURRENT STATE",
+        "  FWDE elevated      : " (isElevatedNow ? "YES" : "NO"),
+        "  RunAsAdmin setting : " cfgState "   (Parameter Settings -> RunAsAdmin)",
+        "",
+        "WHAT WINDOWS ACTUALLY BLOCKS  (measured on Windows 11)",
+        "  Windows starts a normal program at Medium integrity and an elevated one at",
+        "  High integrity. UIPI (User Interface Privilege Isolation) enforces the",
+        "  boundary on every window operation. From Medium -> High:",
+        "",
+        "  ALLOWED — reads",
+        "    GetWindowRect              position and size",
+        "    GetWindowLongPtr           style and extended style",
+        "    GetWindowPlacement         minimized / maximized state",
+        "    GetWindowText, GetClassName    title and class name",
+        "    GetWindowThreadProcessId   owning process",
+        "    DwmGetWindowAttribute      cloaked (ghost) state",
+        "    SendMessage(WM_NULL)       the documented UIPI allow-list",
+        "",
+        "  BLOCKED — every write, with ERROR_ACCESS_DENIED (5)",
+        "    SetWindowPos               move / resize",
+        "    MoveWindow                 move / resize",
+        "    (the block happens at the call, so SWP_ASYNCWINDOWPOS does not help)",
+        "    SetWindowLongPtr           change style / extended style",
+        "    SendMessage                any message not on the UIPI allow-list",
+        "",
+        "  Consequence: FWDE can classify an elevated window perfectly — size,",
+        "  class, process, min/max, overlap — and still be unable to place it. The",
+        "  window is tracked, it can exert force on its neighbours, but it never",
+        "  moves itself. Ctrl+Alt+D labels these windows:",
+        "      ELEVATED TARGET: readable but NOT movable (FWDE is not elevated)",
+        "",
+        "WHICH WINDOWS ARE ELEVATED",
+        "  - Any program whose manifest requests administrator (requireAdministrator):",
+        "    installers, MMC snap-ins, many system utilities.",
+        "  - Anything started with Run as administrator.",
+        "  - Task Manager, Registry Editor, elevated terminals and console hosts.",
+        "  - Tools that need raw disk / NTFS access (e.g. Everything while indexing",
+        "    NTFS), plus anything you elevated by hand, e.g. Notepad++ [Administrator].",
+        "",
+        "WHAT STILL WORKS WITHOUT ELEVATION",
+        "  Every normal Medium-integrity window is fully managed: arrangement,",
+        "  physics, manual lock, snapping, work-area bounds, popup and companion",
+        "  cohesion, and every hotkey. Only High-integrity windows are affected.",
+        "",
+        "WHAT ELEVATION IS NOT",
+        "  It is not a service, driver, or kernel component, and it does not make the",
+        "  installer need admin rights (FWDE installs per-user under AppData\FWDE).",
+        "  It is the same program started with a High-integrity token — which is why",
+        "  Windows shows a UAC prompt.",
+        "",
+        "HOW TO CONTROL IT",
+        "  RunAsAdmin = ON   FWDE relaunches itself elevated at startup (UAC prompt).",
+        "                    The relaunch is strictly one-shot: it passes",
+        "                    --fwde-elevated, so a failed elevation check can never",
+        "                    cause a restart loop.",
+        "  RunAsAdmin = OFF  FWDE runs unelevated. Nothing breaks; it simply cannot",
+        "                    control elevated windows, and Ctrl+Alt+D says so.",
+        "  Declining the UAC prompt leaves FWDE running unelevated for that session.",
+        "",
+        "SECURITY",
+        "  An elevated FWDE can move any window of any process — that is precisely",
+        "  the capability you are granting. Run elevated builds only from a source",
+        "  you trust, and from a folder only you can write to.",
+        "",
+        "Nothing else in FWDE requires elevation: no background service, no driver,",
+        "no machine-wide registry writes at runtime."
+    ]
+
+    text := ""
+    for line in lines
+        text .= line "`r`n"
+
+    dlg := Gui("+AlwaysOnTop +Resize", "FWDE — Why administrator rights?")
+    dlg.SetFont("s9", "Segoe UI")
+    dlg.AddText("x14 y10 w790 c006400", status)
+    dlg.AddEdit("x14 y36 w790 h520 ReadOnly +VScroll -Wrap", text)
+    dlg.AddButton("x14 y566 w110 h28", "Copy text").OnEvent("Click", (*) => (_ClipPut(text), ShowTooltip("Copied to clipboard")))
+    dlg.AddButton("x134 y566 w110 h28", "Close").OnEvent("Click", (*) => dlg.Destroy())
+    dlg.OnEvent("Escape", (*) => dlg.Destroy())
+    dlg.OnEvent("Close", (*) => dlg.Destroy())
+    dlg.Show("w820 h612")
+}
+
 BuildFWDEMenus()
 LoadUserParameterSettings()
 
 ; --- Optional self-elevation ---
-; Elevated (Administrator) windows — Steam, Notepad++ [Administrator], elevated
-; FileZilla, etc. — are invisible to a non-elevated FWDE under Windows UIPI
-; (style/minmax queries throw "Access is denied", SetWindowPos is blocked). If
-; the user enabled RunAsAdmin in the parameter settings and this instance is NOT
-; elevated, relaunch ourselves elevated and exit.
+; WHY FWDE WANTS ADMINISTRATOR RIGHTS
+; Windows runs a normal launch of FWDE at Medium integrity and an elevated one at
+; High integrity, and UIPI (User Interface Privilege Isolation) makes the
+; integrity check on every window operation:
+;   READS across the boundary succeed — GetWindowRect, GetWindowLongPtr (style /
+;   ex-style), GetWindowPlacement, GetWindowText, GetClassName, process queries,
+;   IsZoomed/IsIconic, DWM attributes (measured on Windows 11).
+;   WRITES are refused with ERROR_ACCESS_DENIED (5) — SetWindowPos, MoveWindow
+;   (even with SWP_ASYNCWINDOWPOS), SetWindowLongPtr, and any SendMessage that is
+;   not on the UIPI allow-list.
+; FWDE's job is to MOVE windows, so an elevated window is a body it can measure
+; but never reposition — Steam, Notepad++ [Administrator], elevated FileZilla,
+; Task Manager, Registry Editor, admin consoles, installers, MMC. Nothing else
+; requires elevation: no service, driver, or kernel component, and the installer
+; itself is per-user. If the user enabled RunAsAdmin and this instance is NOT
+; elevated, relaunch elevated and exit.
 ;
 ; The command-line marker makes relaunch strictly one-shot: if elevation still
 ; cannot be detected in the child, it can never start a restart loop.
@@ -6356,14 +6522,33 @@ DebugWindowInfo() {
     DebugLog("DebugWindowInfo — {} windows ({} tracked, {} untracked) copied to clipboard",
         allWindows.Length, trackedWindows.Length, untrackedWindows.Length)
 
-    ; The tooltip is transient and the clipboard is overwritten constantly, so the
-    ; only way to answer "why isn't window X managed?" after the fact is a
-    ; persistent, per-window record in the debug log.
-    DebugLog("WindowReport — {} tracked, {} untracked-floating, {} untracked-nonfloating",
-        trackedWindows.Length, untrackedWindows.Length, notTrackedWindows.Length)
+    ; Elevated targets: UIPI allows reading them but blocks every move, so a
+    ; non-elevated FWDE lists them as managed yet can never reposition them.
+    if (!_IsElevated()) {
+        elevatedTracked := 0
+        for win in trackedWindows {
+            if (_WinRegNow(win["hwnd"])["elevated"])
+                elevatedTracked += 1
+        }
+        if (elevatedTracked > 0) {
+            DebugLog("DebugWindowInfo — {} tracked window(s) belong to ELEVATED processes and cannot be moved "
+                . "while FWDE runs unelevated; enable RunAsAdmin (Parameter Settings) to manage them", elevatedTracked)
+        }
+    }
+
+    ; Persist the report: the tooltip is transient and the clipboard is manual,
+    ; so the only way to diagnose "why isn't window X managed?" after the fact is
+    ; to have it in the log. Elevated targets are called out explicitly: UIPI lets
+    ; a non-elevated FWDE read them but refuses every move.
+    fwdeElevated := _IsElevated()
+    DebugLog("WindowReport — {} tracked, {} untracked-floating, {} untracked-nonfloating (FWDE elevated: {})",
+        trackedWindows.Length, untrackedWindows.Length, notTrackedWindows.Length, fwdeElevated ? "yes" : "NO")
     for win in trackedWindows {
-        DebugLog("  tracked  0x{:X} [{}] '{}' {}x{} at {},{}",
-            win["hwnd"], win["process"], win["title"], win["width"], win["height"], win["x"], win["y"])
+        note := ""
+        if (!fwdeElevated && _WinRegNow(win["hwnd"])["elevated"])
+            note := "  <-- ELEVATED TARGET: readable but NOT movable (FWDE is not elevated)"
+        DebugLog("  tracked  0x{:X} [{}] '{}' {}x{} at {},{}{}",
+            win["hwnd"], win["process"], win["title"], win["width"], win["height"], win["x"], win["y"], note)
     }
     for win in untrackedWindows {
         DebugLog("  floating 0x{:X} [{}] '{}' {}x{} at {},{}",

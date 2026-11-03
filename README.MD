@@ -62,7 +62,7 @@ Get the latest installer from Releases:
 - Create desktop shortcut
 - Run FWDE when you sign in
 
-FWDE installs per-user (no admin rights needed) to:
+FWDE installs **per-user, with no admin rights required** to install, to:
 
 `%AppData%\FWDE`
 
@@ -72,6 +72,9 @@ Update behavior:
 Uninstall behavior:
 - Uninstall from Windows Installed Apps / Add or remove programs.
 - You will be prompted whether to remove user data (config and layouts).
+
+> The **installer** never needs administrator rights. The **running app** requests
+> elevation by default — see [Administrator rights](#administrator-rights--exactly-what-fwde-needs-and-why).
 
 ### Manual: Script workflow (advanced)
 Use this only if you want to run/edit the source script directly.
@@ -84,6 +87,107 @@ Steps:
 1. Download or clone this repository.
 2. Run `FWDE.ahk` with AutoHotkey v2.
 3. Edit `FWDE_Config.json` for your settings.
+
+## Administrator rights — exactly what FWDE needs and why
+
+**Short version:** Windows refuses to let a normal program *move* a window owned by
+an elevated (administrator) process. Moving windows is the entire job of FWDE, so
+without elevation those windows can be measured but never placed. That single
+restriction is the only reason FWDE asks for elevation.
+
+**The installer does not need admin rights.** It installs per-user to
+`%AppData%\FWDE`. Elevation applies to the *running app*, controlled by the
+`RunAsAdmin` setting.
+
+### The rule: UIPI (User Interface Privilege Isolation)
+
+Windows starts a normally-launched program at **Medium integrity** and an elevated
+one at **High integrity**. UIPI enforces that boundary on every window operation:
+a thread may only operate on windows whose process is at *lesser or equal*
+integrity:
+
+> "Message sending is subject to UIPI. The thread of a process can send messages
+> only to message queues of threads in processes of **lesser or equal integrity
+> level**." — [SendMessage](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendmessage)
+
+> "When a message is blocked by UIPI the last error, retrieved with GetLastError,
+> is set to **5 (access denied)**." — same page
+
+Background: [Mandatory Integrity Control](https://learn.microsoft.com/en-us/windows/win32/secauthz/mandatory-integrity-control)
+and [Windows Integrity Mechanism Design](https://learn.microsoft.com/en-us/previous-versions/dotnet/articles/bb625963(v=msdn.10)).
+
+### What is actually blocked (measured on Windows 11)
+
+Non-elevated FWDE (Medium) targeting an elevated window (High):
+
+| Operation | Windows API | Result |
+|-----------|-------------|--------|
+| Read position / size | `GetWindowRect` | ✅ allowed |
+| Read style / ex-style | `GetWindowLongPtrW` | ✅ allowed |
+| Read minimized/maximized | `GetWindowPlacement` | ✅ allowed |
+| Read title / class | `GetWindowTextW` / `GetClassNameW` | ✅ allowed |
+| Read owning process | `GetWindowThreadProcessId` | ✅ allowed |
+| Read cloaked (ghost) state | `DwmGetWindowAttribute` | ✅ allowed |
+| Ping a window | `SendMessageTimeout(WM_NULL)` | ✅ allowed (documented allow-list) |
+| **Move / resize** | `SetWindowPos`, `MoveWindow` | ❌ **ERROR_ACCESS_DENIED (5)** |
+| **Move, even async** | `SetWindowPos` + `SWP_ASYNCWINDOWPOS` | ❌ **ERROR_ACCESS_DENIED (5)** |
+| **Change style** | `SetWindowLongPtrW` | ❌ **ERROR_ACCESS_DENIED (5)** |
+| **Send a real message** | `SendMessageTimeout` (not on the allow-list) | ❌ **ERROR_ACCESS_DENIED (5)** |
+
+At the AutoHotkey level the same split shows up as: `WinGetPos`, `WinGetStyle`,
+`WinGetExStyle`, `WinGetTitle`, `WinGetClass`, `WinGetProcessName` and
+`WinGetMinMax` all succeed, while **`WinMove` throws `(5) Access is denied`**.
+
+**Consequence:** FWDE can fully *classify* an elevated window — size, class,
+process, min/max state, overlap, cloaking — and still be unable to place it. The
+window is tracked, it can push its neighbours around, but it never moves itself.
+`Ctrl+Alt+D` labels these windows:
+
+```
+tracked  0x... [notepad++.exe] '... Notepad++ [Administrator]' ...  <-- ELEVATED TARGET: readable but NOT movable (FWDE is not elevated)
+```
+
+### Which windows are elevated
+
+- Anything whose manifest requests administrator (`requestedExecutionLevel level="requireAdministrator"`) — installers, MMC snap-ins, many system utilities ([Application manifests](https://learn.microsoft.com/en-us/windows/win32/sbscs/application-manifests)).
+- Anything started with **Run as administrator**.
+- Task Manager, Registry Editor, elevated terminals and console hosts.
+- Tools that need raw disk/NTFS access (e.g. Everything while indexing NTFS).
+- Anything you elevated by hand — e.g. Notepad++ showing `[Administrator]` in its title.
+
+### What works without elevation
+
+Every normal Medium-integrity window is fully managed: arrangement, physics,
+manual lock, snapping, work-area bounds, popup and companion cohesion, and all
+hotkeys. Only High-integrity windows are affected. If you decline the UAC prompt,
+FWDE keeps running unelevated and simply leaves elevated windows alone.
+
+### What elevation is *not*
+
+- It is **not** a service, driver, or kernel component — nothing is installed that
+  keeps running with system privileges.
+- It does **not** require the installer to run elevated.
+- It does **not** write machine-wide registry keys at runtime (state lives in
+  `%AppData%\FWDE\FWDE_Config.json`).
+- It is the same single process, started with a High-integrity token — which is
+  why Windows shows a UAC prompt.
+
+### How to control it
+
+| Setting | Effect |
+|---------|--------|
+| `RunAsAdmin` = `true` (default) | At startup FWDE relaunches itself elevated (one UAC prompt). The relaunch is strictly **one-shot**: it passes `--fwde-elevated`, so a failed elevation check can never cause a restart loop. |
+| `RunAsAdmin` = `false` | FWDE runs unelevated. Nothing breaks; it simply cannot control elevated windows, and `Ctrl+Alt+D` says exactly which ones are affected. |
+
+Change it in **Parameter Settings → RunAsAdmin** (tray/taskbar menu, or
+`Ctrl+Alt+T`). The settings window also has a **🔐 Why admin?** button that shows
+this same breakdown with your current elevation status.
+
+### Security note
+
+An elevated FWDE can move **any** window of **any** process — that is precisely
+the capability you are granting. Run elevated builds only from a source you trust,
+and prefer a location only you can write to.
 
 ## Usage
 
@@ -181,7 +285,7 @@ Defaults live in the `Config` map at the top of `FWDE.ahk`. At runtime, tune the
 | `CompanionScanIntervalMs` | 500 | Companion re-scan cadence (ms) |
 | `CompanionMinOverlap` | 0.15 | Minimum overlap fraction to pair an anchor + companion |
 | `CompanionMaxSizeRatio` | 3.0 | Maximum anchor/companion area ratio |
-| `RunAsAdmin` | true | Relaunch elevated at startup so Administrator windows can be managed (UAC prompt) |
+| `RunAsAdmin` | true | Relaunch elevated at startup so administrator windows can be moved (UAC prompt). Windows UIPI blocks every write to elevated windows — see [Administrator rights](#administrator-rights--exactly-what-fwde-needs-and-why). |
 
 ### Desktop icons
 | Parameter | Default | Meaning |

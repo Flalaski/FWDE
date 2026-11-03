@@ -28,6 +28,21 @@ This guide explains how to create a Windows installer for FWDE that installs to 
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
 ```
 
+### Version bump
+
+`update_installer_version.bat` sets `MyAppVersion` in `installer.iss` to
+`1.<yyMMdd>` (today's date); that value also drives `OutputBaseFilename`
+(`FWDE_Setup_<version>.exe`) and the version shown in Apps & Features.
+
+`installer.iss` is **UTF-8 without a BOM** and deliberately contains non-ASCII
+text (the em dash in the `[Run]` description), so the script reads and writes it
+as UTF-8 and then verifies that the new version landed *and* that the non-ASCII
+character count is unchanged.
+
+> Do not reintroduce `Set-Content -Encoding Ascii` (or any ASCII round-trip) in
+> that script. It rewrites UTF-8 characters as `?`: the `[Run]` description
+> becomes `??? Windows will ask for administrator rights…` on the next bump.
+
 ## What the Installer Does
 
 ### Installation
@@ -37,6 +52,58 @@ This guide explains how to create a Windows installer for FWDE that installs to 
 - ✅ Optional: Run at Windows startup
 - ✅ Preserves user config during updates
 - ✅ Includes all necessary files (exe, config, layouts, docs)
+
+## Elevation model (why the installer stays per-user)
+
+The installer and the app have **different** privilege requirements, and the split
+is deliberate:
+
+| | Needs admin? | Why |
+|---|---|---|
+| **Installer** (`FWDE_Setup_*.exe`) | **No** | Installs per-user into `{userappdata}\FWDE`, creates only per-user shortcuts (`{autoprograms}`, `{autodesktop}`, `{userstartup}`), and writes no `HKEY_LOCAL_MACHINE` keys. `PrivilegesRequired=lowest` keeps UAC out of installation entirely. |
+| **Running app** (`FWDE.exe`) | **Yes, by default** | Windows UIPI blocks every *write* to windows owned by elevated processes. FWDE's purpose is moving windows, so without a High-integrity token an administrator window can be measured but never placed. |
+
+The installer therefore ships an **"Administrator rights" wizard page** (shown after
+the task selection page) that explains the restriction and offers:
+
+- **Request administrator rights when FWDE starts (recommended)** — checked by
+  default, leaving `RunAsAdmin` at its shipped value `true`.
+- Unchecked — the installer sets `"RunAsAdmin": false` in the config it just
+  installed, so FWDE starts without a UAC prompt and simply leaves elevated
+  windows alone.
+
+Implementation notes:
+
+- The choice only ever rewrites a config this run **created**. An existing
+  `FWDE_Config.json` (upgrade) is never modified — `PrepareToInstall` records
+  whether the file already existed, and `CurStepChanged(ssPostInstall)` acts only
+  when it did not.
+- The rewrite is a literal replacement of `"RunAsAdmin": true` →
+  `"RunAsAdmin": false`, and is logged either way (`Elevation: ...` lines in the
+  setup log, `SetupLogging=yes`). If the token cannot be found the log warns
+  instead of silently doing nothing.
+- If the checkbox is unchecked while FWDE is *already* running elevated, the
+  change takes effect on the next launch, not immediately.
+
+The full explanation (measured table of allowed reads vs blocked writes, the list
+of typically-elevated Windows, what still works without elevation, and the
+security caveat) lives in `README.MD` → **Administrator rights**, is installed next
+to the app, and is also available at runtime from **Parameter Settings → 🔐 Why
+admin?**.
+
+## Testing the elevation page
+
+1. Compile `installer.iss` (below) into a throwaway output directory.
+2. Run it, and confirm the **Administrator rights** page appears after the task
+   page, with the checkbox ticked.
+3. Install with the box ticked → `%AppData%\FWDE\FWDE_Config.json` must contain
+   `"RunAsAdmin": true`.
+4. Install again with the box cleared (fresh install) → the config must contain
+   `"RunAsAdmin": false`, and the setup log must contain
+   `Elevation: RunAsAdmin set to false by installer choice`.
+5. Upgrade over an existing install with the box cleared → the existing config
+   must be untouched and the log must say
+   `Elevation: existing config preserved, RunAsAdmin left untouched`.
 
 ### Uninstallation
 - ✅ Automatically added to Windows "Add/Remove Programs"

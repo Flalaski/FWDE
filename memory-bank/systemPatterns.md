@@ -11,7 +11,17 @@
 ### Achievable-Displacement Energy + Idle Gate
 - **Energy = motion the visual layer can produce**: the force sum uses the clamped target delta (not raw velocity) and excludes bodies `ApplyWindowMovements` refuses to move, so a body pinned at a screen edge cannot hold the engine in `chaos`
 - **Provable no-op detection**: when every tracked window's real rect matches the engine's state, nothing is dragging/menuing/snapping, the tracked set is unchanged and energy is below `(1.5/0.45)²` per window, the force/collision pipeline is skipped for that tick
-- **Dirty-flag wake**: `_layoutDirty` is set by tracked-set changes and by `ApplyWindowMovements`' external-move resync, so the engine wakes within one tick of any real movement
+- **Dirty-flag wake**: `_layoutDirty` is set by tracked-set changes and by `ApplyWindowMovements`' state reconciliation, so the engine wakes within one tick of any real movement
+
+### Per-Axis Placement Freedom
+- **`_AxisBounds()`**: a window's placement range is computed per axis; when the window cannot fit inside the work area on an axis (`maxPos - minPos < 1`) that axis is **frozen at the window's current coordinate** instead of clamped to a degenerate range
+- **Frozen axes are inert**: edge forces, soft-edge enforcement and the hard clamp are all skipped there, so a full-height window keeps whatever vertical position the user gives it and still moves freely on the other axis
+- **Why**: FWDE never resizes windows, so a window exactly as tall as the work area has no valid vertical placement; clamping it to a single coordinate pinned it to the top edge and fought every user move (the "Notepad++ never works" defect)
+
+### Command-in-Flight State Reconciliation
+- **Posted moves are not applied moves**: `SWP_ASYNCWINDOWPOS` means a commanded position can be in flight or dropped, so tracked state is reconciled against the real rect only once 100ms have passed since the last issued command
+- **Re-seed, don't interpolate**: when the real rect wins, the smoothing state (`smoothPos`, `lastPositions`) is re-seeded from it, so the movement pass never interpolates from a phantom position
+- **`AWM jump` diagnostic**: any remaining single-tick displacement >60px is logged with real/state/target/smooth values, making snap-backs diagnosable from the log
 
 ### Sophisticated Layout Algorithm Architecture
 - **Strategy Pattern**: Multiple bin packing algorithms (FirstFit, BestFit, NextFit, WorstFit, BottomLeftFill, Guillotine) implemented as interchangeable strategies

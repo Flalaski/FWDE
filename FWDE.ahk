@@ -2573,10 +2573,13 @@ CalculateWindowForces(win, allWindows) {
         SafeMonitorGetWorkArea(win["monitor"], &mL, &mT, &mR, &mB)
     }
 
-    monLeft := mL
-    monRight := mR - win["width"]
-    monTop := mT + Config["MinMargin"]
-    monBottom := mB - Config["MinMargin"] - win["height"]
+    ; Per-axis placement limits. An axis the window cannot fit inside is frozen
+    ; at its current coordinate (see _AxisBounds) instead of being clamped to a
+    ; collapsed range — that is what pinned full-height windows to the top edge.
+    xb := _AxisBounds(mL, mR, win["width"], win["x"])
+    yb := _AxisBounds(mT, mB, win["height"], win["y"])
+    monLeft := xb[1], monRight := xb[2], freeX := xb[3]
+    monTop := yb[1], monBottom := yb[2], freeY := yb[3]
 
     ; Check if window is out of bounds
     isOutOfBounds := (win["x"] < monLeft || win["x"] > monRight || win["y"] < monTop || win["y"] > monBottom)
@@ -2647,23 +2650,29 @@ CalculateWindowForces(win, allWindows) {
         vy += spaceForce["vy"] * 0.005
     }
 
-    ; Soft edge boundaries (like invisible force fields)
+    ; Soft edge boundaries (like invisible force fields). Skipped on an axis the
+    ; window cannot fit inside — pushing it "away from the edge" there is what
+    ; produced the permanent tug-of-war with the clamp.
     edgeBuffer := 5  ; Reduced to allow windows closer to edges
-    if (win["x"] < monLeft + edgeBuffer) {
-        push := (monLeft + edgeBuffer - win["x"]) * 0.01
-        vx += push
+    if (freeX) {
+        if (win["x"] < monLeft + edgeBuffer) {
+            push := (monLeft + edgeBuffer - win["x"]) * 0.01
+            vx += push
+        }
+        if (win["x"] > monRight - edgeBuffer) {
+            push := (win["x"] - (monRight - edgeBuffer)) * 0.01
+            vx -= push
+        }
     }
-    if (win["x"] > monRight - edgeBuffer) {
-        push := (win["x"] - (monRight - edgeBuffer)) * 0.01
-        vx -= push
-    }
-    if (win["y"] < monTop + edgeBuffer) {
-        push := (monTop + edgeBuffer - win["y"]) * 0.01
-        vy += push
-    }
-    if (win["y"] > monBottom - edgeBuffer) {
-        push := (win["y"] - (monBottom - edgeBuffer)) * 0.01
-        vy -= push
+    if (freeY) {
+        if (win["y"] < monTop + edgeBuffer) {
+            push := (monTop + edgeBuffer - win["y"]) * 0.01
+            vy += push
+        }
+        if (win["y"] > monBottom - edgeBuffer) {
+            push := (win["y"] - (monBottom - edgeBuffer)) * 0.01
+            vy -= push
+        }
     }
 
     ; Use cached drag state (computed once per tick)
@@ -2775,6 +2784,7 @@ ApplyWindowMovements() {
     static lastUpdate := 0
     static lastPositions := Map()
     static prevPositions := Map()
+    static cmdTicks := Map()       ; hwnd → TickCount of the last issued move
     static smoothPos := Map()
     ; Throttled ApplyMovements logging — aggregate per-second instead of per-tick
     static _awmLastLog := 0, _awmTicks := 0, _awmTotalMoves := 0, _awmQuietTicks := 0
@@ -2988,25 +2998,26 @@ ApplyWindowMovements() {
             if (Config["MultimonitorExpanse"]) {
                 ; Use virtual desktop bounds for multimonitor expanse
                 virtualBounds := GetVirtualDesktopBounds()
-                monLeft := virtualBounds["Left"]
-                monTop := virtualBounds["Top"] + Config["MinMargin"]
-                monRight := virtualBounds["Right"] - win["width"]
-                monBottom := virtualBounds["Bottom"] - Config["MinMargin"] - win["height"]
+                bL := virtualBounds["Left"], bT := virtualBounds["Top"]
+                bR := virtualBounds["Right"], bB := virtualBounds["Bottom"]
             } else {
                 ; Work area already excludes the taskbar on any side (top/bottom/left/right)
                 ; for both native Windows taskbar and AppBar replacements like RetroBar.
                 SafeMonitorGetWorkArea(win["monitor"], &mL, &mT, &mR, &mB)
-                monLeft := mL
-                monRight := mR - win["width"]
-                monTop := mT + Config["MinMargin"]
-                monBottom := mB - Config["MinMargin"] - win["height"]
+                bL := mL, bT := mT, bR := mR, bB := mB
             }
         } catch {
-            monLeft := 0
-            monRight := A_ScreenWidth - win["width"]
-            monTop := Config["MinMargin"]
-            monBottom := A_ScreenHeight - Config["MinMargin"] - win["height"]
+            bL := 0, bT := 0, bR := A_ScreenWidth, bB := A_ScreenHeight
         }
+
+        ; Per-axis limits. An axis the window cannot fit inside is frozen at its
+        ; current coordinate — otherwise the collapsed range pins it to the edge
+        ; and the soft edge buffer below fights it forever (Notepad++ at
+        ; 368x1440 was locked to y≈3 on a 1440px work area).
+        xb := _AxisBounds(bL, bR, win["width"], win["x"])
+        yb := _AxisBounds(bT, bB, win["height"], win["y"])
+        monLeft := xb[1], monRight := xb[2], freeX := xb[3]
+        monTop := yb[1], monBottom := yb[2], freeY := yb[3]
 
         hwnd := win["hwnd"]
         newX := win.Has("targetX") ? win["targetX"] : win["x"]
@@ -3026,6 +3037,9 @@ ApplyWindowMovements() {
             if (prevPositions.Has(hwnd)) {
                 prevPositions.Delete(hwnd)
             }
+            if (cmdTicks.Has(hwnd)) {
+                cmdTicks.Delete(hwnd)
+            }
             win.Delete("JustDragged")
         }
 
@@ -3038,18 +3052,18 @@ ApplyWindowMovements() {
         ; If a window was moved by the user/OS/app without our state tracking catching up,
         ; immediately sync physics state to the real position and clear momentum.
         ; This keeps the system behaving like a continuous flow instead of teleporting toward stale targets.
-        stateX := win.Has("x") ? win["x"] : currentX
-        stateY := win.Has("y") ? win["y"] : currentY
-        if (Abs(currentX - stateX) > 12 || Abs(currentY - stateY) > 12) {
-            ; With SWP_ASYNCWINDOWPOS the previous frame's move can still be
-            ; queued in the target thread, so the on-screen rect legitimately
-            ; lags one command behind. Treat a match against the previous
-            ; command as "our move is still landing", not as an external move.
-            matchesPending := (prevPositions.Has(hwnd)
-                && Abs(currentX - prevPositions[hwnd].x) <= 6
-                && Abs(currentY - prevPositions[hwnd].y) <= 6)
-            ; If we *didn't* just move it ourselves very recently, treat this as authoritative external movement.
-            if (!matchesPending && (!lastPositions.Has(hwnd) || Abs(currentX - lastPositions[hwnd].x) > 6 || Abs(currentY - lastPositions[hwnd].y) > 6)) {
+        ; --- Reconcile with reality ---
+        ; With SWP_ASYNCWINDOWPOS a commanded position may still be in flight, or
+        ; may never be applied at all if the target thread is busy or vetoes it.
+        ; So: while we have a command pending, tolerate the difference; once that
+        ; command has had time to land, the real rect is authoritative and any
+        ; tracked/smoothing state that disagrees is stale. Interpolating from a
+        ; phantom position is what produced the 500px+ snap-backs (see AWM jump).
+        lastCmd := cmdTicks.Has(hwnd) ? cmdTicks[hwnd] : 0
+        if (A_TickCount - lastCmd > 100) {
+            stateX := win.Has("x") ? win["x"] : currentX
+            stateY := win.Has("y") ? win["y"] : currentY
+            if (Abs(currentX - stateX) > 2 || Abs(currentY - stateY) > 2) {
                 win["x"] := currentX
                 win["y"] := currentY
                 win["targetX"] := currentX
@@ -3092,29 +3106,34 @@ ApplyWindowMovements() {
         smoothPos[hwnd].x := smoothPos[hwnd].x + (newX - smoothPos[hwnd].x) * alpha
         smoothPos[hwnd].y := smoothPos[hwnd].y + (newY - smoothPos[hwnd].y) * alpha
 
-        ; Gentle boundary enforcement (soft collision with edges)
+        ; Gentle boundary enforcement (soft collision with edges). Only on axes
+        ; the window can actually be placed within — see _AxisBounds.
         edgeBuffer := 10  ; Reduced to allow windows closer to edges
-        if (smoothPos[hwnd].x < monLeft + edgeBuffer) {
-            resistance := (monLeft + edgeBuffer - smoothPos[hwnd].x) / edgeBuffer
-            smoothPos[hwnd].x := Lerp(smoothPos[hwnd].x, monLeft + edgeBuffer, resistance * 0.1)
-        } else if (smoothPos[hwnd].x > monRight - edgeBuffer) {
-            resistance := (smoothPos[hwnd].x - (monRight - edgeBuffer)) / edgeBuffer
-            smoothPos[hwnd].x := Lerp(smoothPos[hwnd].x, monRight - edgeBuffer, resistance * 0.1)
+        if (freeX) {
+            if (smoothPos[hwnd].x < monLeft + edgeBuffer) {
+                resistance := (monLeft + edgeBuffer - smoothPos[hwnd].x) / edgeBuffer
+                smoothPos[hwnd].x := Lerp(smoothPos[hwnd].x, monLeft + edgeBuffer, resistance * 0.1)
+            } else if (smoothPos[hwnd].x > monRight - edgeBuffer) {
+                resistance := (smoothPos[hwnd].x - (monRight - edgeBuffer)) / edgeBuffer
+                smoothPos[hwnd].x := Lerp(smoothPos[hwnd].x, monRight - edgeBuffer, resistance * 0.1)
+            }
         }
 
-        if (smoothPos[hwnd].y < monTop + edgeBuffer) {
-            resistance := (monTop + edgeBuffer - smoothPos[hwnd].y) / edgeBuffer
-            smoothPos[hwnd].y := Lerp(smoothPos[hwnd].y, monTop + edgeBuffer, resistance * 0.1)
-        } else if (smoothPos[hwnd].y > monBottom - edgeBuffer) {
-            resistance := (smoothPos[hwnd].y - (monBottom - edgeBuffer)) / edgeBuffer
-            smoothPos[hwnd].y := Lerp(smoothPos[hwnd].y, monBottom - edgeBuffer, resistance * 0.1)
+        if (freeY) {
+            if (smoothPos[hwnd].y < monTop + edgeBuffer) {
+                resistance := (monTop + edgeBuffer - smoothPos[hwnd].y) / edgeBuffer
+                smoothPos[hwnd].y := Lerp(smoothPos[hwnd].y, monTop + edgeBuffer, resistance * 0.1)
+            } else if (smoothPos[hwnd].y > monBottom - edgeBuffer) {
+                resistance := (smoothPos[hwnd].y - (monBottom - edgeBuffer)) / edgeBuffer
+                smoothPos[hwnd].y := Lerp(smoothPos[hwnd].y, monBottom - edgeBuffer, resistance * 0.1)
+            }
         }
 
-        ; Final hard clamp (fallback only)
-        ; Only hard clamp when far off-screen; otherwise let the soft boundary forces resolve smoothly.
-        if (smoothPos[hwnd].x < monLeft - 200 || smoothPos[hwnd].x > monRight + 200)
+        ; Final hard clamp (fallback only). A frozen axis must never be clamped:
+        ; its range is a single coordinate, which would teleport the window.
+        if (freeX && (smoothPos[hwnd].x < monLeft - 200 || smoothPos[hwnd].x > monRight + 200))
             smoothPos[hwnd].x := Max(monLeft, Min(smoothPos[hwnd].x, monRight))
-        if (smoothPos[hwnd].y < monTop - 200 || smoothPos[hwnd].y > monBottom + 200)
+        if (freeY && (smoothPos[hwnd].y < monTop - 200 || smoothPos[hwnd].y > monBottom + 200))
             smoothPos[hwnd].y := Max(monTop, Min(smoothPos[hwnd].y, monBottom))
 
         if (!lastPositions.Has(hwnd))
@@ -3122,7 +3141,20 @@ ApplyWindowMovements() {
 
         ; Increase threshold to avoid micro-movements and reduce jumpiness
         if (Abs(smoothPos[hwnd].x - lastPositions[hwnd].x) >= 1.5 || Abs(smoothPos[hwnd].y - lastPositions[hwnd].y) >= 1.5) {
+            ; A large single-tick jump is the classic "window snapped back" symptom.
+            ; Log the state that produced it (throttled) so the cause is visible.
+            static jumpLogTick := 0
+            if ((Abs(smoothPos[hwnd].x - lastPositions[hwnd].x) > 60 || Abs(smoothPos[hwnd].y - lastPositions[hwnd].y) > 60)
+                && A_TickCount - jumpLogTick > 1000) {
+                jumpLogTick := A_TickCount
+                DebugLog("AWM jump — 0x{:X} real=({:.0f},{:.0f}) state=({:.0f},{:.0f}) target=({:.0f},{:.0f}) smooth=({:.0f},{:.0f}) free=({},{})",
+                    hwnd, currentX, currentY
+                    , win.Has("x") ? win["x"] : -1, win.Has("y") ? win["y"] : -1
+                    , newX, newY, smoothPos[hwnd].x, smoothPos[hwnd].y
+                    , freeX, freeY)
+            }
             moveBatch.Push({ hwnd: hwnd, x: smoothPos[hwnd].x, y: smoothPos[hwnd].y })
+            cmdTicks[hwnd] := A_TickCount
             prevPositions[hwnd] := { x: lastPositions[hwnd].x, y: lastPositions[hwnd].y }
             lastPositions[hwnd].x := smoothPos[hwnd].x
             lastPositions[hwnd].y := smoothPos[hwnd].y
@@ -3708,6 +3740,21 @@ _SameHwndSet(a, b) {
             return false
     }
     return true
+}
+
+; Valid placement range for one axis of one window → [min, max, free].
+; A window that cannot FIT inside the work area on an axis has no valid placement
+; there: the range collapses (Notepad++ at 368x1440 on a 1440px-tall work area
+; gives monTop == monBottom == 0), which pinned it to the edge and fought every
+; user move. Such an axis is frozen at the window's current coordinate instead —
+; the window still moves freely on the other axis.
+_AxisBounds(outerLo, outerHi, size, current) {
+    global Config
+    minPos := outerLo + Config["MinMargin"]
+    maxPos := outerHi - Config["MinMargin"] - size
+    if (maxPos - minPos < 1)
+        return [current, current, false]
+    return [minPos, maxPos, true]
 }
 
 ; New floating collision system with chain-effect propagation
@@ -6308,6 +6355,25 @@ DebugWindowInfo() {
     _ClipPut(debugMsg)
     DebugLog("DebugWindowInfo — {} windows ({} tracked, {} untracked) copied to clipboard",
         allWindows.Length, trackedWindows.Length, untrackedWindows.Length)
+
+    ; The tooltip is transient and the clipboard is overwritten constantly, so the
+    ; only way to answer "why isn't window X managed?" after the fact is a
+    ; persistent, per-window record in the debug log.
+    DebugLog("WindowReport — {} tracked, {} untracked-floating, {} untracked-nonfloating",
+        trackedWindows.Length, untrackedWindows.Length, notTrackedWindows.Length)
+    for win in trackedWindows {
+        DebugLog("  tracked  0x{:X} [{}] '{}' {}x{} at {},{}",
+            win["hwnd"], win["process"], win["title"], win["width"], win["height"], win["x"], win["y"])
+    }
+    for win in untrackedWindows {
+        DebugLog("  floating 0x{:X} [{}] '{}' {}x{} at {},{}",
+            win["hwnd"], win["process"], win["title"], win["width"], win["height"], win["x"], win["y"])
+    }
+    for win in notTrackedWindows {
+        DebugLog("  excluded 0x{:X} [{}] '{}' {}x{} at {},{} -> {}",
+            win["hwnd"], win["process"], win["title"], win["width"], win["height"], win["x"], win["y"],
+            win["excludeReason"])
+    }
 }
 
 ; --- Force add active window to tracking ---
